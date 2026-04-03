@@ -4,6 +4,8 @@ Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
 and exposes the interface used by the rollout worker and trainers.
 """
 
+from typing import Any
+
 import torch
 from openpi.models.model import Observation
 from torch import Tensor
@@ -87,3 +89,32 @@ class VLAWrapper:
         """
         full_actions = self.sample_reference_actions(observation)
         return full_actions[:, :chunk_length, :]
+
+    def compute_vla_loss(
+        self,
+        observation: dict[str, Any] | Observation,
+        actions: Tensor,
+    ) -> Tensor:
+        """Compute the VLA's flow-matching training loss on demo data.
+
+        Calls PI0Pytorch.forward() which computes the denoising loss:
+        noisy actions x_t are created from ground-truth actions + noise,
+        the model predicts the velocity field v_t, and loss = MSE(u_t, v_t).
+
+        Args:
+            observation: Batched observation (dict or openpi Observation).
+            actions: Ground-truth demo actions [B, action_horizon, action_dim].
+
+        Returns:
+            Scalar mean VLA loss.
+        """
+        per_element_loss = self.extractor.pi0.forward(observation, actions)
+        return per_element_loss.mean()
+
+    def unfreeze(self) -> None:
+        """Re-enable gradients on VLA parameters for joint fine-tuning."""
+        self.extractor.unfreeze()
+
+    def trainable_parameters(self):
+        """Return VLA parameters that require gradients (for optimizer)."""
+        return [p for p in self.extractor.pi0.parameters() if p.requires_grad]

@@ -21,12 +21,19 @@ class EmbeddingExtractor(nn.Module):
        Delegates to PI0Pytorch.sample_actions for reference actions.
     """
 
-    def __init__(self, pi0_model: PI0Pytorch) -> None:
+    def __init__(self, pi0_model: PI0Pytorch, freeze: bool = True) -> None:
         super().__init__()
         self.pi0 = pi0_model
-        self.pi0.eval()
+        if freeze:
+            self.pi0.eval()
+            for param in self.pi0.parameters():
+                param.requires_grad_(False)
+
+    def unfreeze(self) -> None:
+        """Re-enable gradients on VLA parameters for joint fine-tuning."""
+        self.pi0.train()
         for param in self.pi0.parameters():
-            param.requires_grad_(False)
+            param.requires_grad_(True)
 
     @torch.no_grad()
     def extract_embeddings(
