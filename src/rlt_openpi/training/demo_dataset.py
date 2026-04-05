@@ -37,6 +37,32 @@ from torch.utils.data import Dataset
 logger = logging.getLogger(__name__)
 
 
+def _load_lerobot_dataset(repo_id: str) -> LeRobotDataset:
+    """Load a LeRobotDataset with a compatibility patch.
+
+    ``datasets`` v4+ returns ``Column`` objects from column access
+    (e.g. ``ds["timestamp"]``), but LeRobot 0.1.0 passes them to
+    ``torch.stack()`` which only accepts lists/tuples of tensors.
+    We temporarily patch ``torch.stack`` to handle ``Column`` inputs.
+    """
+    _original_stack = torch.stack
+
+    def _patched_stack(tensors, *args, **kwargs):
+        if not isinstance(tensors, (list, tuple)):
+            try:
+                return _original_stack(tensors, *args, **kwargs)
+            except TypeError:
+                return _original_stack(list(tensors), *args, **kwargs)
+        return _original_stack(tensors, *args, **kwargs)
+
+    torch.stack = _patched_stack
+    try:
+        ds = LeRobotDataset(repo_id=repo_id)
+    finally:
+        torch.stack = _original_stack
+    return ds
+
+
 def _parse_image(image: np.ndarray) -> np.ndarray:
     """Ensure image is uint8 HWC."""
     image = np.asarray(image)
@@ -85,7 +111,7 @@ class DemoDataset(Dataset):
 
         # Load LeRobot dataset
         logger.info("Loading LeRobot dataset: %s", config.repo_id)
-        self.lerobot_ds = LeRobotDataset(repo_id=config.repo_id)
+        self.lerobot_ds = _load_lerobot_dataset(config.repo_id)
         logger.info("Dataset loaded: %d frames", len(self.lerobot_ds))
 
         # Load OpenPI config for norm stats and model info
