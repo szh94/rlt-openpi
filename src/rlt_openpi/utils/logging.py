@@ -16,12 +16,10 @@ class LoggerConfig:
     Args:
         project: wandb project name.
         enabled: Whether wandb logging is active.
-        log_to_stdout: Whether to also print metrics to stdout.
     """
 
     project: str = "rlt-openpi"
     enabled: bool = True
-    log_to_stdout: bool = True
 
 
 class Logger:
@@ -61,10 +59,6 @@ class Logger:
         """
         if self._wandb_run is not None:
             self._wandb_run.log(metrics, step=step)
-
-        if self.config.log_to_stdout:
-            parts = [f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}" for k, v in metrics.items()]
-            logger.info(" | ".join(parts))
 
     def finish(self) -> None:
         """Finalize the wandb run."""

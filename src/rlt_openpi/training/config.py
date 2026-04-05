@@ -24,10 +24,11 @@ class RLTokenTrainConfig:
 
     # Checkpoints
     vla_checkpoint_dir: str = ""
-    vla_config_name: str = "pi0_aloha_sim"
+    vla_config_name: str = "pi05_droid_finetune"
     save_dir: str = "checkpoints/rl_token"
     save_every: int = 1000
-    log_every: int = 100
+    log_every: int = 1  # wandb logging interval (steps)
+    print_every: int = 100  # stdout logging interval (steps)
 
     # wandb
     wandb_project: str = "rlt-openpi"
@@ -44,7 +45,7 @@ class OnlineRLTrainConfig:
     # Action space
     action_dim: int = 14
     chunk_length: int = 10  # C
-    vla_action_horizon: int = 50  # H: number of action steps the VLA outputs
+    vla_action_horizon: int = 16  # H: number of action steps the VLA outputs
 
     # Actor-critic architecture
     mlp_hidden_dim: int = 256
@@ -73,10 +74,11 @@ class OnlineRLTrainConfig:
     # Checkpoints
     rl_token_checkpoint: str = ""
     vla_checkpoint_dir: str = ""
-    vla_config_name: str = "pi0_aloha_sim"
+    vla_config_name: str = "pi05_droid_finetune"
     save_dir: str = "checkpoints/online_rl"
     save_every: int = 5000
-    log_every: int = 100
+    log_every: int = 1  # wandb logging interval (steps)
+    print_every: int = 100  # stdout logging interval (steps)
 
     # wandb
     wandb_project: str = "rlt-openpi"
