@@ -1,4 +1,4 @@
-"""High-level wrapper for frozen VLA inference and embedding extraction.
+"""High-level wrapper for VLA inference, embedding extraction, and joint training.
 
 Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
 and exposes the interface used by the rollout worker and trainers.
@@ -15,16 +15,18 @@ from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
 
 
 class VLAWrapper:
-    """Loads and wraps a frozen VLA model for use by RLT components.
+    """Loads and wraps a VLA model for use by RLT components.
 
-    Provides three operations:
+    Provides:
     - extract_embeddings: get post-transformer prefix embeddings z_{1:M}
     - sample_reference_actions: get full VLA action trajectory (H steps)
     - get_rl_chunk_reference: slice first C steps as RL reference actions
+    - compute_vla_loss: VLA flow-matching loss (standalone)
+    - compute_vla_loss_with_embeddings: single forward for joint training
 
     Args:
         checkpoint_path: Path to model.safetensors weight file.
-        config_name: Registered openpi config name (e.g. "pi0_aloha_sim").
+        config_name: Registered openpi config name (e.g. "pi05_droid_finetune").
         device: Torch device for the model.
     """
 
@@ -67,9 +69,9 @@ class VLAWrapper:
         """Get full VLA reference action trajectory.
 
         Returns:
-            actions: [B, H, action_dim] where H = action_horizon (e.g. 50).
+            actions: [B, H, action_dim] where H = action_horizon.
         """
-        return self.extractor.get_vla_actions(observation, self.device)
+        return self.extractor.sample_actions(observation, self.device)
 
     def get_rl_chunk_reference(
         self,
@@ -110,6 +112,28 @@ class VLAWrapper:
         """
         per_element_loss = self.extractor.pi0.forward(observation, actions)
         return per_element_loss.mean()
+
+    def compute_vla_loss_with_embeddings(
+        self,
+        observation: Observation,
+        actions: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Single VLA forward pass returning both embeddings and loss.
+
+        Used by joint training (alpha > 0) to avoid the double forward
+        pass of calling extract_embeddings() + compute_vla_loss()
+        separately.
+
+        Args:
+            observation: Batched openpi Observation.
+            actions: Ground-truth demo actions [B, H, action_dim].
+
+        Returns:
+            z: Detached prefix embeddings [B, M, D] (stop-grad from VLA).
+            pad_mask: Boolean mask [B, M] (True = valid token).
+            vla_loss: Scalar VLA flow-matching loss (with grad for VLA).
+        """
+        return self.extractor.forward_joint(observation, actions)
 
     def unfreeze(self) -> None:
         """Re-enable gradients on VLA parameters for joint fine-tuning."""

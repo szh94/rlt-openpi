@@ -5,20 +5,27 @@ to obtain post-transformer embeddings z_{1:M} without running the
 diffusion denoising loop.
 """
 
+import logging
+
 import torch
 from openpi.models.model import Observation
 from openpi.models_pytorch.pi0_pytorch import PI0Pytorch, make_att_2d_masks
 from torch import Tensor, nn
 
+logger = logging.getLogger(__name__)
+
 
 class EmbeddingExtractor(nn.Module):
-    """Wraps a frozen PI0Pytorch model for embedding extraction.
+    """Wraps a PI0Pytorch model for embedding extraction and joint training.
 
-    Two capabilities:
+    Capabilities:
     1. extract_embeddings(observation) → (z, pad_mask)
        Runs prefix-only forward pass to get post-transformer embeddings.
-    2. get_vla_actions(observation) → action tensor
+    2. sample_actions(observation) → action tensor
        Delegates to PI0Pytorch.sample_actions for reference actions.
+    3. forward_joint(observation, actions) → (z, pad_mask, vla_loss)
+       Single forward pass returning both prefix embeddings (detached)
+       and the VLA flow-matching loss (with grad for VLA fine-tuning).
     """
 
     def __init__(self, pi0_model: PI0Pytorch, freeze: bool = True) -> None:
@@ -91,13 +98,71 @@ class EmbeddingExtractor(nn.Module):
 
         return z, prefix_pad_masks
 
+    def forward_joint(
+        self,
+        observation: Observation,
+        actions: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Single VLA forward pass returning both prefix embeddings and loss.
+
+        Runs PI0Pytorch.forward() once and captures intermediate prefix
+        embeddings via hooks. This avoids the double forward pass that
+        would result from calling extract_embeddings() + compute_vla_loss()
+        separately.
+
+        Valid because prefix tokens do not attend to suffix tokens in
+        PI0's attention pattern (prefix att_masks are all 0, suffix starts
+        with [1, ...], and make_att_2d_masks uses cumsum-based masking).
+        So prefix outputs from the full forward are identical to those
+        from a prefix-only forward.
+
+        Args:
+            observation: An openpi Observation (batched).
+            actions: Ground-truth demo actions [B, H, action_dim].
+
+        Returns:
+            z: Detached prefix embeddings [B, M, D] (stop-grad from VLA).
+            pad_mask: Boolean padding mask [B, M] (True = valid token).
+            vla_loss: Scalar VLA flow-matching loss (with grad for VLA).
+        """
+        captured: dict[str, Tensor] = {}
+
+        # Wrap embed_prefix to capture prefix_pad_masks (boolean, no grad)
+        original_embed_prefix = self.pi0.embed_prefix
+
+        def _capturing_embed_prefix(*args, **kwargs):
+            result = original_embed_prefix(*args, **kwargs)
+            if "pad_masks" not in captured:
+                captured["pad_masks"] = result[1]
+            return result
+
+        # Hook on paligemma_with_expert to capture prefix_out
+        # Output format: ([prefix_out, suffix_out], kv_cache)
+        def _capture_prefix_out(module, args, output):
+            if "prefix_out" not in captured:
+                captured["prefix_out"] = output[0][0].detach().to(dtype=torch.float32)
+
+        self.pi0.embed_prefix = _capturing_embed_prefix
+        handle = self.pi0.paligemma_with_expert.register_forward_hook(_capture_prefix_out)
+        try:
+            per_element_loss = self.pi0.forward(observation, actions)
+        finally:
+            self.pi0.embed_prefix = original_embed_prefix
+            handle.remove()
+
+        vla_loss = per_element_loss.mean()
+        z = captured["prefix_out"]
+        pad_mask = captured["pad_masks"]
+
+        return z, pad_mask, vla_loss
+
     @torch.no_grad()
-    def get_vla_actions(
+    def sample_actions(
         self,
         observation: Observation,
         device: torch.device,
     ) -> Tensor:
-        """Get reference actions from the frozen VLA via full diffusion sampling.
+        """Get reference actions from the VLA via full diffusion sampling.
 
         Args:
             observation: An openpi Observation (batched).

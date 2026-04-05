@@ -64,7 +64,7 @@ def test_extract_embeddings_shapes():
     assert pad_mask.dtype == torch.bool
 
 
-def test_get_vla_actions_shape():
+def test_sample_actions_shape():
     B, action_horizon, action_dim = 1, 50, 14
     pi0 = _make_mock_pi0(B=B, action_horizon=action_horizon, action_dim=action_dim)
 
@@ -73,7 +73,7 @@ def test_get_vla_actions_shape():
 
     obs = {"state": torch.randn(B, action_dim)}
     device = torch.device("cpu")
-    actions = extractor.get_vla_actions(obs, device)
+    actions = extractor.sample_actions(obs, device)
     assert actions.shape == (B, action_horizon, action_dim)
 
 
