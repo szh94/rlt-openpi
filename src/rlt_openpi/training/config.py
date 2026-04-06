@@ -83,6 +83,7 @@ class OnlineRLTrainConfig:
     rl_token_checkpoint: str = ""
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_droid_finetune"
+    resume_checkpoint: str = ""  # Path to Stage 2 checkpoint to resume training from
     save_dir: str = "checkpoints/online_rl"
     save_every: int = 50
     log_every: int = 1  # wandb logging interval (steps)

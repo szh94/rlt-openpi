@@ -197,15 +197,21 @@ class OnlineRLTrainer:
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
 
-        # Phase 1: Warmup with VLA-only policy
-        logger.info("Warmup: collecting %d chunks with VLA-only policy", cfg.warmup_steps)
-        stored = worker.collect_warmup(cfg.warmup_steps)
-        self._total_env_steps += stored * cfg.chunk_length
-        logger.info(
-            "Warmup complete: %d transitions stored, buffer size=%d",
-            stored,
-            self.replay_buffer.size,
-        )
+        # Phase 1: Warmup with VLA-only policy (skip if resuming with data)
+        if self.replay_buffer.size > 0:
+            logger.info(
+                "Skipping warmup — replay buffer already has %d transitions (resumed from checkpoint)",
+                self.replay_buffer.size,
+            )
+        else:
+            logger.info("Warmup: collecting %d chunks with VLA-only policy", cfg.warmup_steps)
+            stored = worker.collect_warmup(cfg.warmup_steps)
+            self._total_env_steps += stored * cfg.chunk_length
+            logger.info(
+                "Warmup complete: %d transitions stored, buffer size=%d",
+                stored,
+                self.replay_buffer.size,
+            )
 
         # Phase 2: Online RL loop
         logger.info("Starting online RL training (max %d env steps)", cfg.max_env_steps)
@@ -262,11 +268,13 @@ class OnlineRLTrainer:
             self._total_updates,
         )
 
-    def save(self, path: str | None = None) -> Path:
-        """Save actor, critic, and optimizer states.
+    def save(self, path: str | None = None, save_buffer: bool = True) -> Path:
+        """Save actor, critic, optimizer, and replay buffer states.
 
         Args:
             path: Override save path. Defaults to config.save_dir.
+            save_buffer: Whether to include replay buffer in the checkpoint.
+                Disable for eval-only checkpoints to save disk space.
 
         Returns:
             Path to the saved checkpoint.
@@ -274,24 +282,24 @@ class OnlineRLTrainer:
         save_dir = Path(path or self.config.save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = save_dir / f"online_rl_ep{self._total_episodes}.pt"
-        torch.save(
-            {
-                "actor": self.actor.state_dict(),
-                "critic": self.critic.state_dict(),
-                "actor_optimizer": self.actor_optimizer.state_dict(),
-                "critic_optimizer": self.critic_optimizer.state_dict(),
-                "total_env_steps": self._total_env_steps,
-                "total_updates": self._total_updates,
-                "total_episodes": self._total_episodes,
-                "config": self.config,
-            },
-            ckpt_path,
-        )
-        logger.info("Saved checkpoint to %s", ckpt_path)
+        payload: dict[str, Any] = {
+            "actor": self.actor.state_dict(),
+            "critic": self.critic.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "critic_optimizer": self.critic_optimizer.state_dict(),
+            "total_env_steps": self._total_env_steps,
+            "total_updates": self._total_updates,
+            "total_episodes": self._total_episodes,
+            "config": self.config,
+        }
+        if save_buffer:
+            payload["replay_buffer"] = self.replay_buffer.state_dict()
+        torch.save(payload, ckpt_path)
+        logger.info("Saved checkpoint to %s (buffer=%s)", ckpt_path, save_buffer)
         return ckpt_path
 
     def load(self, ckpt_path: str) -> None:
-        """Load actor, critic, and optimizer states from checkpoint.
+        """Load actor, critic, optimizer, and replay buffer from checkpoint.
 
         Args:
             ckpt_path: Path to a saved checkpoint file.
@@ -304,6 +312,13 @@ class OnlineRLTrainer:
         self._total_env_steps = ckpt["total_env_steps"]
         self._total_updates = ckpt["total_updates"]
         self._total_episodes = ckpt["total_episodes"]
+
+        if "replay_buffer" in ckpt:
+            self.replay_buffer.load_state_dict(ckpt["replay_buffer"])
+            logger.info(
+                "Restored replay buffer (%d transitions)", self.replay_buffer.size
+            )
+
         logger.info(
             "Loaded checkpoint from %s (episode %d, step %d)",
             ckpt_path,

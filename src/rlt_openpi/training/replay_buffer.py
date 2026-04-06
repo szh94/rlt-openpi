@@ -104,6 +104,36 @@ class ReplayBuffer:
             self.add(xs[i], actions[i], a_tildes[i], rewards[i], next_xs[i], dones[i].item())
         return len(list(indices))
 
+    def state_dict(self) -> dict[str, object]:
+        """Return buffer state for checkpointing.
+
+        Only saves the filled portion (up to ``self._size``) to keep
+        checkpoint files small when the buffer is not full.
+        """
+        n = self._size
+        return {
+            "ptr": self._ptr,
+            "size": n,
+            "x": self._x[:n].copy(),
+            "a": self._a[:n].copy(),
+            "a_tilde": self._a_tilde[:n].copy(),
+            "rewards": self._rewards[:n].copy(),
+            "next_x": self._next_x[:n].copy(),
+            "dones": self._dones[:n].copy(),
+        }
+
+    def load_state_dict(self, state: dict[str, object]) -> None:
+        """Restore buffer from a checkpoint produced by :meth:`state_dict`."""
+        n = int(state["size"])
+        self._ptr = int(state["ptr"])
+        self._size = n
+        self._x[:n] = state["x"]
+        self._a[:n] = state["a"]
+        self._a_tilde[:n] = state["a_tilde"]
+        self._rewards[:n] = state["rewards"]
+        self._next_x[:n] = state["next_x"]
+        self._dones[:n] = state["dones"]
+
     def sample(self, batch_size: int, device: str = "cpu") -> dict[str, torch.Tensor]:
         """Sample a random batch of transitions.
 

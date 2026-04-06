@@ -65,12 +65,17 @@ def main(config: OnlineRLTrainConfig) -> None:
     rl_token_model = load_rl_token_model(config.rl_token_checkpoint, config, device="cuda")
 
     # Create trainer
-    trainer = OnlineRLTrainer(  # noqa: F841
+    trainer = OnlineRLTrainer(
         config=config,
         vla=vla,
         rl_token_model=rl_token_model,
         device="cuda",
     )
+
+    # Resume from checkpoint if provided
+    if config.resume_checkpoint:
+        log.info("Resuming from checkpoint: %s", config.resume_checkpoint)
+        trainer.load(config.resume_checkpoint)
 
     # Create environment via pluggable factory.
     # Pass --env-factory to specify a Python import path, e.g.:
