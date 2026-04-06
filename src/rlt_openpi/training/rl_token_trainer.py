@@ -22,6 +22,7 @@ from typing import Any, Iterator
 
 import torch
 from torch import Tensor
+from tqdm import tqdm
 
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.training.config import RLTokenTrainConfig
@@ -135,7 +136,8 @@ class RLTokenTrainer:
                 self.config.num_train_steps,
             )
 
-        for step_idx in range(1, self.config.num_train_steps + 1):
+        pbar = tqdm(range(1, self.config.num_train_steps + 1), desc="Stage 1")
+        for step_idx in pbar:
             try:
                 observations, actions = next(dataloader)
             except StopIteration:
@@ -144,22 +146,15 @@ class RLTokenTrainer:
 
             metrics = self.step(vla, observations, actions)
 
+            # Progress bar
+            if self.joint:
+                pbar.set_postfix(l_ro=f"{metrics['l_ro']:.4f}", l_vla=f"{metrics['l_vla']:.4f}")
+            else:
+                pbar.set_postfix(loss=f"{metrics['loss']:.4f}")
+
             # wandb logging (every log_every steps)
             if step_idx % self.config.log_every == 0 and log_fn is not None:
                 log_fn(metrics, step=metrics.get("step"))
-
-            # stdout logging (every print_every steps)
-            if step_idx % self.config.print_every == 0:
-                if self.joint:
-                    logger.info(
-                        "Step %d | total=%.6f | l_ro=%.6f | l_vla=%.6f",
-                        step_idx,
-                        metrics["loss"],
-                        metrics["l_ro"],
-                        metrics["l_vla"],
-                    )
-                else:
-                    logger.info("Step %d | loss=%.6f", step_idx, metrics["loss"])
 
             if step_idx % self.config.save_every == 0:
                 self.save()
@@ -221,6 +216,9 @@ class RLTokenTrainer:
     def _setup_joint_training(self, vla: VLAWrapper) -> None:
         """Unfreeze VLA and create its optimizer (called once by train())."""
         vla.unfreeze()
+        if self.config.gradient_checkpointing:
+            vla.extractor.pi0.gradient_checkpointing_enable()
+            logger.info("Enabled gradient checkpointing on VLA")
         self._vla = vla
         vla_params = vla.trainable_parameters()
         logger.info("Unfroze VLA: %d trainable parameters", sum(p.numel() for p in vla_params))

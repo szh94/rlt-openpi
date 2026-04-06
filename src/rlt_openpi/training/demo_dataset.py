@@ -322,8 +322,9 @@ def collate_observation_batch(
     image_masks = {}
     for key in batch[0]["image"]:
         stacked = np.stack([s["image"][key] for s in batch], axis=0)  # [B,H,W,C] uint8
-        # Convert uint8 [0,255] → float32 [-1,1] and keep as HWC (PI0Pytorch handles both)
-        images[key] = torch.from_numpy(stacked).to(torch.float32) / 255.0 * 2.0 - 1.0
+        # Convert uint8 [0,255] → float32 [-1,1], then HWC → CHW for SigLIP
+        img = torch.from_numpy(stacked).to(torch.float32) / 255.0 * 2.0 - 1.0
+        images[key] = img.permute(0, 3, 1, 2)  # [B,H,W,C] → [B,C,H,W]
         image_masks[key] = torch.tensor(
             [bool(s["image_mask"][key]) for s in batch], dtype=torch.bool
         )

@@ -21,6 +21,7 @@ class RLTokenTrainConfig:
     weight_decay: float = 1e-5
     vla_finetune_alpha: float = 0.0  # VLA fine-tuning weight (0 = frozen VLA)
     vla_learning_rate: float = 1e-5  # VLA fine-tuning learning rate (used when alpha > 0)
+    gradient_checkpointing: bool = True  # Enable gradient checkpointing to reduce VRAM
 
     # Checkpoints
     vla_checkpoint_dir: str = ""

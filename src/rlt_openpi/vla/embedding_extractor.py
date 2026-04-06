@@ -136,19 +136,25 @@ class EmbeddingExtractor(nn.Module):
                 captured["pad_masks"] = result[1]
             return result
 
-        # Hook on paligemma_with_expert to capture prefix_out
+        # Wrap paligemma_with_expert.forward to capture prefix_out.
+        # We patch .forward() directly because PI0Pytorch calls
+        # .forward() (not __call__), which skips register_forward_hook.
         # Output format: ([prefix_out, suffix_out], kv_cache)
-        def _capture_prefix_out(module, args, output):
-            if "prefix_out" not in captured:
-                captured["prefix_out"] = output[0][0].detach().to(dtype=torch.float32)
+        original_pge_forward = self.pi0.paligemma_with_expert.forward
+
+        def _capturing_pge_forward(*args, **kwargs):
+            result = original_pge_forward(*args, **kwargs)
+            if "prefix_out" not in captured and result[0][0] is not None:
+                captured["prefix_out"] = result[0][0].detach().to(dtype=torch.float32)
+            return result
 
         self.pi0.embed_prefix = _capturing_embed_prefix
-        handle = self.pi0.paligemma_with_expert.register_forward_hook(_capture_prefix_out)
+        self.pi0.paligemma_with_expert.forward = _capturing_pge_forward
         try:
             per_element_loss = self.pi0.forward(observation, actions)
         finally:
             self.pi0.embed_prefix = original_embed_prefix
-            handle.remove()
+            self.pi0.paligemma_with_expert.forward = original_pge_forward
 
         vla_loss = per_element_loss.mean()
         z = captured["prefix_out"]
