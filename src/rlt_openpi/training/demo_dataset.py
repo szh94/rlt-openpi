@@ -37,6 +37,95 @@ from torch.utils.data import Dataset
 logger = logging.getLogger(__name__)
 
 
+def load_norm_stats(
+    openpi_config_name: str,
+    norm_stats_dir: str | None = None,
+) -> dict[str, _normalize.NormStats] | None:
+    """Load normalization statistics for an OpenPI config.
+
+    Args:
+        openpi_config_name: Registered OpenPI config name.
+        norm_stats_dir: Override path to ``norm_stats.json`` directory.
+            If None, loads from the OpenPI config's assets.
+    """
+    openpi_config = get_config(openpi_config_name)
+
+    if norm_stats_dir is not None:
+        stats_path = pathlib.Path(norm_stats_dir)
+        if (stats_path / "norm_stats.json").exists():
+            logger.info("Loading norm stats from %s", stats_path)
+            return _normalize.load(stats_path)
+
+    try:
+        data_config = openpi_config.data.create(
+            openpi_config.assets_dirs, openpi_config.model
+        )
+        if data_config.norm_stats is not None:
+            logger.info("Loaded norm stats from OpenPI config assets")
+            return data_config.norm_stats
+    except Exception as e:
+        logger.warning("Could not load norm stats from config: %s", e)
+
+    logger.warning("No norm stats found — running without normalization")
+    return None
+
+
+@dataclasses.dataclass
+class OpenPITransforms:
+    """The OpenPI per-sample transform chain.
+
+    Built once via :func:`build_openpi_transforms`, then applied to
+    each sample dict (with ``image``, ``state``, ``prompt``, ``actions``
+    keys) before collation.
+    """
+
+    normalize: Normalize | None
+    resize_images: ResizeImages
+    tokenize_prompt: TokenizePrompt
+    pad: PadStatesAndActions
+    action_dim: int
+    action_horizon: int
+
+    def __call__(self, sample: dict[str, Any]) -> dict[str, Any]:
+        """Apply the full transform chain to a single sample dict."""
+        if self.normalize is not None:
+            sample = self.normalize(sample)
+        sample = self.resize_images(sample)
+        sample = self.tokenize_prompt(sample)
+        sample = self.pad(sample)
+        return sample
+
+
+def build_openpi_transforms(
+    openpi_config_name: str,
+    norm_stats_dir: str | None = None,
+) -> OpenPITransforms:
+    """Build the OpenPI per-sample transform chain from a config name.
+
+    The returned object is callable: ``transforms(sample_dict) → transformed_dict``.
+
+    Args:
+        openpi_config_name: Registered OpenPI config name (e.g. ``"pi05_droid_finetune"``).
+        norm_stats_dir: Override path to norm stats directory.
+    """
+    openpi_config = get_config(openpi_config_name)
+    model_config: Pi0Config = openpi_config.model
+
+    norm_stats = load_norm_stats(openpi_config_name, norm_stats_dir)
+
+    return OpenPITransforms(
+        normalize=Normalize(norm_stats) if norm_stats is not None else None,
+        resize_images=ResizeImages(224, 224),
+        tokenize_prompt=TokenizePrompt(
+            PaligemmaTokenizer(model_config.max_token_len),
+            discrete_state_input=getattr(model_config, "discrete_state_input", False),
+        ),
+        pad=PadStatesAndActions(model_config.action_dim),
+        action_dim=model_config.action_dim,
+        action_horizon=model_config.action_horizon,
+    )
+
+
 def _load_lerobot_dataset(repo_id: str) -> LeRobotDataset:
     """Load a LeRobotDataset with a compatibility patch.
 
@@ -114,22 +203,11 @@ class DemoDataset(Dataset):
         self.lerobot_ds = _load_lerobot_dataset(config.repo_id)
         logger.info("Dataset loaded: %d frames", len(self.lerobot_ds))
 
-        # Load OpenPI config for norm stats and model info
-        openpi_config = get_config(config.openpi_config_name)
-        model_config: Pi0Config = openpi_config.model
-        self.action_dim = model_config.action_dim  # 32 (padded)
-        self.max_token_len = model_config.max_token_len  # 200 for PI0.5
-
-        # Build transform chain (applied per-sample, unbatched)
-        norm_stats = self._load_norm_stats(config, openpi_config)
-
-        self.normalize = Normalize(norm_stats) if norm_stats is not None else None
-        self.resize_images = ResizeImages(224, 224)
-        self.tokenize_prompt = TokenizePrompt(
-            PaligemmaTokenizer(self.max_token_len),
-            discrete_state_input=model_config.discrete_state_input,
+        # Build shared transform chain
+        self.transforms = build_openpi_transforms(
+            config.openpi_config_name, config.norm_stats_dir
         )
-        self.pad = PadStatesAndActions(self.action_dim)
+        self.action_dim = self.transforms.action_dim
         self.use_all_cameras = config.use_all_cameras
 
         # Precompute episode boundaries for action chunking
@@ -139,31 +217,6 @@ class DemoDataset(Dataset):
             ep_end = self.lerobot_ds.episode_data_index["to"][ep_idx].item()
             for t in range(ep_start, ep_end):
                 self._episode_ends[t] = ep_end
-
-    @staticmethod
-    def _load_norm_stats(
-        config: DemoDatasetConfig, openpi_config: Any
-    ) -> dict[str, _normalize.NormStats] | None:
-        """Load normalization statistics."""
-        if config.norm_stats_dir is not None:
-            stats_path = pathlib.Path(config.norm_stats_dir)
-            if (stats_path / "norm_stats.json").exists():
-                logger.info("Loading norm stats from %s", stats_path)
-                return _normalize.load(stats_path)
-
-        # Try loading from OpenPI config's assets
-        try:
-            data_config = openpi_config.data.create(
-                openpi_config.assets_dirs, openpi_config.model
-            )
-            if data_config.norm_stats is not None:
-                logger.info("Loaded norm stats from OpenPI config assets")
-                return data_config.norm_stats
-        except Exception as e:
-            logger.warning("Could not load norm stats from config: %s", e)
-
-        logger.warning("No norm stats found — training without normalization")
-        return None
 
     def __len__(self) -> int:
         return len(self.lerobot_ds)
@@ -191,20 +244,8 @@ class DemoDataset(Dataset):
         # 1. DroidInputs (or custom 3-camera) → {state, image, image_mask, prompt, actions}
         transformed = self._apply_input_transform(raw)
 
-        # 2. Normalize state + actions
-        if self.normalize is not None:
-            transformed = self.normalize(transformed)
-
-        # 3. Resize images to 224x224
-        transformed = self.resize_images(transformed)
-
-        # 4. Tokenize prompt (with discrete state for PI0.5)
-        transformed = self.tokenize_prompt(transformed)
-
-        # 5. Pad state and actions to model action_dim (32)
-        transformed = self.pad(transformed)
-
-        return transformed
+        # 2-5. Normalize → Resize → Tokenize → Pad
+        return self.transforms(transformed)
 
     def _build_raw_dict(self, sample: dict) -> dict:
         """Convert LeRobot sample to DROID-schema observation dict."""

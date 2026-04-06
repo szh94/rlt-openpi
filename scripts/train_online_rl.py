@@ -15,6 +15,7 @@ import torch
 import tyro
 
 from rlt_openpi.models.rl_token import RLTokenModel
+from rlt_openpi.rollout.env_factory import make_env
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.logging import Logger
@@ -71,20 +72,23 @@ def main(config: OnlineRLTrainConfig) -> None:
         device="cuda",
     )
 
-    # Create environment — placeholder, must be wired per-task.
-    # Example for LIBERO:
-    #   from rlt_openpi.rollout.env_wrapper import RLTEnv
-    #   import gymnasium as gym
-    #   raw_env = gym.make("libero/...", ...)
-    #   env = RLTEnv(raw_env, action_dim=config.action_dim, chunk_length=config.chunk_length)
-    #   trainer.train(env=env, log_fn=rl_logger.log)
+    # Create environment via pluggable factory.
+    # Pass --env-factory to specify a Python import path, e.g.:
+    #   --env-factory examples.franka.env_factory.make_franka_env
+    #   --env-factory rlt_openpi.rollout.sim_env.make_sim_env
+    if not config.env_factory:
+        log.error("--env-factory is required. Provide a Python import path to an env factory function.")
+        raise SystemExit(1)
 
-    log.info(
-        "Trainer ready. Provide an RLTEnv environment instance to begin training. See script comments for examples."
+    env = make_env(
+        config.env_factory,
+        action_dim=config.action_dim,
+        chunk_length=config.chunk_length,
+        task_prompt=config.task_prompt,
     )
+    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
 
-    # Placeholder: when a real env is wired, uncomment:
-    # trainer.train(env=env, log_fn=rl_logger.log)
+    trainer.train(env=env, log_fn=rl_logger.log)
 
     rl_logger.finish()
 

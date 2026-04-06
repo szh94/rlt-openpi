@@ -17,7 +17,6 @@ from numpy.typing import NDArray
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.env_wrapper import RLTEnv
 from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
@@ -56,7 +55,7 @@ class RolloutWorker:
 
     def __init__(
         self,
-        env: RLTEnv,
+        env: Any,
         vla: VLAWrapper,
         rl_token_model: RLTokenModel,
         actor: Actor,
@@ -78,14 +77,18 @@ class RolloutWorker:
 
         self._action_chunk_dim = chunk_length * action_dim
 
-    def _obs_to_vla_input(self, obs: dict[str, Any]) -> dict[str, Any]:
+    def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
 
-        The VLA expects batched inputs. This adds a batch dimension and
-        moves tensors to the correct device.
-
-        Subclass or override for environments with images / language.
+        Uses ``VLAWrapper.preprocess_obs`` if available (real VLA), which
+        applies the full OpenPI transform chain and returns an
+        ``Observation``.  Falls back to simple batch-wrapping for tests
+        with a mock VLA.
         """
+        if hasattr(self.vla, "preprocess_obs"):
+            return self.vla.preprocess_obs(obs)
+
+        # Fallback: simple batch-wrap (for tests with mock VLA)
         batched: dict[str, Any] = {}
         for key, val in obs.items():
             arr = np.asarray(val)

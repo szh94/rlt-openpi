@@ -6,7 +6,7 @@ import gymnasium as gym
 import torch
 
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.env_wrapper import RLTEnv
+from rlt_openpi.rollout.sim_env import SimEnv
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 
@@ -56,7 +56,7 @@ def _make_config(**overrides):
 
 def _make_env(max_episode_steps=10):
     raw_env = gym.make("MountainCarContinuous-v0", max_episode_steps=max_episode_steps)
-    return RLTEnv(raw_env, action_dim=ACTION_DIM, chunk_length=C)
+    return SimEnv(raw_env, action_dim=ACTION_DIM, chunk_length=C)
 
 
 def test_trainer_construction():

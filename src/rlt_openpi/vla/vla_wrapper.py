@@ -2,22 +2,30 @@
 
 Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
 and exposes the interface used by the rollout worker and trainers.
+
+Also builds the OpenPI input transform chain so that raw environment
+observations can be preprocessed for VLA inference via :meth:`preprocess_obs`.
 """
 
 from typing import Any
 
+import numpy as np
 import torch
 from openpi.models.model import Observation
+from openpi.transforms import Normalize, compose
 from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
+
+_CAMERA_KEYS = ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb")
 
 
 class VLAWrapper:
     """Loads and wraps a VLA model for use by RLT components.
 
     Provides:
+    - preprocess_obs: raw env obs → batched Observation
     - extract_embeddings: get post-transformer prefix embeddings z_{1:M}
     - sample_reference_actions: get full VLA action trajectory (H steps)
     - get_rl_chunk_reference: slice first C steps as RL reference actions
@@ -49,6 +57,73 @@ class VLAWrapper:
         self.extractor = EmbeddingExtractor(pi0_model)
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
+
+        # Build OpenPI input transform chain (Normalize → Resize → Tokenize → Pad).
+        # Skips DroidInputs since rollout env obs already uses model-format keys.
+        data_config = self.train_config.data.create(
+            self.train_config.assets_dirs, self.train_config.model
+        )
+        self._input_transform = compose([
+            Normalize(data_config.norm_stats, use_quantiles=data_config.use_quantile_norm),
+            *data_config.model_transforms.inputs,
+        ])
+
+    def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
+        """Convert a raw environment observation into a batched Observation.
+
+        Applies the OpenPI input transform chain (Normalize → ResizeImages →
+        TokenizePrompt → PadStatesAndActions) and returns an ``Observation``
+        with batch size 1, ready for ``extract_embeddings`` or
+        ``get_rl_chunk_reference``.
+
+        Expects ``obs`` with keys:
+            - ``"state"``: proprioceptive state array
+            - ``"base_0_rgb"``, ``"left_wrist_0_rgb"``, ``"right_wrist_0_rgb"``:
+              uint8 HWC images (missing keys are zero-padded)
+            - ``"prompt"``: language instruction string
+
+        Args:
+            obs: Raw observation dict from the environment.
+        """
+        # Restructure flat env obs → nested model format
+        sample: dict[str, Any] = {
+            "state": np.asarray(obs["state"], dtype=np.float64),
+            "prompt": obs.get("prompt", ""),
+            # Dummy actions (required by Normalize / Pad but unused)
+            "actions": np.zeros(
+                (self.action_horizon, self.action_dim), dtype=np.float64
+            ),
+        }
+        images: dict[str, np.ndarray] = {}
+        image_masks: dict[str, Any] = {}
+        for key in _CAMERA_KEYS:
+            if key in obs and obs[key] is not None:
+                img = np.asarray(obs[key])
+                if np.issubdtype(img.dtype, np.floating):
+                    img = (img * 255).astype(np.uint8)
+                elif img.dtype != np.uint8:
+                    img = img.astype(np.uint8)
+                if img.ndim == 3 and img.shape[0] == 3:
+                    img = np.transpose(img, (1, 2, 0))
+                images[key] = img
+                image_masks[key] = np.True_
+            else:
+                images[key] = np.zeros((224, 224, 3), dtype=np.uint8)
+                image_masks[key] = np.False_
+        sample["image"] = images
+        sample["image_mask"] = image_masks
+
+        # Apply OpenPI transforms
+        transformed = self._input_transform(sample)
+
+        # Batch (size 1) + convert to torch → Observation
+        import jax
+
+        batched = jax.tree.map(
+            lambda x: torch.from_numpy(np.array(x)).to(self.device)[None, ...],
+            transformed,
+        )
+        return Observation.from_dict(batched)
 
     def extract_embeddings(
         self,

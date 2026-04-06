@@ -17,7 +17,6 @@ import torch
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.critic import TwinQCritic
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.env_wrapper import RLTEnv
 from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
@@ -95,7 +94,7 @@ class OnlineRLTrainer:
 
     def _create_rollout_worker(
         self,
-        env: RLTEnv,
+        env: Any,
         intervention_mgr: InterventionManager | None = None,
     ) -> RolloutWorker:
         """Create a rollout worker wired to this trainer's components."""
@@ -124,7 +123,7 @@ class OnlineRLTrainer:
             Dict of logged metrics.
         """
         cfg = self.config
-        batch = self.replay_buffer.sample(batch_size=256, device=str(self.device))
+        batch = self.replay_buffer.sample(batch_size=cfg.batch_size, device=str(self.device))
 
         x = batch["x"]
         a = batch["a"]
@@ -146,6 +145,8 @@ class OnlineRLTrainer:
             critic=self.critic,
             gamma=cfg.gamma,
             chunk_length=cfg.chunk_length,
+            target_noise_sigma=cfg.target_noise_sigma,
+            target_noise_clip=cfg.target_noise_clip,
         )
 
         q1, q2 = self.critic(x, a)
@@ -182,7 +183,7 @@ class OnlineRLTrainer:
 
     def train(
         self,
-        env: RLTEnv,
+        env: Any,
         intervention_mgr: InterventionManager | None = None,
         log_fn: Any | None = None,
     ) -> None:
