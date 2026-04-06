@@ -5,8 +5,8 @@ robot through three user-supplied callables (``step_fn``, ``reset_fn``,
 ``get_obs_fn``).  No dependency on any specific robot stack (DROID,
 polymetis, ROS, etc.) — the wiring happens in the user's launch script.
 
-Human feedback (success/failure) is collected via a background keyboard
-listener during episodes.
+Human feedback (success/failure) is collected via instant keypress
+detection (no Enter needed) during episodes.
 
 Usage (with DROID)::
 
@@ -40,8 +40,11 @@ Usage (with DROID)::
 from __future__ import annotations
 
 import logging
-import threading
+import select
+import sys
+import termios
 import time
+import tty
 from typing import Any, Callable
 
 import numpy as np
@@ -51,39 +54,55 @@ logger = logging.getLogger(__name__)
 
 
 class HumanFeedback:
-    """Thread-safe keyboard listener for human reward signals.
+    """Non-blocking keyboard listener for human reward signals.
 
-    The human types one of the following during an episode:
-        - ``s`` + Enter → success (reward +1, episode ends)
-        - ``f`` + Enter → failure (reward  0, episode ends)
+    During an episode, the human presses a single key (no Enter needed):
+        - ``s`` → success (reward +1, episode ends)
+        - ``f`` → failure (reward  0, episode ends)
+        - ``Space`` → success (alternative, easier to hit)
 
-    The listener runs in a daemon thread so it does not block the main loop.
+    Uses terminal raw mode for instant keypress detection.
+    Falls back to line-buffered input() if raw mode is unavailable
+    (e.g., running without a TTY).
     """
 
     def __init__(self) -> None:
         self._signal: str | None = None
-        self._lock = threading.Lock()
-        self._thread: threading.Thread | None = None
+        self._old_settings: list | None = None
+        self._raw_mode = False
 
     def start(self) -> None:
-        """Start listening for keyboard input (non-blocking)."""
-        with self._lock:
-            self._signal = None
-        self._thread = threading.Thread(target=self._listen, daemon=True)
-        self._thread.start()
-
-    def _listen(self) -> None:
+        """Enter raw terminal mode for instant keypress detection."""
+        self._signal = None
         try:
-            response = input()  # blocks in background thread
-            with self._lock:
-                self._signal = response.strip().lower()
-        except EOFError:
-            pass
+            self._old_settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+            self._raw_mode = True
+        except (termios.error, OSError):
+            self._raw_mode = False
+            logger.warning("Raw terminal mode unavailable, falling back to line input (type + Enter)")
+
+    def stop(self) -> None:
+        """Restore original terminal settings."""
+        if self._raw_mode and self._old_settings is not None:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self._old_settings)
+            self._raw_mode = False
+            self._old_settings = None
 
     def check(self) -> str | None:
-        """Return the signal if the human has responded, else None."""
-        with self._lock:
+        """Poll for keypress. Returns 's', 'f', or None."""
+        if self._signal is not None:
             return self._signal
+
+        if self._raw_mode:
+            # Non-blocking check: is there a character waiting?
+            if select.select([sys.stdin], [], [], 0)[0]:
+                ch = sys.stdin.read(1).lower()
+                if ch in ("s", " "):
+                    self._signal = "s"
+                elif ch == "f":
+                    self._signal = "f"
+        return self._signal
 
 
 class RobotEnv:
@@ -147,15 +166,16 @@ class RobotEnv:
         Returns:
             Observation dict with ``"state"``, camera images, and ``"prompt"``.
         """
+        # Restore terminal before blocking input (in case previous episode left raw mode)
+        self._feedback.stop()
         self._reset_fn()
         self._chunk_count = 0
 
-        logger.info("Robot reset. Set up the scene, then press Enter to start episode.")
-        input("Press Enter when ready...")
+        input("\n[RESET] Set up the scene, then press Enter to start...")
 
-        # Start listening for human feedback (s/f) during the episode
+        # Enter raw mode for instant keypress detection during episode
         self._feedback.start()
-        logger.info("Episode started. Type 's' (success) or 'f' (failure) + Enter at any time.")
+        print("[EPISODE] Running — press [S]/[Space]=success  [F]=failure")
 
         return self._get_obs_fn()
 
@@ -212,6 +232,10 @@ class RobotEnv:
             info["success"] = False
             info["timeout"] = True
             logger.info("Episode timed out after %d chunks", self._chunk_count)
+
+        # Restore terminal when episode ends
+        if done:
+            self._feedback.stop()
 
         obs = self._get_obs_fn()
         return obs, rewards, done, info
