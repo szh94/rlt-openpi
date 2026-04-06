@@ -21,7 +21,11 @@ import torch
 import tyro
 
 from rlt_openpi.models.actor import Actor
+from rlt_openpi.rollout.env_factory import make_env
+from rlt_openpi.rollout.intervention import InterventionManager
+from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
+from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -36,6 +40,8 @@ class EvalConfig:
     vla_config_name: str = "pi0_aloha_sim"
     vla_checkpoint_dir: str = ""
     rl_token_checkpoint: str = ""
+    env_factory: str = ""  # Python import path, e.g. "examples.franka.env_factory.make_franka_env"
+    task_prompt: str = ""  # Task instruction for VLA
     num_episodes: int = 50
     device: str = "cuda"
 
@@ -80,36 +86,39 @@ def main(config: EvalConfig) -> None:
         ckpt["total_env_steps"],
     )
 
-    # Create environment — placeholder, must be wired per-task.
-    # Example:
-    #   from rlt_openpi.rollout.env_wrapper import RLTEnv
-    #   from rlt_openpi.rollout.rollout_worker import RolloutWorker
-    #   from rlt_openpi.rollout.intervention import InterventionManager
-    #   from rlt_openpi.training.replay_buffer import ReplayBuffer
-    #
-    #   env = RLTEnv(raw_env, action_dim=train_config.action_dim,
-    #                chunk_length=train_config.chunk_length)
-    #   buf = ReplayBuffer(1, train_config.state_dim,
-    #                      train_config.action_chunk_dim, train_config.chunk_length)
-    #   worker = RolloutWorker(env, vla, rl_token_model, actor, buf,
-    #                          InterventionManager(), train_config.chunk_length,
-    #                          train_config.action_dim, config.device)
-    #
-    #   rewards, successes = [], []
-    #   for ep in range(config.num_episodes):
-    #       stats = worker.collect_episode()
-    #       rewards.append(stats.total_reward)
-    #       successes.append(stats.extra.get("success", False))
-    #       log.info("Episode %d: reward=%.3f", ep, stats.total_reward)
-    #
-    #   log.info("Success rate: %.1f%% (%d/%d)",
-    #            100 * sum(successes) / len(successes), sum(successes), len(successes))
-    #   log.info("Mean reward: %.3f", sum(rewards) / len(rewards))
+    # Create environment via pluggable factory
+    if not config.env_factory:
+        log.error("--env-factory is required. Provide a Python import path to an env factory function.")
+        raise SystemExit(1)
+
+    env = make_env(
+        config.env_factory,
+        action_dim=train_config.action_dim,
+        chunk_length=train_config.chunk_length,
+        task_prompt=config.task_prompt,
+    )
+    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+
+    # Dummy replay buffer (collect_episode requires one, but we don't train)
+    buf = ReplayBuffer(1, train_config.state_dim, train_config.action_chunk_dim, train_config.chunk_length)
+    worker = RolloutWorker(
+        env, vla, rl_token_model, actor, buf,
+        InterventionManager(), train_config.chunk_length,
+        train_config.action_dim, config.device,
+    )
+
+    rewards, successes = [], []
+    for ep in range(config.num_episodes):
+        stats = worker.collect_episode()
+        rewards.append(stats.total_reward)
+        successes.append(stats.extra.get("success", False))
+        log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, stats.extra.get("success"))
 
     log.info(
-        "Actor ready for evaluation. Provide an RLTEnv environment and "
-        "uncomment the evaluation loop. See script comments."
+        "Success rate: %.1f%% (%d/%d)",
+        100 * sum(successes) / len(successes), sum(successes), len(successes),
     )
+    log.info("Mean reward: %.3f", sum(rewards) / len(rewards))
 
 
 if __name__ == "__main__":

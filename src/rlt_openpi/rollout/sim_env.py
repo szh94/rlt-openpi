@@ -14,7 +14,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-class RLTEnv:
+class SimEnv:
     """Chunk-level wrapper around a gymnasium environment.
 
     Args:
