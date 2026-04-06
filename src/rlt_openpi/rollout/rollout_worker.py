@@ -200,7 +200,7 @@ class RolloutWorker:
 
         return stored
 
-    def collect_episode(self) -> EpisodeStats:
+    def collect_episode(self, store_transitions: bool = True) -> EpisodeStats:
         """Collect a single RL episode using the actor policy.
 
         At each chunk boundary:
@@ -209,7 +209,12 @@ class RolloutWorker:
         3. Check for human intervention
         4. Run actor (or use human action) to get action chunk
         5. Step environment for C steps
-        6. Store transition in replay buffer
+        6. Store transition in replay buffer (if ``store_transitions``)
+
+        Args:
+            store_transitions: Whether to add transitions to the replay
+                buffer.  Set to ``False`` during evaluation to avoid
+                unnecessary buffer writes.
 
         Returns:
             Episode statistics.
@@ -237,23 +242,24 @@ class RolloutWorker:
             # Step environment
             next_obs, rewards, done, info = self.env.step(action_chunk)
 
-            # Build next RL state
-            next_x, _ = self._extract_rl_state(next_obs)
+            if store_transitions:
+                # Build next RL state (requires VLA forward pass)
+                next_x, _ = self._extract_rl_state(next_obs)
 
-            # Store transition
-            self.replay_buffer.add(
-                x=x,
-                a=a_flat,
-                a_tilde=a_tilde_flat,
-                rewards=rewards,
-                next_x=next_x,
-                done=float(done),
-            )
+                self.replay_buffer.add(
+                    x=x,
+                    a=a_flat,
+                    a_tilde=a_tilde_flat,
+                    rewards=rewards,
+                    next_x=next_x,
+                    done=float(done),
+                )
 
             # Update stats
             stats.total_reward += float(rewards.sum())
             stats.num_chunks += 1
-            stats.num_steps += self.chunk_length if not done else int((rewards != 0).sum() or 1)
+            # Use env-reported steps if available, else fall back to chunk_length
+            stats.num_steps += info.get("steps_executed", self.chunk_length)
 
             if done:
                 stats.done = True

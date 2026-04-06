@@ -79,6 +79,8 @@ class SimEnv:
             if done:
                 break
 
+        info["steps_executed"] = k + 1
+
         # obs is guaranteed non-None because C >= 1
         assert obs is not None
         return self._make_obs_dict(obs), rewards, done, info

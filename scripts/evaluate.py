@@ -26,6 +26,7 @@ from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer
+from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -62,9 +63,7 @@ def main(config: EvalConfig) -> None:
     )
 
     # Load frozen RL token model
-    from scripts.train_online_rl import load_rl_token_model
-
-    rl_token_model = load_rl_token_model(config.rl_token_checkpoint, train_config, config.device)
+    rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device=config.device)
     rl_token_model.eval()
 
     # Load actor
@@ -109,7 +108,7 @@ def main(config: EvalConfig) -> None:
 
     rewards, successes = [], []
     for ep in range(config.num_episodes):
-        stats = worker.collect_episode()
+        stats = worker.collect_episode(store_transitions=False)
         rewards.append(stats.total_reward)
         successes.append(stats.extra.get("success", False))
         log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, stats.extra.get("success"))

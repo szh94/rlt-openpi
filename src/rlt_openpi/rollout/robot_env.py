@@ -224,6 +224,7 @@ class RobotEnv:
             if sleep_time > 0:
                 time.sleep(sleep_time)
 
+        info["steps_executed"] = k + 1
         self._chunk_count += 1
 
         # Timeout: force episode end after max chunks
