@@ -44,6 +44,15 @@ def main(config: OnlineRLTrainConfig) -> None:
     log.info("Loading RL token model from %s", config.rl_token_checkpoint)
     rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device="cuda")
 
+    # Restore fine-tuned VLA weights from Stage 1 checkpoint (if available)
+    stage1_ckpt = torch.load(config.rl_token_checkpoint, map_location="cuda", weights_only=False)
+    if "vla_model" in stage1_ckpt:
+        vla.extractor.pi0.load_state_dict(stage1_ckpt["vla_model"])
+        log.info("Restored fine-tuned VLA weights from Stage 1 checkpoint")
+    else:
+        log.warning("No fine-tuned VLA weights found in Stage 1 checkpoint; using base VLA")
+    del stage1_ckpt
+
     # Create trainer
     trainer = OnlineRLTrainer(
         config=config,
