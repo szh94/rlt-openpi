@@ -44,7 +44,7 @@ class OnlineRLTrainConfig:
     embedding_dim: int = 2048
 
     # Action space
-    action_dim: int = 14
+    action_dim: int = 8
     chunk_length: int = 10  # C
     vla_action_horizon: int = 16  # H: number of action steps the VLA outputs
 
@@ -60,6 +60,8 @@ class OnlineRLTrainConfig:
     utd_ratio: int = 5  # G: update-to-data ratio
     bc_regularizer_beta: float = 1.0  # BC regularizer coefficient
     critic_updates_per_actor: int = 2
+    target_noise_sigma: float = 0.2  # TD3 target policy smoothing noise std
+    target_noise_clip: float = 0.5  # clamp range for target noise
 
     # Learning rates
     actor_lr: float = 3e-4
@@ -67,7 +69,12 @@ class OnlineRLTrainConfig:
 
     # Replay buffer
     buffer_capacity: int = 100_000
+    batch_size: int = 256
     warmup_steps: int = 1000
+
+    # Environment
+    env_factory: str = ""  # Python import path, e.g. "examples.franka.env_factory.make_franka_env"
+    task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
 
     # Training loop
     max_env_steps: int = 500_000
@@ -77,7 +84,7 @@ class OnlineRLTrainConfig:
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_droid_finetune"
     save_dir: str = "checkpoints/online_rl"
-    save_every: int = 5000
+    save_every: int = 50
     log_every: int = 1  # wandb logging interval (steps)
     print_every: int = 100  # stdout logging interval (steps)
 

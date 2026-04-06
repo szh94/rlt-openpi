@@ -23,10 +23,14 @@ def compute_td_target(
     critic: TwinQCritic,
     gamma: float,
     chunk_length: int,
+    target_noise_sigma: float = 0.2,
+    target_noise_clip: float = 0.5,
 ) -> Tensor:
     """Compute TD target for critic training.
 
-    y = sum_{k=0}^{C-1} gamma^k * r_k + gamma^C * (1 - done) * min Q_target(x', actor(x', a_tilde'))
+    y = sum_{k=0}^{C-1} gamma^k * r_k + gamma^C * (1 - done) * min Q_target(x', a')
+
+    where a' = actor(x', a_tilde') + clip(N(0, sigma), -c, c)  (TD3 target smoothing).
 
     Args:
         rewards: Per-step rewards within the chunk [B, C].
@@ -37,6 +41,8 @@ def compute_td_target(
         critic: TwinQCritic (uses target networks).
         gamma: Discount factor.
         chunk_length: C, number of steps per chunk.
+        target_noise_sigma: Std of TD3 target policy smoothing noise.
+        target_noise_clip: Clamp range for target noise.
 
     Returns:
         TD target [B, 1].
@@ -51,6 +57,11 @@ def compute_td_target(
     next_a = actor(next_x, next_a_tilde)
     if was_training:
         actor.train()
+
+    # TD3 target policy smoothing: add clipped noise to target action
+    noise = torch.randn_like(next_a) * target_noise_sigma
+    noise = noise.clamp(-target_noise_clip, target_noise_clip)
+    next_a = (next_a + noise).clamp(-1.0, 1.0)
 
     # Bootstrap: gamma^C * (1 - done) * min Q_target(x', a')
     next_q = critic.target_q_min(next_x, next_a)
