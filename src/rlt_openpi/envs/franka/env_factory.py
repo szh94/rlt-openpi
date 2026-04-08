@@ -66,16 +66,23 @@ def make_franka_env(
         droid.reset(randomize=False)
 
     def get_obs_fn() -> dict:
+        """Return observation in DROID-schema keys.
+
+        ``DroidInputs`` (or a custom override like
+        ``ThreeCameraDroidInputs``) in the VLA transform chain will
+        convert these into the model-format dict (state, images, masks).
+        """
         obs = droid.get_observation()
-        state = np.concatenate([
-            np.array(obs["robot_state"]["joint_positions"], dtype=np.float32),
-            np.array([obs["robot_state"]["gripper_position"]], dtype=np.float32),
-        ])
         return {
-            "state": state,
-            "base_0_rgb": obs["image"][CAM_BASE],
-            "left_wrist_0_rgb": obs["image"][CAM_WRIST],
-            "right_wrist_0_rgb": obs["image"][CAM_RIGHT],
+            "observation/joint_position": np.array(
+                obs["robot_state"]["joint_positions"], dtype=np.float32
+            ),
+            "observation/gripper_position": np.array(
+                [obs["robot_state"]["gripper_position"]], dtype=np.float32
+            ),
+            "observation/exterior_image_1_left": obs["image"][CAM_BASE],
+            "observation/wrist_image_left": obs["image"][CAM_WRIST],
+            "observation/exterior_image_2_left": obs["image"][CAM_RIGHT],
             "prompt": task_prompt,
         }
 

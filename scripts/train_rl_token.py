@@ -94,17 +94,18 @@ def main(config: TrainConfig) -> None:
         config.train.vla_config_name,
         config.train.vla_checkpoint_dir,
     )
+    data_transforms = _resolve_data_transforms(
+        config.data_transforms_fn, config.train.vla_config_name
+    )
+
     vla = VLAWrapper(
         checkpoint_path=config.train.vla_checkpoint_dir,
         config_name=config.train.vla_config_name,
         device="cuda",
+        data_transforms=data_transforms,
     )
 
     trainer = RLTokenTrainer(config.train, device="cuda")
-
-    data_transforms = _resolve_data_transforms(
-        config.data_transforms_fn, config.train.vla_config_name
-    )
 
     log.info("Loading demo dataset: %s", config.repo_id)
     data_loader = build_data_loader(

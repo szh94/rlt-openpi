@@ -17,13 +17,15 @@ Usage (with DROID)::
     def get_obs():
         obs = droid.get_observation()
         return {
-            "state": np.concatenate([
-                obs["robot_state"]["cartesian_position"],
-                [obs["robot_state"]["gripper_position"]],
-            ]).astype(np.float32),
-            "base_0_rgb": obs["39790647_left"],
-            "left_wrist_0_rgb": obs["15850436_left"],
-            "right_wrist_0_rgb": obs["35840217_left"],
+            "observation/joint_position": np.array(
+                obs["robot_state"]["joint_positions"], dtype=np.float32,
+            ),
+            "observation/gripper_position": np.array(
+                [obs["robot_state"]["gripper_position"]], dtype=np.float32,
+            ),
+            "observation/exterior_image_1_left": obs["image"]["39790647_left"],
+            "observation/wrist_image_left": obs["image"]["15850436_left"],
+            "observation/exterior_image_2_left": obs["image"]["35840217_left"],
             "prompt": "stack the three blocks on the tray",
         }
 

@@ -3,23 +3,25 @@
 Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
 and exposes the interface used by the rollout worker and trainers.
 
-Also builds the OpenPI input transform chain so that raw environment
-observations can be preprocessed for VLA inference via :meth:`preprocess_obs`.
+Builds the same input/output transform chains as OpenPI's
+``create_trained_policy`` so that normalisation, camera layout, and
+action slicing are fully config-driven.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
+import jax
 import numpy as np
 import torch
 from openpi.models.model import Observation
-from openpi.policies.droid_policy import DroidOutputs
 from openpi.transforms import Normalize, Unnormalize, compose
+import openpi.transforms as _transforms
 from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
-
-_CAMERA_KEYS = ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb")
 
 
 class VLAWrapper:
@@ -33,10 +35,28 @@ class VLAWrapper:
     - compute_vla_loss: VLA flow-matching loss (standalone)
     - compute_vla_loss_with_embeddings: single forward for joint training
 
+    The input/output transform chains mirror OpenPI's
+    ``create_trained_policy`` (``policy_config.py``):
+
+    **Input** (applied by :meth:`preprocess_obs`)::
+
+        data_transforms.inputs  (e.g. DroidInputs)
+        → Normalize
+        → model_transforms.inputs  (ResizeImages, TokenizePrompt, Pad)
+
+    **Output** (applied by :meth:`sample_reference_actions`)::
+
+        model_transforms.outputs
+        → Unnormalize
+        → data_transforms.outputs  (e.g. DroidOutputs)
+
     Args:
         checkpoint_path: Path to model.safetensors weight file.
         config_name: Registered openpi config name (e.g. "pi05_droid_finetune").
         device: Torch device for the model.
+        data_transforms: Optional override for the config's default
+            ``data_transforms``.  Must match whatever was used during
+            training (e.g. ``ThreeCameraDroidInputs`` for 3-camera setups).
     """
 
     def __init__(
@@ -44,11 +64,11 @@ class VLAWrapper:
         checkpoint_path: str,
         config_name: str,
         device: torch.device | str = "cuda",
+        data_transforms: _transforms.Group | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
 
-        # Load PI0Pytorch from safetensors checkpoint
         pi0_model = self.train_config.model.load_pytorch(
             self.train_config,
             checkpoint_path,
@@ -59,74 +79,40 @@ class VLAWrapper:
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
 
-        # Build OpenPI input/output transform chains.
-        # Skips DroidInputs since rollout env obs already uses model-format keys.
         data_config = self.train_config.data.create(
             self.train_config.assets_dirs, self.train_config.model
         )
+        norm_stats = data_config.norm_stats
+        use_q = data_config.use_quantile_norm
+
+        dt = data_transforms or data_config.data_transforms
+
         self._input_transform = compose([
-            Normalize(data_config.norm_stats, use_quantiles=data_config.use_quantile_norm),
+            *dt.inputs,
+            Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
         ])
-        # Output transform: unnormalize VLA actions → robot space, then
-        # slice to real robot dims. DroidOutputs (actions[:, :8]) is explicit
-        # here because the finetune config omits it from model_transforms.outputs.
-        actions_only_stats = {"actions": data_config.norm_stats["actions"]}
         self._output_transform = compose([
-            Unnormalize(actions_only_stats, use_quantiles=data_config.use_quantile_norm),
-            DroidOutputs(),
+            *data_config.model_transforms.outputs,
+            Unnormalize(norm_stats, use_quantiles=use_q),
+            *dt.outputs,
         ])
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
 
-        Applies the OpenPI input transform chain (Normalize → ResizeImages →
-        TokenizePrompt → PadStatesAndActions) and returns an ``Observation``
-        with batch size 1, ready for ``extract_embeddings`` or
-        ``get_rl_chunk_reference``.
+        Applies the full OpenPI input transform chain
+        (DroidInputs → Normalize → ResizeImages → TokenizePrompt →
+        PadStatesAndActions).
 
-        Expects ``obs`` with keys:
-            - ``"state"``: proprioceptive state array
-            - ``"base_0_rgb"``, ``"left_wrist_0_rgb"``, ``"right_wrist_0_rgb"``:
-              uint8 HWC images (missing keys are zero-padded)
-            - ``"prompt"``: language instruction string
+        Expects ``obs`` in DROID-schema keys as produced by the env
+        factory (e.g. ``observation/joint_position``,
+        ``observation/exterior_image_1_left``, ``prompt``).
 
         Args:
             obs: Raw observation dict from the environment.
         """
-        # Restructure flat env obs → nested model format
-        sample: dict[str, Any] = {
-            "state": np.asarray(obs["state"], dtype=np.float64),
-            "prompt": obs.get("prompt", ""),
-            # Dummy actions (required by Normalize / Pad but unused)
-            "actions": np.zeros(
-                (self.action_horizon, self.action_dim), dtype=np.float64
-            ),
-        }
-        images: dict[str, np.ndarray] = {}
-        image_masks: dict[str, Any] = {}
-        for key in _CAMERA_KEYS:
-            if key in obs and obs[key] is not None:
-                img = np.asarray(obs[key])
-                if np.issubdtype(img.dtype, np.floating):
-                    img = (img * 255).astype(np.uint8)
-                elif img.dtype != np.uint8:
-                    img = img.astype(np.uint8)
-                if img.ndim == 3 and img.shape[0] == 3:
-                    img = np.transpose(img, (1, 2, 0))
-                images[key] = img
-                image_masks[key] = np.True_
-            else:
-                images[key] = np.zeros((224, 224, 3), dtype=np.uint8)
-                image_masks[key] = np.False_
-        sample["image"] = images
-        sample["image_mask"] = image_masks
-
-        # Apply OpenPI transforms
-        transformed = self._input_transform(sample)
-
-        # Batch (size 1) + convert to torch → Observation
-        import jax
+        transformed = self._input_transform(dict(obs))
 
         batched = jax.tree.map(
             lambda x: torch.from_numpy(np.array(x)).to(self.device)[None, ...],
@@ -152,17 +138,25 @@ class VLAWrapper:
     ) -> Tensor:
         """Get full VLA reference action trajectory, unnormalized to robot space.
 
+        Mirrors OpenPI's ``Policy.infer`` output path: passes both
+        ``state`` and ``actions`` through the output transform so that
+        ``Unnormalize`` can operate on the full norm_stats.
+
         Returns:
             actions: [B, H, robot_action_dim] where H = action_horizon.
         """
         raw = self.extractor.sample_actions(observation, self.device)
-        actions_np = raw.cpu().numpy()  # [B, H, 32]
-        # OpenPI transforms operate on unbatched samples, so process per-sample.
+        actions_np = raw.cpu().numpy()
+        state_np = observation.state.cpu().numpy()
+
         out = []
         for i in range(actions_np.shape[0]):
-            t = self._output_transform({"actions": actions_np[i]})  # [H, 32] → [H, 8]
+            t = self._output_transform({
+                "state": state_np[i],
+                "actions": actions_np[i],
+            })
             out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)  # [B, H, 8]
+        return torch.as_tensor(np.stack(out), device=self.device)
 
     def get_rl_chunk_reference(
         self,
