@@ -73,8 +73,8 @@ class OnlineRLTrainConfig:
     warmup_steps: int = 1000
 
     # Environment
-    env_factory: str = ""  # Python import path, e.g. "examples.franka.env_factory.make_franka_env"
-    intervention_factory: str = ""  # Python import path, e.g. "examples.franka.intervention.make_vr_intervention"
+    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
+    intervention_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.intervention.make_vr_intervention"
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
 
     # Training loop
