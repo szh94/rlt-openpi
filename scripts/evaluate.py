@@ -41,7 +41,7 @@ class EvalConfig:
     vla_config_name: str = "pi0_aloha_sim"
     vla_checkpoint_dir: str = ""
     rl_token_checkpoint: str = ""
-    env_factory: str = ""  # Python import path, e.g. "examples.franka.env_factory.make_franka_env"
+    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
     task_prompt: str = ""  # Task instruction for VLA
     num_episodes: int = 50
     device: str = "cuda"

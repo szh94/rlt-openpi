@@ -6,14 +6,14 @@ pattern is used for both the environment and the intervention manager.
 Example usage::
 
     env = make_env(
-        "examples.franka.env_factory.make_franka_env",
+        "rlt_openpi.envs.franka.env_factory.make_franka_env",
         action_dim=7,
         chunk_length=10,
         task_prompt="pick up the cup",
     )
 
     intervention = make_intervention(
-        "examples.franka.intervention.make_vr_intervention",
+        "rlt_openpi.envs.franka.intervention.make_vr_intervention",
         env=env,
     )
 """
@@ -70,7 +70,7 @@ def make_intervention(
 
     Args:
         intervention_factory: Dotted Python import path to a callable,
-            e.g. ``"examples.franka.intervention.make_vr_intervention"``.
+            e.g. ``"rlt_openpi.envs.franka.intervention.make_vr_intervention"``.
         env: The environment object (passed as the first argument to the
             factory so it can access robot handles).
         **kwargs: Forwarded to the factory function.

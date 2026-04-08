@@ -12,8 +12,8 @@ rollout worker skips its own ``env.step()`` call.
 Usage::
 
     python scripts/train_online_rl.py \\
-        --env-factory examples.franka.env_factory.make_franka_env \\
-        --intervention-factory examples.franka.intervention.make_vr_intervention \\
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
+        --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \\
         --task-prompt "stack the three blocks on the tray" \\
         ...
 """
@@ -174,7 +174,7 @@ def make_vr_intervention(env: Any, **kwargs: Any) -> VRInterventionManager:
     """Factory function for creating a VRInterventionManager.
 
     Expects ``env`` to be a ``RobotEnv`` created by
-    ``examples.franka.env_factory.make_franka_env``, which stashes the
+    ``rlt_openpi.envs.franka.env_factory.make_franka_env``, which stashes the
     raw DROID env and observation function as attributes.
 
     Args:
@@ -187,7 +187,7 @@ def make_vr_intervention(env: Any, **kwargs: Any) -> VRInterventionManager:
     if not hasattr(env, "droid_env") or not hasattr(env, "droid_get_obs_fn"):
         raise AttributeError(
             "env is missing 'droid_env' or 'droid_get_obs_fn'. "
-            "Make sure you're using examples.franka.env_factory.make_franka_env "
+            "Make sure you're using rlt_openpi.envs.franka.env_factory.make_franka_env "
             "which attaches these attributes."
         )
 

@@ -9,7 +9,7 @@ Usage::
 
     # Training
     uv run python scripts/train_online_rl.py \\
-        --env-factory examples.franka.env_factory.make_franka_env \\
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --task-prompt "pick up the cup" \\
         --action-dim 7 --chunk-length 10 \\
         --vla-config-name pi05_droid \\
@@ -18,7 +18,7 @@ Usage::
 
     # Evaluation
     uv run python scripts/evaluate.py \\
-        --env-factory examples.franka.env_factory.make_franka_env \\
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --task-prompt "pick up the cup" \\
         --checkpoint /path/to/online_rl.pt \\
         --vla-config-name pi05_droid \\
