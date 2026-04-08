@@ -12,7 +12,7 @@ dependencies = [
     "tyro>=0.9",
     "tqdm",
     "pyyaml",
-    "numpy>=1.22.4,<2.0.0",
+    "numpy>=1.22.4,<2.0",
     "openpi",
     # Transitive deps needed by openpi's import chain
     "chex",
@@ -20,8 +20,17 @@ dependencies = [
 
 # cmake is a build-time dep of lerobot (openpi transitive) — not needed at runtime.
 # Exclude to avoid wheel resolution failures across platforms.
+#
+# NOTE: [tool.uv.sources] below is uv-specific and is silently ignored by pip/conda.
+# If you are using conda, run setup_conda_env.sh instead of `pip install -e .`
+# to ensure the real openpi is installed from GitHub rather than the PyPI placeholder.
 [tool.uv]
-override-dependencies = ["cmake ; sys_platform == 'never'"]
+override-dependencies = [
+    "cmake ; sys_platform == 'never'",
+    "labmaze ; sys_platform == 'never'",
+    "ml-dtypes>=0.5.0",
+    "numpy>=2.1.0",
+]
 
 [tool.uv.sources]
 openpi = { git = "https://github.com/Physical-Intelligence/openpi", rev = "fdc03f5" }
