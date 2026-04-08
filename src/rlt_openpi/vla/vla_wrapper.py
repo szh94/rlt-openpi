@@ -12,7 +12,8 @@ from typing import Any
 import numpy as np
 import torch
 from openpi.models.model import Observation
-from openpi.transforms import Normalize, compose
+from openpi.policies.droid_policy import DroidOutputs
+from openpi.transforms import Normalize, Unnormalize, compose
 from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
@@ -58,7 +59,7 @@ class VLAWrapper:
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
 
-        # Build OpenPI input transform chain (Normalize → Resize → Tokenize → Pad).
+        # Build OpenPI input/output transform chains.
         # Skips DroidInputs since rollout env obs already uses model-format keys.
         data_config = self.train_config.data.create(
             self.train_config.assets_dirs, self.train_config.model
@@ -66,6 +67,14 @@ class VLAWrapper:
         self._input_transform = compose([
             Normalize(data_config.norm_stats, use_quantiles=data_config.use_quantile_norm),
             *data_config.model_transforms.inputs,
+        ])
+        # Output transform: unnormalize VLA actions → robot space, then
+        # slice to real robot dims. DroidOutputs (actions[:, :8]) is explicit
+        # here because the finetune config omits it from model_transforms.outputs.
+        actions_only_stats = {"actions": data_config.norm_stats["actions"]}
+        self._output_transform = compose([
+            Unnormalize(actions_only_stats, use_quantiles=data_config.use_quantile_norm),
+            DroidOutputs(),
         ])
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
@@ -141,12 +150,19 @@ class VLAWrapper:
         self,
         observation: Observation,
     ) -> Tensor:
-        """Get full VLA reference action trajectory.
+        """Get full VLA reference action trajectory, unnormalized to robot space.
 
         Returns:
-            actions: [B, H, action_dim] where H = action_horizon.
+            actions: [B, H, robot_action_dim] where H = action_horizon.
         """
-        return self.extractor.sample_actions(observation, self.device)
+        raw = self.extractor.sample_actions(observation, self.device)
+        actions_np = raw.cpu().numpy()  # [B, H, 32]
+        # OpenPI transforms operate on unbatched samples, so process per-sample.
+        out = []
+        for i in range(actions_np.shape[0]):
+            t = self._output_transform({"actions": actions_np[i]})  # [H, 32] → [H, 8]
+            out.append(t["actions"])
+        return torch.as_tensor(np.stack(out), device=self.device)  # [B, H, 8]
 
     def get_rl_chunk_reference(
         self,
