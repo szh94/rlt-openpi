@@ -34,6 +34,7 @@ class Logger:
         self,
         config: LoggerConfig,
         run_config: dict[str, Any] | None = None,
+        run_name: str | None = None,
     ) -> None:
         self.config = config
         self._wandb_run = None
@@ -44,6 +45,7 @@ class Logger:
 
                 self._wandb_run = wandb.init(
                     project=config.project,
+                    name=run_name,
                     config=run_config or {},
                 )
                 logger.info("wandb run initialized: %s", self._wandb_run.url)
@@ -76,4 +78,5 @@ class Logger:
             project=getattr(train_config, "wandb_project", "rlt-openpi"),
             enabled=getattr(train_config, "wandb_enabled", True),
         )
-        return Logger(config=logger_config, run_config=cfg_dict)
+        run_name = getattr(train_config, "run_name", None) or None
+        return Logger(config=logger_config, run_config=cfg_dict, run_name=run_name)

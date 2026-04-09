@@ -5,8 +5,9 @@ robot through three user-supplied callables (``step_fn``, ``reset_fn``,
 ``get_obs_fn``).  No dependency on any specific robot stack (DROID,
 polymetis, ROS, etc.) — the wiring happens in the user's launch script.
 
-Human feedback (success/failure) is collected via instant keypress
-detection (no Enter needed) during episodes.
+Human reward (success/failure) is collected via
+:class:`~rlt_openpi.rollout.human_reward.HumanReward` using instant
+keypress detection (no Enter needed) during episodes.
 
 Usage (with DROID)::
 
@@ -17,13 +18,15 @@ Usage (with DROID)::
     def get_obs():
         obs = droid.get_observation()
         return {
-            "state": np.concatenate([
-                obs["robot_state"]["cartesian_position"],
-                [obs["robot_state"]["gripper_position"]],
-            ]).astype(np.float32),
-            "base_0_rgb": obs["39790647_left"],
-            "left_wrist_0_rgb": obs["15850436_left"],
-            "right_wrist_0_rgb": obs["35840217_left"],
+            "observation/joint_position": np.array(
+                obs["robot_state"]["joint_positions"], dtype=np.float32,
+            ),
+            "observation/gripper_position": np.array(
+                [obs["robot_state"]["gripper_position"]], dtype=np.float32,
+            ),
+            "observation/exterior_image_1_left": obs["image"]["39790647_left"],
+            "observation/wrist_image_left": obs["image"]["15850436_left"],
+            "observation/exterior_image_2_left": obs["image"]["35840217_left"],
             "prompt": "stack the three blocks on the tray",
         }
 
@@ -40,69 +43,15 @@ Usage (with DROID)::
 from __future__ import annotations
 
 import logging
-import select
-import sys
-import termios
 import time
-import tty
 from typing import Any, Callable
 
 import numpy as np
 from numpy.typing import NDArray
 
+from rlt_openpi.rollout.reward import HumanReward
+
 logger = logging.getLogger(__name__)
-
-
-class HumanFeedback:
-    """Non-blocking keyboard listener for human reward signals.
-
-    During an episode, the human presses a single key (no Enter needed):
-        - ``s`` → success (reward +1, episode ends)
-        - ``f`` → failure (reward  0, episode ends)
-        - ``Space`` → success (alternative, easier to hit)
-
-    Uses terminal raw mode for instant keypress detection.
-    Falls back to line-buffered input() if raw mode is unavailable
-    (e.g., running without a TTY).
-    """
-
-    def __init__(self) -> None:
-        self._signal: str | None = None
-        self._old_settings: list | None = None
-        self._raw_mode = False
-
-    def start(self) -> None:
-        """Enter raw terminal mode for instant keypress detection."""
-        self._signal = None
-        try:
-            self._old_settings = termios.tcgetattr(sys.stdin)
-            tty.setcbreak(sys.stdin.fileno())
-            self._raw_mode = True
-        except (termios.error, OSError):
-            self._raw_mode = False
-            logger.warning("Raw terminal mode unavailable, falling back to line input (type + Enter)")
-
-    def stop(self) -> None:
-        """Restore original terminal settings."""
-        if self._raw_mode and self._old_settings is not None:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self._old_settings)
-            self._raw_mode = False
-            self._old_settings = None
-
-    def check(self) -> str | None:
-        """Poll for keypress. Returns 's', 'f', or None."""
-        if self._signal is not None:
-            return self._signal
-
-        if self._raw_mode:
-            # Non-blocking check: is there a character waiting?
-            if select.select([sys.stdin], [], [], 0)[0]:
-                ch = sys.stdin.read(1).lower()
-                if ch in ("s", " "):
-                    self._signal = "s"
-                elif ch == "f":
-                    self._signal = "f"
-        return self._signal
 
 
 class RobotEnv:
@@ -150,7 +99,7 @@ class RobotEnv:
         self._max_episode_chunks = max_episode_chunks
 
         self._chunk_count = 0
-        self._feedback = HumanFeedback()
+        self._feedback = HumanReward()
 
     @property
     def action_dim(self) -> int:

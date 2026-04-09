@@ -14,7 +14,8 @@ import logging
 import torch
 import tyro
 
-from rlt_openpi.rollout.env_factory import make_env
+from rlt_openpi.rollout.factory import make_env, make_intervention
+from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -68,7 +69,7 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Create environment via pluggable factory.
     # Pass --env-factory to specify a Python import path, e.g.:
-    #   --env-factory examples.franka.env_factory.make_franka_env
+    #   --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env
     #   --env-factory rlt_openpi.rollout.sim_env.make_sim_env
     if not config.env_factory:
         log.error("--env-factory is required. Provide a Python import path to an env factory function.")
@@ -79,10 +80,17 @@ def main(config: OnlineRLTrainConfig) -> None:
         action_dim=config.action_dim,
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
+        max_episode_chunks=config.max_episode_chunks,
     )
     log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
 
-    trainer.train(env=env, log_fn=rl_logger.log)
+    # Create intervention manager (VR teleoperation, etc.) if specified.
+    intervention_mgr: InterventionManager | None = None
+    if config.intervention_factory:
+        intervention_mgr = make_intervention(config.intervention_factory, env=env)
+        log.info("Intervention manager created via %s", config.intervention_factory)
+
+    trainer.train(env=env, intervention_mgr=intervention_mgr, log_fn=rl_logger.log)
 
     rl_logger.finish()
 

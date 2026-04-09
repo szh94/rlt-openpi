@@ -27,7 +27,7 @@ def load_rl_token_model(
     Returns:
         Frozen ``RLTokenModel`` with weights restored.
     """
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     saved_config = ckpt["config"]
     model = RLTokenModel(
         embedding_dim=saved_config.embedding_dim,
@@ -35,7 +35,10 @@ def load_rl_token_model(
         encoder_heads=saved_config.encoder_heads,
         decoder_layers=saved_config.decoder_layers,
         decoder_heads=saved_config.decoder_heads,
-    ).to(device)
+    )
     model.load_state_dict(ckpt["model"])
-    log.info("Loaded RL token model from %s (step %d)", ckpt_path, ckpt["step"])
+    step = ckpt["step"]
+    del ckpt
+    model = model.to(device)
+    log.info("Loaded RL token model from %s (step %d)", ckpt_path, step)
     return model

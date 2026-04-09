@@ -71,10 +71,12 @@ class RLTokenTrainer:
             lr=config.learning_rate,
             weight_decay=config.weight_decay,
         )
+        self.scheduler = self._build_scheduler(self.optimizer)
 
         # VLA joint training state (created by _setup_joint_training)
         self._vla: VLAWrapper | None = None
         self.vla_optimizer: torch.optim.Optimizer | None = None
+        self.vla_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
 
         self._global_step = 0
 
@@ -175,7 +177,7 @@ class RLTokenTrainer:
         Returns:
             Path to the saved checkpoint.
         """
-        save_dir = Path(path or self.config.save_dir)
+        save_dir = Path(path or self.config.save_dir) / self.config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = save_dir / f"rl_token_step{self._global_step}.pt"
         state = {
@@ -213,6 +215,17 @@ class RLTokenTrainer:
     # Private: mode-specific steps
     # ------------------------------------------------------------------
 
+    def _build_scheduler(
+        self, optimizer: torch.optim.Optimizer
+    ) -> torch.optim.lr_scheduler.LRScheduler:
+        """Build a linear warmup → constant LR scheduler."""
+        warmup = self.config.warmup_steps
+        if warmup <= 0:
+            return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
+        return torch.optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1e-8, end_factor=1.0, total_iters=warmup
+        )
+
     def _setup_joint_training(self, vla: VLAWrapper) -> None:
         """Unfreeze VLA and create its optimizer (called once by train())."""
         vla.unfreeze()
@@ -228,6 +241,7 @@ class RLTokenTrainer:
             lr=self.config.vla_learning_rate,
             weight_decay=self.config.weight_decay,
         )
+        self.vla_scheduler = self._build_scheduler(self.vla_optimizer)
 
     def _step_frozen(
         self,
@@ -247,10 +261,12 @@ class RLTokenTrainer:
 
         self.optimizer.zero_grad()
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.max_grad_norm)
         self.optimizer.step()
+        self.scheduler.step()
 
         self._global_step += 1
-        return {"loss": loss.item(), "step": self._global_step}
+        return {"loss": loss.item(), "grad_norm": grad_norm.item(), "lr": self.optimizer.param_groups[0]["lr"], "step": self._global_step}
 
     def _step_joint(
         self,
@@ -282,15 +298,25 @@ class RLTokenTrainer:
 
         total_loss.backward()
 
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.max_grad_norm)
         self.optimizer.step()
+        self.scheduler.step()
         if self.vla_optimizer is not None:
+            vla_grad_norm = torch.nn.utils.clip_grad_norm_(self._vla.trainable_parameters(), max_norm=self.config.max_grad_norm)
             self.vla_optimizer.step()
+        else:
+            vla_grad_norm = torch.tensor(0.0)
+        if self.vla_scheduler is not None:
+            self.vla_scheduler.step()
 
         self._global_step += 1
         return {
             "loss": total_loss.item(),
             "l_ro": l_ro.item(),
             "l_vla": l_vla.item(),
+            "grad_norm": grad_norm.item(),
+            "vla_grad_norm": vla_grad_norm.item(),
+            "lr": self.optimizer.param_groups[0]["lr"],
             "step": self._global_step,
         }
 

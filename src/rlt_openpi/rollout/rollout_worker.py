@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.intervention import InterventionManager
+from rlt_openpi.rollout.intervention import InterventionManager, InterventionResult
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
@@ -115,7 +115,7 @@ class RolloutWorker:
 
         # Proprioceptive state s^p from observation
         state = np.asarray(obs["state"], dtype=np.float32)
-        s_p = torch.as_tensor(state, device=self.device).unsqueeze(0)  # [1, d]
+        s_p = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)  # [1, d]
 
         # RL state: x = cat(z_rl, s^p)
         x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
@@ -147,8 +147,8 @@ class RolloutWorker:
         Returns:
             action_chunk: [C, action_dim] numpy array.
         """
-        x_t = torch.as_tensor(x, device=self.device).unsqueeze(0)
-        a_tilde_t = torch.as_tensor(a_tilde_flat, device=self.device).unsqueeze(0)
+        x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+        a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
@@ -226,21 +226,28 @@ class RolloutWorker:
             # Extract RL state and VLA reference
             x, a_tilde_flat = self._extract_rl_state(obs)
 
-            # Check for human intervention
+            # Check for human intervention.
+            # If the intervention manager stepped the robot internally
+            # (InterventionResult), we use its outputs directly and skip
+            # env.step().  Otherwise fall through to the actor.
+            intervention: InterventionResult | None = None
             if self.intervention_mgr.check_intervention():
-                human_action = self.intervention_mgr.get_human_action(self.action_dim, self.chunk_length)
-                if human_action is not None:
-                    action_chunk = human_action  # [C, action_dim]
-                    stats.interventions += 1
-                else:
-                    action_chunk = self._get_actor_action(x, a_tilde_flat)
+                intervention = self.intervention_mgr.get_human_action(
+                    self.action_dim, self.chunk_length
+                )
+
+            if intervention is not None:
+                action_chunk = intervention.action_chunk
+                next_obs = intervention.next_obs
+                rewards = intervention.rewards
+                done = intervention.done
+                info = intervention.info
+                stats.interventions += 1
             else:
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
+                next_obs, rewards, done, info = self.env.step(action_chunk)
 
             a_flat = action_chunk.reshape(-1)  # [C*d]
-
-            # Step environment
-            next_obs, rewards, done, info = self.env.step(action_chunk)
 
             if store_transitions:
                 # Build next RL state (requires VLA forward pass)
