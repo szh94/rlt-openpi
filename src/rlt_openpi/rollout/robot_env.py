@@ -50,6 +50,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from rlt_openpi.rollout.reward import HumanReward
+from rlt_openpi.utils import display
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ class RobotEnv:
 
         self._chunk_count = 0
         self._feedback = HumanReward()
+        self._display_episode_num: int = 0
 
     @property
     def action_dim(self) -> int:
@@ -115,16 +117,15 @@ class RobotEnv:
         Returns:
             Observation dict with ``"state"``, camera images, and ``"prompt"``.
         """
-        # Restore terminal before blocking input (in case previous episode left raw mode)
         self._feedback.stop()
         self._reset_fn()
         self._chunk_count = 0
 
-        input("\n[RESET] Set up the scene, then press Enter to start...")
+        display.episode_reset(self._display_episode_num)
+        input("")
 
-        # Enter raw mode for instant keypress detection during episode
         self._feedback.start()
-        print("[EPISODE] Running — press [S]/[Space]=success  [F]=failure")
+        display.episode_running(self._display_episode_num)
 
         return self._get_obs_fn()
 

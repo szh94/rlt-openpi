@@ -9,6 +9,7 @@ Implements the full online RL loop from the paper:
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.training.td3_utils import actor_loss, compute_td_target, critic_loss
+from rlt_openpi.utils import display
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
 logger = logging.getLogger(__name__)
@@ -196,6 +198,17 @@ class OnlineRLTrainer:
         """
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
+        train_display = display.TrainingDisplay(window_size=20)
+        train_start = time.time()
+
+        display.training_start({
+            "Task": cfg.task_prompt or "(not set)",
+            "Max env steps": f"{cfg.max_env_steps:,}",
+            "UTD ratio": str(cfg.utd_ratio),
+            "Chunk length": str(cfg.chunk_length),
+            "Action dim": str(cfg.action_dim),
+            "Run name": cfg.run_name,
+        })
 
         # Phase 1: Warmup with VLA-only policy (skip if resuming with data)
         if self.replay_buffer.size > 0:
@@ -204,27 +217,57 @@ class OnlineRLTrainer:
                 self.replay_buffer.size,
             )
         else:
-            logger.info("Warmup: collecting %d chunks with VLA-only policy", cfg.warmup_steps)
-            stored = worker.collect_warmup(cfg.warmup_steps)
-            self._total_env_steps += stored * cfg.chunk_length
-            logger.info(
-                "Warmup complete: %d transitions stored, buffer size=%d",
-                stored,
-                self.replay_buffer.size,
-            )
+            display.warmup_start(cfg.warmup_steps)
+            stored = 0
+            obs = env.reset()
+            for i in range(cfg.warmup_steps):
+                action_chunk = worker._get_warmup_action(obs)
+                x, a_tilde_flat = worker._extract_rl_state(obs)
+                a_flat = action_chunk.reshape(-1)
+                next_obs, rewards, done, _info = env.step(action_chunk)
+                next_x, _ = worker._extract_rl_state(next_obs)
+                self.replay_buffer.add(
+                    x=x, a=a_flat, a_tilde=a_tilde_flat,
+                    rewards=rewards, next_x=next_x, done=float(done),
+                )
+                stored += 1
+                self._total_env_steps += cfg.chunk_length
+                display.warmup_progress(i + 1, cfg.warmup_steps)
+                if done:
+                    obs = env.reset()
+                else:
+                    obs = next_obs
+            display.warmup_done(stored, self.replay_buffer.size)
 
         # Phase 2: Online RL loop
-        logger.info("Starting online RL training (max %d env steps)", cfg.max_env_steps)
+        # Inject episode counter into env so RobotEnv.reset() can display it
+        if hasattr(env, '_display_episode_num'):
+            env._display_episode_num = self._total_episodes + 1
 
         while self._total_env_steps < cfg.max_env_steps:
-            # Collect one episode
+            if hasattr(env, '_display_episode_num'):
+                env._display_episode_num = self._total_episodes + 1
+
             self.actor.eval()
             stats = worker.collect_episode()
             self._total_episodes += 1
             self._total_env_steps += stats.num_steps
 
+            success = stats.extra.get("success", False)
+            train_display.record_episode(success, stats.total_reward)
+
+            display.episode_result(
+                episode_num=self._total_episodes,
+                total_reward=stats.total_reward,
+                success=success,
+                num_chunks=stats.num_chunks,
+                num_steps=stats.num_steps,
+                interventions=stats.interventions,
+            )
+
             episode_metrics = {
                 "episode_reward": stats.total_reward,
+                "episode_success": int(success),
                 "episode_chunks": stats.num_chunks,
                 "episode_steps": stats.num_steps,
                 "episode_interventions": stats.interventions,
@@ -237,35 +280,35 @@ class OnlineRLTrainer:
             update_metrics: dict[str, float] = {}
             for g in range(cfg.utd_ratio):
                 step_metrics = self._update_step(g)
-                # Keep last update's metrics (or could average)
                 update_metrics = step_metrics
 
-            # Merge metrics
             all_metrics = {**episode_metrics, **update_metrics}
 
-            if self._total_episodes % cfg.log_every == 0:
-                logger.info(
-                    "Episode %d | steps=%d | reward=%.3f | critic=%.4f | buffer=%d",
-                    self._total_episodes,
-                    self._total_env_steps,
-                    stats.total_reward,
-                    update_metrics.get("critic_loss", 0.0),
-                    self.replay_buffer.size,
-                )
+            train_display.print_summary(
+                total_episodes=self._total_episodes,
+                total_env_steps=self._total_env_steps,
+                max_env_steps=cfg.max_env_steps,
+                buffer_size=self.replay_buffer.size,
+                critic_loss=update_metrics.get("critic_loss", 0.0),
+                actor_loss=update_metrics.get("actor_loss"),
+                q_mean=update_metrics.get("q1_mean", 0.0),
+            )
 
             if log_fn is not None:
                 log_fn(all_metrics)
 
             if self._total_episodes % cfg.save_every == 0:
-                self.save()
+                ckpt_path = self.save()
+                display.checkpoint_saved(str(ckpt_path))
 
         # Final save
-        self.save()
-        logger.info(
-            "Training complete: %d episodes, %d env steps, %d updates",
+        ckpt_path = self.save()
+        display.checkpoint_saved(str(ckpt_path))
+        display.training_done(
             self._total_episodes,
             self._total_env_steps,
             self._total_updates,
+            time.time() - train_start,
         )
 
     def save(self, path: str | None = None, save_buffer: bool = True) -> Path:
