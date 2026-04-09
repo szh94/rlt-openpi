@@ -10,18 +10,23 @@ action slicing are fully config-driven.
 
 from __future__ import annotations
 
+import logging
+import pathlib
 from typing import Any
 
 import jax
 import numpy as np
 import torch
 from openpi.models.model import Observation
-from openpi.transforms import Normalize, Unnormalize, compose
+from openpi.training import checkpoints as _checkpoints
+from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize, compose
 import openpi.transforms as _transforms
 from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class VLAWrapper:
@@ -57,6 +62,8 @@ class VLAWrapper:
         data_transforms: Optional override for the config's default
             ``data_transforms``.  Must match whatever was used during
             training (e.g. ``ThreeCameraDroidInputs`` for 3-camera setups).
+        default_prompt: If set, injected into inputs that lack a ``prompt``
+            key (mirrors OpenPI's ``InjectDefaultPrompt``).
     """
 
     def __init__(
@@ -65,6 +72,7 @@ class VLAWrapper:
         config_name: str,
         device: torch.device | str = "cuda",
         data_transforms: _transforms.Group | None = None,
+        default_prompt: str | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
@@ -79,16 +87,21 @@ class VLAWrapper:
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
 
+        checkpoint_dir = pathlib.Path(checkpoint_path).parent
         data_config = self.train_config.data.create(
             self.train_config.assets_dirs, self.train_config.model
         )
-        norm_stats = data_config.norm_stats
         use_q = data_config.use_quantile_norm
+
+        if data_config.asset_id is None:
+            raise ValueError("Asset id is required to load norm stats.")
+        norm_stats = self._load_norm_stats(checkpoint_dir, data_config)
 
         dt = data_transforms or data_config.data_transforms
 
         self._input_transform = compose([
             *dt.inputs,
+            InjectDefaultPrompt(default_prompt),
             Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
         ])
@@ -97,6 +110,32 @@ class VLAWrapper:
             Unnormalize(norm_stats, use_quantiles=use_q),
             *dt.outputs,
         ])
+
+    @staticmethod
+    def _load_norm_stats(checkpoint_dir: pathlib.Path, data_config) -> dict[str, _transforms.NormStats]:
+        """Load norm stats, preferring checkpoint-embedded assets over config assets.
+
+        Mirrors OpenPI's ``create_trained_policy`` which loads from
+        ``checkpoint_dir/assets/<asset_id>/`` to guarantee the stats match
+        training.  Falls back to the config's ``norm_stats`` for checkpoints
+        that don't bundle assets (e.g. rlt-openpi ``.pt`` checkpoints).
+        """
+        asset_id = data_config.asset_id
+        try:
+            norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", asset_id)
+            logger.info("Loaded norm stats from checkpoint: %s/assets/%s", checkpoint_dir, asset_id)
+            return norm_stats
+        except FileNotFoundError:
+            pass
+
+        if data_config.norm_stats is not None:
+            logger.info("Checkpoint has no embedded assets; using norm stats from config assets dir")
+            return data_config.norm_stats
+
+        raise FileNotFoundError(
+            f"No norm stats found in checkpoint ({checkpoint_dir}/assets/{asset_id}) "
+            f"or config assets dir. Run compute_norm_stats.py first."
+        )
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
