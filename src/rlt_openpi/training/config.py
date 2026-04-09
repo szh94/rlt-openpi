@@ -1,6 +1,7 @@
 """Configuration dataclasses for RLT-OpenPI training stages."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 
 @dataclass
@@ -19,6 +20,8 @@ class RLTokenTrainConfig:
     batch_size: int = 32
     learning_rate: float = 1e-4
     weight_decay: float = 1e-5
+    warmup_steps: int = 500  # Linear LR warmup steps (matches OpenPI default)
+    max_grad_norm: float = 1.0  # Global gradient norm clipping (matches OpenPI default)
     vla_finetune_alpha: float = 0.0  # VLA fine-tuning weight (0 = frozen VLA)
     vla_learning_rate: float = 1e-5  # VLA fine-tuning learning rate (used when alpha > 0)
     gradient_checkpointing: bool = True  # Enable gradient checkpointing to reduce VRAM
@@ -27,6 +30,7 @@ class RLTokenTrainConfig:
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_droid_finetune"
     save_dir: str = "checkpoints/rl_token"
+    run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
     save_every: int = 1000
     log_every: int = 1  # wandb logging interval (steps)
     print_every: int = 100  # stdout logging interval (steps)
@@ -34,6 +38,10 @@ class RLTokenTrainConfig:
     # wandb
     wandb_project: str = "rlt-openpi"
     wandb_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.run_name:
+            self.run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
 
 @dataclass
@@ -58,7 +66,7 @@ class OnlineRLTrainConfig:
     gamma: float = 0.99
     tau: float = 0.005  # Polyak averaging coefficient
     utd_ratio: int = 5  # G: update-to-data ratio
-    bc_regularizer_beta: float = 1.0  # BC regularizer coefficient
+    bc_regularizer_beta: float = 0.5  # BC regularizer coefficient
     critic_updates_per_actor: int = 2
     target_noise_sigma: float = 0.2  # TD3 target policy smoothing noise std
     target_noise_clip: float = 0.5  # clamp range for target noise
@@ -76,9 +84,10 @@ class OnlineRLTrainConfig:
     env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
     intervention_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.intervention.make_vr_intervention"
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
+    max_episode_chunks: int = 150  # Max chunks per episode before forced termination
 
     # Training loop
-    max_env_steps: int = 500_000
+    max_env_steps: int = 100_000
 
     # Checkpoints
     rl_token_checkpoint: str = ""
@@ -86,6 +95,7 @@ class OnlineRLTrainConfig:
     vla_config_name: str = "pi05_droid_finetune"
     resume_checkpoint: str = ""  # Path to Stage 2 checkpoint to resume training from
     save_dir: str = "checkpoints/online_rl"
+    run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
     save_every: int = 50
     log_every: int = 1  # wandb logging interval (steps)
     print_every: int = 100  # stdout logging interval (steps)
@@ -93,6 +103,10 @@ class OnlineRLTrainConfig:
     # wandb
     wandb_project: str = "rlt-openpi"
     wandb_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.run_name:
+            self.run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     @property
     def state_dim(self) -> int:

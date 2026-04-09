@@ -279,7 +279,7 @@ class OnlineRLTrainer:
         Returns:
             Path to the saved checkpoint.
         """
-        save_dir = Path(path or self.config.save_dir)
+        save_dir = Path(path or self.config.save_dir) / self.config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = save_dir / f"online_rl_ep{self._total_episodes}.pt"
         payload: dict[str, Any] = {
