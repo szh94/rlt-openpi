@@ -115,18 +115,27 @@ def main(config: ConvertConfig) -> None:
                 "names": ["actions"],
             },
         },
-        image_writer_threads=10,
-        image_writer_processes=5,
+        image_writer_threads=4,
+        image_writer_processes=4,
     )
 
     total_frames = 0
+    skipped = []
     for demo_path in tqdm(demo_files, desc="Converting episodes"):
-        with h5py.File(demo_path, "r") as f:
+        try:
+            f = h5py.File(demo_path, "r")
+        except OSError as e:
+            log.warning("Skipping corrupted file %s: %s", demo_path, e)
+            skipped.append(demo_path)
+            continue
+        with f:
             instruction = f.attrs.get("instruction", "do something")
             if isinstance(instruction, bytes):
                 instruction = instruction.decode("utf-8")
 
-            n_steps = f[f"observations/robot_state/joint_positions"].shape[0]
+            n_obs = f["observations/robot_state/joint_positions"].shape[0]
+            n_act = f[f"action/{config.action_key}"].shape[0]
+            n_steps = min(n_obs, n_act)
 
             for t in range(n_steps):
                 # Images
@@ -159,10 +168,22 @@ def main(config: ConvertConfig) -> None:
                         "task": instruction,
                     }
                 )
+            # LeRobot bug: shape=(1,) features are mapped to scalar
+            # datasets.Value, but validate_frame requires (1,) ndarrays.
+            # Squeeze to scalar before the parquet encoder sees them.
+            for key in dataset.features:
+                if dataset.features[key].get("shape") == (1,):
+                    buf = dataset.episode_buffer.get(key)
+                    if isinstance(buf, list):
+                        dataset.episode_buffer[key] = [
+                            v.item() if isinstance(v, np.ndarray) else v for v in buf
+                        ]
             dataset.save_episode()
             total_frames += n_steps
 
-    log.info("Done. %d episodes, %d total frames saved to %s", len(demo_files), total_frames, output_path)
+    log.info("Done. %d episodes, %d total frames saved to %s", len(demo_files) - len(skipped), total_frames, output_path)
+    if skipped:
+        log.warning("Skipped %d corrupted files: %s", len(skipped), skipped)
 
 
 if __name__ == "__main__":

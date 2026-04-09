@@ -12,7 +12,12 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import multiprocessing
+import typing
 
+import jax
+import numpy as np
+import torch
 from openpi.models.model import Observation
 from openpi.training.config import get_config
 from openpi.training.data_loader import (
@@ -22,6 +27,12 @@ from openpi.training.data_loader import (
 import openpi.transforms as _transforms
 
 logger = logging.getLogger(__name__)
+
+
+def _collate_fn(items):
+    return jax.tree.map(
+        lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items
+    )
 
 
 def build_data_loader(
@@ -70,21 +81,9 @@ def build_data_loader(
     dataset = create_torch_dataset(data_config, config.model.action_horizon, config.model)
     dataset = transform_dataset(dataset, data_config)
 
-    import multiprocessing
-    import typing
-
-    import jax
-    import numpy as np
-    import torch
-
     mp_context = None
     if num_workers > 0:
         mp_context = multiprocessing.get_context("spawn")
-
-    def _collate_fn(items):
-        return jax.tree.map(
-            lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items
-        )
 
     torch_loader = torch.utils.data.DataLoader(
         typing.cast(torch.utils.data.Dataset, dataset),
@@ -106,11 +105,15 @@ class _InfiniteLoader:
     def __init__(self, loader):
         self._loader = loader
 
-    def __iter__(self):
-        import jax
-        import torch
+    @staticmethod
+    def _to_float32(x):
+        t = torch.as_tensor(x)
+        if t.is_floating_point():
+            t = t.float()
+        return t
 
+    def __iter__(self):
         while True:
             for batch in self._loader:
-                batch = jax.tree.map(torch.as_tensor, batch)
+                batch = jax.tree.map(self._to_float32, batch)
                 yield Observation.from_dict(batch), batch["actions"]
