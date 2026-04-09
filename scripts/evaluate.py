@@ -14,14 +14,17 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import torch
 import tyro
 
 from rlt_openpi.models.actor import Actor
-from rlt_openpi.rollout.env_factory import make_env
+from rlt_openpi.rollout.factory import make_env
 from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
@@ -44,6 +47,7 @@ class EvalConfig:
     env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
     task_prompt: str = ""  # Task instruction for VLA
     num_episodes: int = 50
+    save_dir: str = ""  # Directory to save results JSON (defaults to checkpoint's parent dir)
     device: str = "cuda"
 
 
@@ -106,18 +110,42 @@ def main(config: EvalConfig) -> None:
         train_config.action_dim, config.device,
     )
 
-    rewards, successes = [], []
+    episodes = []
     for ep in range(config.num_episodes):
         stats = worker.collect_episode(store_transitions=False)
-        rewards.append(stats.total_reward)
-        successes.append(stats.extra.get("success", False))
-        log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, stats.extra.get("success"))
+        success = stats.extra.get("success", False)
+        episodes.append({
+            "episode": ep,
+            "reward": stats.total_reward,
+            "success": success,
+            "num_chunks": stats.num_chunks,
+            "num_steps": stats.num_steps,
+        })
+        log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, success)
 
-    log.info(
-        "Success rate: %.1f%% (%d/%d)",
-        100 * sum(successes) / len(successes), sum(successes), len(successes),
-    )
-    log.info("Mean reward: %.3f", sum(rewards) / len(rewards))
+    num_success = sum(e["success"] for e in episodes)
+    success_rate = num_success / len(episodes)
+    mean_reward = sum(e["reward"] for e in episodes) / len(episodes)
+
+    log.info("Success rate: %.1f%% (%d/%d)", 100 * success_rate, num_success, len(episodes))
+    log.info("Mean reward: %.3f", mean_reward)
+
+    # Save results
+    results = {
+        "checkpoint": config.checkpoint,
+        "train_episodes": ckpt["total_episodes"],
+        "train_env_steps": ckpt["total_env_steps"],
+        "eval_timestamp": datetime.now().isoformat(),
+        "num_episodes": len(episodes),
+        "success_rate": success_rate,
+        "mean_reward": mean_reward,
+        "episodes": episodes,
+    }
+    save_dir = Path(config.save_dir) if config.save_dir else Path(config.checkpoint).parent
+    save_dir.mkdir(parents=True, exist_ok=True)
+    results_path = save_dir / f"eval_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    results_path.write_text(json.dumps(results, indent=2))
+    log.info("Results saved to %s", results_path)
 
 
 if __name__ == "__main__":

@@ -16,13 +16,16 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
 import torch
 import tyro
 
-from rlt_openpi.rollout.env_factory import make_env
+from rlt_openpi.rollout.factory import make_env
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -40,6 +43,7 @@ class RolloutConfig:
     action_dim: int = 8
     chunk_length: int = 10
     num_episodes: int = 10
+    save_dir: str = "results"  # Directory to save results JSON
     device: str = "cuda"
 
 
@@ -71,8 +75,7 @@ def main(config: RolloutConfig) -> None:
     )
     log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
 
-    successes: list[bool] = []
-    rewards: list[float] = []
+    episodes = []
 
     for ep in range(config.num_episodes):
         obs = env.reset()
@@ -80,7 +83,6 @@ def main(config: RolloutConfig) -> None:
         episode_chunks = 0
 
         while True:
-            # Preprocess observation and sample VLA action chunk
             with torch.no_grad():
                 vla_input = vla.preprocess_obs(obs)
                 action_chunk = vla.get_rl_chunk_reference(vla_input, config.chunk_length)
@@ -92,8 +94,13 @@ def main(config: RolloutConfig) -> None:
 
             if done:
                 success = info.get("success", False)
-                successes.append(success)
-                rewards.append(episode_reward)
+                episodes.append({
+                    "episode": ep,
+                    "reward": episode_reward,
+                    "success": success,
+                    "num_chunks": episode_chunks,
+                    "num_steps": info.get("steps_executed", episode_chunks * config.chunk_length),
+                })
                 log.info(
                     "Episode %d/%d: chunks=%d, reward=%.3f, success=%s",
                     ep + 1, config.num_episodes, episode_chunks, episode_reward, success,
@@ -102,14 +109,29 @@ def main(config: RolloutConfig) -> None:
 
             obs = next_obs
 
-    num_success = sum(successes)
+    num_success = sum(e["success"] for e in episodes)
+    success_rate = num_success / len(episodes) if episodes else 0.0
+    mean_reward = sum(e["reward"] for e in episodes) / len(episodes) if episodes else 0.0
+
     log.info(
         "Done. Success rate: %.1f%% (%d/%d), mean reward: %.3f",
-        100 * num_success / len(successes) if successes else 0,
-        num_success,
-        len(successes),
-        sum(rewards) / len(rewards) if rewards else 0,
+        100 * success_rate, num_success, len(episodes), mean_reward,
     )
+
+    results = {
+        "checkpoint": config.vla_checkpoint_dir,
+        "vla_config_name": config.vla_config_name,
+        "eval_timestamp": datetime.now().isoformat(),
+        "num_episodes": len(episodes),
+        "success_rate": success_rate,
+        "mean_reward": mean_reward,
+        "episodes": episodes,
+    }
+    save_dir = Path(config.save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+    results_path = save_dir / f"eval_vla_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    results_path.write_text(json.dumps(results, indent=2))
+    log.info("Results saved to %s", results_path)
 
 
 if __name__ == "__main__":

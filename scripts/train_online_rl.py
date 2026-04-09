@@ -14,7 +14,7 @@ import logging
 import torch
 import tyro
 
-from rlt_openpi.rollout.env_factory import make_env, make_intervention
+from rlt_openpi.rollout.factory import make_env, make_intervention
 from rlt_openpi.rollout.intervention import InterventionManager
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
@@ -71,6 +71,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         action_dim=config.action_dim,
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
+        max_episode_chunks=config.max_episode_chunks,
     )
     log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
 
