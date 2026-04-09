@@ -108,23 +108,43 @@ class VRInterventionManager(InterventionManager):
 
             # Read the current DROID observation (includes robot_state)
             droid_obs = self.droid_env.get_observation()
+            joints_before = np.array(
+                droid_obs["robot_state"]["joint_positions"], dtype=np.float32
+            )
+            gripper_before = float(droid_obs["robot_state"]["gripper_position"])
 
-            # Compute VR controller action relative to current robot state.
-            # Returns [7]: [dx, dy, dz, droll, dpitch, dyaw, gripper]
+            # Compute VR controller action in cartesian space.
+            # VRPolicy.forward() returns [7]: [dx, dy, dz, droll, dpitch, dyaw, gripper]
             vr_action = self.vr.forward(droid_obs)
 
-            # Adapt to the env's action_dim (pad or truncate)
-            if len(vr_action) < action_dim:
-                vr_action = np.concatenate([
-                    vr_action,
-                    np.zeros(action_dim - len(vr_action), dtype=vr_action.dtype),
-                ])
-            elif len(vr_action) > action_dim:
-                vr_action = vr_action[:action_dim]
-
-            # Step the robot
+            # Step the robot — DROID converts cartesian → joint internally
             self.droid_env.step(vr_action)
-            actions.append(vr_action)
+
+            # Read back what the joints actually did and store that as the
+            # action instead of the raw cartesian VR command, so replay
+            # buffer transitions match the RL agent's joint-velocity space.
+            droid_obs_after = self.droid_env.get_observation()
+            joints_after = np.array(
+                droid_obs_after["robot_state"]["joint_positions"], dtype=np.float32
+            )
+            gripper_after = float(droid_obs_after["robot_state"]["gripper_position"])
+
+            joint_delta = (joints_after - joints_before) * self.control_hz
+            recorded_action = np.concatenate([
+                joint_delta,
+                np.array([gripper_after - gripper_before], dtype=np.float32),
+            ])
+
+            # Pad or truncate to match action_dim
+            if len(recorded_action) < action_dim:
+                recorded_action = np.concatenate([
+                    recorded_action,
+                    np.zeros(action_dim - len(recorded_action), dtype=np.float32),
+                ])
+            elif len(recorded_action) > action_dim:
+                recorded_action = recorded_action[:action_dim]
+
+            actions.append(recorded_action)
             steps_executed += 1
 
             # Check VR buttons for episode termination
