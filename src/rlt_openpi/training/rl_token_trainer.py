@@ -138,6 +138,10 @@ class RLTokenTrainer:
                 self.config.num_train_steps,
             )
 
+        if self.config.resume_checkpoint:
+            self.load(self.config.resume_checkpoint)
+            logger.info("Resumed from step %d", self._global_step)
+
         pbar = tqdm(range(1, self.config.num_train_steps + 1), desc="Stage 1")
         for step_idx in pbar:
             try:
@@ -183,6 +187,7 @@ class RLTokenTrainer:
         state = {
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(),
             "step": self._global_step,
             "config": self.config,
         }
@@ -190,6 +195,8 @@ class RLTokenTrainer:
             state["vla_model"] = self._vla.extractor.pi0.state_dict()
         if self.vla_optimizer is not None:
             state["vla_optimizer"] = self.vla_optimizer.state_dict()
+        if self.vla_scheduler is not None:
+            state["vla_scheduler"] = self.vla_scheduler.state_dict()
         torch.save(state, ckpt_path)
         logger.info("Saved checkpoint to %s", ckpt_path)
         return ckpt_path
@@ -203,12 +210,16 @@ class RLTokenTrainer:
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(ckpt["model"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
+        if "scheduler" in ckpt:
+            self.scheduler.load_state_dict(ckpt["scheduler"])
         self._global_step = ckpt["step"]
         if "vla_model" in ckpt and self._vla is not None:
             self._vla.extractor.pi0.load_state_dict(ckpt["vla_model"])
             logger.info("Restored fine-tuned VLA weights from checkpoint")
         if "vla_optimizer" in ckpt and self.vla_optimizer is not None:
             self.vla_optimizer.load_state_dict(ckpt["vla_optimizer"])
+        if "vla_scheduler" in ckpt and self.vla_scheduler is not None:
+            self.vla_scheduler.load_state_dict(ckpt["vla_scheduler"])
         logger.info("Loaded checkpoint from %s (step %d)", ckpt_path, self._global_step)
 
     # ------------------------------------------------------------------
