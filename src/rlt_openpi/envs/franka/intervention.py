@@ -106,28 +106,33 @@ class VRInterventionManager(InterventionManager):
         for k in range(chunk_length):
             t_start = time.time()
 
-            # Read the current DROID observation (includes robot_state)
-            droid_obs = self.droid_env.get_observation()
+            # Only read robot state (no cameras) -- VRPolicy.forward() only
+            # uses obs["robot_state"], so reading cameras here would waste
+            # 30-50ms per step and make teleoperation laggy.
+            state_before, _ = self.droid_env.get_state()
             joints_before = np.array(
-                droid_obs["robot_state"]["joint_positions"], dtype=np.float32
+                state_before["joint_positions"], dtype=np.float32
             )
-            gripper_before = float(droid_obs["robot_state"]["gripper_position"])
+            gripper_before = float(state_before["gripper_position"])
 
-            # Compute VR controller action in cartesian space.
-            # VRPolicy.forward() returns [7]: [dx, dy, dz, droll, dpitch, dyaw, gripper]
-            vr_action = self.vr.forward(droid_obs)
+            vr_action = self.vr.forward({"robot_state": state_before})
 
-            # Step the robot — DROID converts cartesian → joint internally
-            self.droid_env.step(vr_action)
+            # Step the robot using cartesian_velocity action space directly.
+            # VRPolicy always outputs 7-dim cartesian velocity commands, but the
+            # DROID env may be configured for joint_velocity (DoF=8).  Calling
+            # update_robot bypasses the DoF assertion in step().
+            self.droid_env.update_robot(
+                vr_action, action_space="cartesian_velocity"
+            )
 
             # Read back what the joints actually did and store that as the
             # action instead of the raw cartesian VR command, so replay
             # buffer transitions match the RL agent's joint-velocity space.
-            droid_obs_after = self.droid_env.get_observation()
+            state_after, _ = self.droid_env.get_state()
             joints_after = np.array(
-                droid_obs_after["robot_state"]["joint_positions"], dtype=np.float32
+                state_after["joint_positions"], dtype=np.float32
             )
-            gripper_after = float(droid_obs_after["robot_state"]["gripper_position"])
+            gripper_after = float(state_after["gripper_position"])
 
             joint_delta = (joints_after - joints_before) * self.control_hz
             recorded_action = np.concatenate([
