@@ -38,6 +38,7 @@ class RolloutConfig:
 
     vla_config_name: str = "pi05_droid_finetune"
     vla_checkpoint_dir: str = ""
+    stage1_checkpoint: str = ""  # Stage 1 .pt checkpoint with fine-tuned VLA weights
     env_factory: str = ""
     task_prompt: str = ""
     action_dim: int = 8
@@ -65,6 +66,15 @@ def main(config: RolloutConfig) -> None:
         config_name=config.vla_config_name,
         device=config.device,
     )
+
+    if config.stage1_checkpoint:
+        ckpt = torch.load(config.stage1_checkpoint, map_location=config.device, weights_only=False)
+        if "vla_model" in ckpt:
+            vla.extractor.pi0.load_state_dict(ckpt["vla_model"])
+            log.info("Loaded fine-tuned VLA weights from %s", config.stage1_checkpoint)
+        else:
+            log.warning("No vla_model key in %s; using base VLA weights", config.stage1_checkpoint)
+        del ckpt
 
     # Create environment
     env = make_env(

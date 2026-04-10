@@ -1,12 +1,11 @@
 #!/bin/bash
-# Evaluate the VLA-only baseline (no RL token, no actor).
-# Use this to measure the pretrained/fine-tuned VLA's performance
-# before Stage 2 RL training, as a baseline comparison.
+# Evaluate the Stage 1 fine-tuned VLA (no RL token head, no actor).
 
-uv run python scripts/rollout_vla.py \
+python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
+    --stage1-checkpoint checkpoints/rl_token/rl_token_step3000.pt \
     --task-prompt "stack the three blocks on the tray" \
-    --num-episodes 50 \
-    --save-dir results/vla_baseline
+    --num-episodes 10 \
+    --save-dir results/vla_only
