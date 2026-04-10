@@ -49,8 +49,14 @@ class Actor(nn.Module):
             num_hidden_layers=num_hidden_layers,
         )
 
+        # Zero-init the last linear layer so the residual starts at zero,
+        # meaning the actor initially reproduces the VLA reference exactly.
+        last_linear = [m for m in self.mlp.net if isinstance(m, nn.Linear)][-1]
+        nn.init.zeros_(last_linear.weight)
+        nn.init.zeros_(last_linear.bias)
+
     def forward(self, x: Tensor, a_tilde: Tensor) -> Tensor:
-        """Compute action chunk.
+        """Compute action chunk as VLA reference + learned residual.
 
         Args:
             x: RL state [B, state_dim].
@@ -58,11 +64,12 @@ class Actor(nn.Module):
 
         Returns:
             Action chunk [B, action_chunk_dim], clamped to [-1, 1].
-            During training: mu + noise, with ref dropout applied to a_tilde.
-            During eval: mu, with full a_tilde.
+            During training: a_tilde + residual + noise, with ref dropout.
+            During eval: a_tilde + residual, with full a_tilde.
         """
         a_tilde_input = self._apply_ref_dropout(a_tilde)
-        mu = self.mlp(torch.cat([x, a_tilde_input], dim=-1))
+        residual = self.mlp(torch.cat([x, a_tilde_input], dim=-1))
+        mu = a_tilde + residual
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma

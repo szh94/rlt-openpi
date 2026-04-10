@@ -113,9 +113,11 @@ class RolloutWorker:
         a_tilde = self.vla.get_rl_chunk_reference(vla_input, self.chunk_length)  # [1, C, action_dim]
         a_tilde_flat = a_tilde.reshape(1, -1)  # [1, C*d]
 
-        # Proprioceptive state s^p from observation
-        state = np.asarray(obs["state"], dtype=np.float32)
-        s_p = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)  # [1, d]
+        # Proprioceptive state s^p from the preprocessed VLA observation.
+        # DroidInputs merges joint_pos + gripper into state, then
+        # PadStatesAndActions zero-pads to the VLA's internal width.
+        # Slice to action_dim to drop the padding.
+        s_p = vla_input.state[:, :self.action_dim].to(dtype=torch.float32, device=self.device)  # [1, d]
 
         # RL state: x = cat(z_rl, s^p)
         x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
