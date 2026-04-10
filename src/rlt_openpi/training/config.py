@@ -29,6 +29,7 @@ class RLTokenTrainConfig:
     # Checkpoints
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_droid_finetune"
+    resume_checkpoint: str = ""  # Path to Stage 1 checkpoint to resume training from
     save_dir: str = "checkpoints/rl_token"
     run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
     save_every: int = 1000
