@@ -210,12 +210,14 @@ class OnlineRLTrainer:
             "Run name": cfg.run_name,
         })
 
-        # Phase 1: Warmup with VLA-only policy (skip if resuming with data)
+        # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
         if self.replay_buffer.size > 0:
             logger.info(
                 "Skipping warmup — replay buffer already has %d transitions (resumed from checkpoint)",
                 self.replay_buffer.size,
             )
+        elif cfg.warmup_buffer:
+            self._load_warmup_buffer(cfg.warmup_buffer)
         else:
             display.warmup_start(cfg.warmup_steps)
             stored = 0
@@ -238,6 +240,7 @@ class OnlineRLTrainer:
                 else:
                     obs = next_obs
             display.warmup_done(stored, self.replay_buffer.size)
+            self._save_warmup_buffer()
 
         # Phase 2: Online RL loop
         # Inject episode counter into env so RobotEnv.reset() can display it
@@ -310,6 +313,21 @@ class OnlineRLTrainer:
             self._total_updates,
             time.time() - train_start,
         )
+
+    def _save_warmup_buffer(self) -> Path:
+        """Save the replay buffer as a standalone file after warmup."""
+        save_dir = Path(self.config.save_dir) / self.config.run_name
+        save_dir.mkdir(parents=True, exist_ok=True)
+        buf_path = save_dir / "warmup_buffer.pt"
+        torch.save(self.replay_buffer.state_dict(), buf_path)
+        logger.info("Saved warmup buffer (%d transitions) to %s", self.replay_buffer.size, buf_path)
+        return buf_path
+
+    def _load_warmup_buffer(self, path: str) -> None:
+        """Load a standalone warmup buffer file into the replay buffer."""
+        buf_state = torch.load(path, map_location="cpu", weights_only=False)
+        self.replay_buffer.load_state_dict(buf_state)
+        logger.info("Loaded warmup buffer (%d transitions) from %s", self.replay_buffer.size, path)
 
     def save(self, path: str | None = None, save_buffer: bool = True) -> Path:
         """Save actor, critic, optimizer, and replay buffer states.
