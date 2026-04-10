@@ -35,6 +35,12 @@ wandb/
 *.pth
 assets/
 
+# Secrets
+.env
+
+# Binary packages
+*.whl
+
 # OS
 .DS_Store
 Thumbs.db
