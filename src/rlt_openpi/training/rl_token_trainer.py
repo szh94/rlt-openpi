@@ -165,7 +165,8 @@ class RLTokenTrainer:
             if step_idx % self.config.save_every == 0:
                 self.save()
 
-        self.save()
+        if self._global_step % self.config.save_every != 0:
+            self.save()
         logger.info("Stage 1 training complete (%d steps)", self._global_step)
 
     # ------------------------------------------------------------------
