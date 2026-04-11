@@ -1,6 +1,6 @@
 # RLT-OpenPI
 
-A research implementation of **RL Token: Bootstrapping Online RL with Vision-Language-Action Models** (Xu et al., Physical Intelligence) built on top of [OpenPI](https://github.com/Physical-Intelligence/openpi)'s public checkpoints.
+An implementation of **RL Token: Bootstrapping Online RL with Vision-Language-Action Models** (Xu et al., Physical Intelligence) built on top of [OpenPI](https://github.com/Physical-Intelligence/openpi)'s public checkpoints.
 
 Paper: https://pi.website/research/rlt
 
@@ -222,7 +222,7 @@ Covers: RL token encoder/decoder shapes, VLA embedding extraction hooks, Actor +
 
 ## Status & Limitations
 
-This is a **research reimplementation** — unofficial and not affiliated with Physical Intelligence. It is under active development and may still contain bugs.
+This is an **implementation** — unofficial and not affiliated with Physical Intelligence. It is under active development and may still contain bugs.
 
 Currently implemented:
 
