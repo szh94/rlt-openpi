@@ -1,7 +1,7 @@
 #!/bin/bash
 # Evaluate the full trained model (Stage 1 RL token + Stage 2 actor).
 
-uv run python scripts/evaluate.py \
+python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
