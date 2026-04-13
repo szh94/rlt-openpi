@@ -16,6 +16,7 @@ import multiprocessing
 import typing
 
 import jax
+import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
 from openpi.models.model import Observation
@@ -33,6 +34,19 @@ def _collate_fn(items):
     return jax.tree.map(
         lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items
     )
+
+
+def _patch_repack_action_key(data_config, action_key: str):
+    """Rewrite the repack transform so `"actions"` reads from *action_key*."""
+    new_inputs = []
+    for t in data_config.repack_transforms.inputs:
+        if isinstance(t, _transforms.RepackTransform) and "actions" in t.structure:
+            patched = dict(t.structure)
+            patched["actions"] = action_key
+            t = _transforms.RepackTransform(patched)
+        new_inputs.append(t)
+    repack = _transforms.Group(inputs=new_inputs)
+    return dataclasses.replace(data_config, repack_transforms=repack)
 
 
 def build_data_loader(
@@ -73,6 +87,18 @@ def build_data_loader(
     data_config = config.data.create(config.assets_dirs, config.model)
 
     data_config = dataclasses.replace(data_config, repo_id=repo_id)
+
+    # Auto-detect the action column name in the LeRobot dataset.
+    # Standard LeRobot datasets use "action" (singular), while OpenPI's
+    # DROID conversion produces "actions" (plural).  Patch both
+    # action_sequence_keys and the repack transform so users don't have
+    # to rename anything.
+    meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+    if "action" in meta.features and "actions" not in meta.features:
+        data_config = dataclasses.replace(
+            data_config, action_sequence_keys=("action",)
+        )
+        data_config = _patch_repack_action_key(data_config, "action")
 
     if data_transforms is not None:
         logger.info("Overriding data_transforms with custom Group")

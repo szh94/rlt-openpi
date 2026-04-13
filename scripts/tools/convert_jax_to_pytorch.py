@@ -4,7 +4,7 @@
 Adapted from openpi's examples/convert_jax_model_to_pytorch.py.
 
 Usage:
-    uv run python scripts/convert_jax_to_pytorch.py \
+    uv run python scripts/tools/convert_jax_to_pytorch.py \
         --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid \
         --config-name pi05_droid_finetune \
         --output-path checkpoints/pi05_droid_pytorch

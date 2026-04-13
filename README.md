@@ -34,57 +34,58 @@ tests/               Unit tests for models, buffers, and training loop
 
 ## Installation
 
-Two install paths are supported. Pick based on which machine you're setting up.
-
-Common requirements:
-
-- Python ≥ 3.11
-- PyTorch 2.7.1 with CUDA
-- OpenPI (pinned to a specific GitHub rev — see `pyproject.toml`)
-
-### Path A: `uv` (development / Stage 1 training box)
-
-Use this on any plain GPU box where you just need to train the RL token or evaluate checkpoints — no real-robot dependencies involved.
-
 ```bash
 git clone https://github.com/yknxh/rlt-openpi.git
 cd rlt-openpi
-uv sync
-source .venv/bin/activate   # so the exp/ scripts can call `python` directly
-```
-
-### Path B: conda (robot machine with DROID)
-
-On the robot host, Stage 2 needs the [DROID](https://github.com/droid-dataset/droid) teleop stack, the Oculus reader, ZED camera bindings, and an opencv/protobuf fixup — none of which fit cleanly into a pure-`uv` project. A helper script wires everything up inside a conda env:
-
-```bash
-git clone https://github.com/yknxh/rlt-openpi.git
-cd rlt-openpi
-
-# Expects DROID already cloned at $HOME/franka_teleop.
-# Override the env name with: bash setup_conda_env.sh <env_name>
-bash setup_conda_env.sh
-
+bash setup_env.sh        # creates a conda env named 'rlt'
 conda activate rlt
 ```
 
-The script creates the env with Python 3.11, installs OpenPI + rlt-openpi + DROID + oculus_reader, pins opencv-contrib and numpy < 2.0, and patches `transformers` with OpenPI's `transformers_replace` files. Requires the ZED SDK at `/usr/local/zed` for pyzed bindings.
+The script creates a conda env with Python 3.11, installs OpenPI + rlt-openpi via `uv` (needed for OpenPI's deep dependency graph), and patches `transformers` with OpenPI's `transformers_replace` files.
 
-### Running the `exp/` scripts
+You can pass a custom env name: `bash setup_env.sh myenvname`.
 
-All scripts under `exp/` call plain `python`, not `uv run python`, so that the same script works in either install path. **Activate your environment first** (`source .venv/bin/activate` or `conda activate rlt`), then run e.g. `bash exp/stage1.sh`.
+### Installation on Robot Machine
+
+On a robot host running Stage 2 with [DROID](https://github.com/droid-dataset/droid), add `--robot` and set `DROID_DIR` to your local DROID clone to also install the DROID teleop stack, Oculus reader, ZED camera bindings, and opencv/protobuf fixups:
+
+```bash
+DROID_DIR=/path/to/droid bash setup_env.sh --robot
+conda activate rlt
+```
+
+Requires the ZED SDK at `/usr/local/zed` for pyzed bindings (skipped gracefully if not found).
 
 ---
 
 ## Checkpoints
 
-The example commands assume the π₀.₅ DROID PyTorch checkpoint at:
+Download an OpenPI checkpoint from the [OpenPI model zoo](https://github.com/Physical-Intelligence/openpi#checkpoints) (hosted on GCS at `gs://openpi-assets/checkpoints/`). The downloaded JAX/Orbax checkpoint needs to be converted to PyTorch:
 
-```
-$HOME/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch/model.safetensors
+```bash
+python scripts/tools/convert_jax_to_pytorch.py \
+    --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid \
+    --config-name pi05_droid_finetune \
+    --output-path checkpoints/pi05_droid_pytorch
 ```
 
-Any OpenPI checkpoint compatible with your chosen `--vla-config-name` will work — point `--train.vla-checkpoint-dir` / `--vla-checkpoint-dir` at whichever safetensors file you have. Converting OpenPI's JAX/Orbax checkpoints to PyTorch is handled by `scripts/convert_jax_to_pytorch.py` (out of scope for this README).
+This produces a `model.safetensors` file. Point `--train.vla-checkpoint-dir` / `--vla-checkpoint-dir` at it. Any OpenPI checkpoint compatible with your chosen `--vla-config-name` will work.
+
+---
+
+## Data
+
+Stage 1 training reads demonstrations in [LeRobot](https://github.com/huggingface/lerobot) format. The dataset is located by `repo_id` — LeRobot resolves it to `$HF_LEROBOT_HOME/<repo_id>/` on disk (default `~/.cache/huggingface/lerobot/<repo_id>/`).
+
+To use a **local dataset**, set the environment variable before launching training:
+
+```bash
+export HF_LEROBOT_HOME="/path/to/your/data"
+```
+
+For example, if your dataset lives at `/data/my_task_lerobot/`, set `HF_LEROBOT_HOME=/data` and pass `--repo-id my_task_lerobot`.
+
+For details on converting raw demonstrations to LeRobot format and computing normalization statistics, refer to the [OpenPI data preparation scripts](https://github.com/Physical-Intelligence/openpi/tree/main/scripts/data_prep) (`convert_to_lerobot.py` and `compute_norm_stats.py`).
 
 ---
 
