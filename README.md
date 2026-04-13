@@ -63,7 +63,7 @@ Requires the ZED SDK at `/usr/local/zed` for pyzed bindings (skipped gracefully 
 Download an OpenPI checkpoint from the [OpenPI model zoo](https://github.com/Physical-Intelligence/openpi#checkpoints) (hosted on GCS at `gs://openpi-assets/checkpoints/`). The downloaded JAX/Orbax checkpoint needs to be converted to PyTorch:
 
 ```bash
-python scripts/convert_jax_to_pytorch.py \
+python scripts/tools/convert_jax_to_pytorch.py \
     --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid \
     --config-name pi05_droid_finetune \
     --output-path checkpoints/pi05_droid_pytorch
