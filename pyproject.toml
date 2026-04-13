@@ -23,7 +23,7 @@ dependencies = [
 # Exclude to avoid wheel resolution failures across platforms.
 #
 # NOTE: [tool.uv.sources] below is uv-specific and is silently ignored by pip/conda.
-# If you are using conda, run setup_conda_env.sh instead of `pip install -e .`
+# If you are using conda, run setup_env.sh instead of `pip install -e .`
 # to ensure the real openpi is installed from GitHub rather than the PyPI placeholder.
 [tool.uv]
 override-dependencies = [
@@ -43,7 +43,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/rlt_openpi"]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.8"]
 
 [tool.ruff]
