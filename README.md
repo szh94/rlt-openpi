@@ -4,6 +4,8 @@ An implementation of **RL Token: Bootstrapping Online RL with Vision-Language-Ac
 
 Paper: https://pi.website/research/rlt
 
+![RLT method overview — data, VLA with RL token, online RL, and final RL policy tasks.](docs/rlt_overview.png)
+
 > **Note on the example environment.** The end-to-end commands, scripts under `exp/`, and the hardware sections below use a **Franka Panda + DROID + Oculus VR** setup as a concrete example — that's the rig this repo was developed against. RLT itself is environment-agnostic: the env, intervention manager, data transforms, and VLA checkpoint are all pluggable. If you are running against a different robot, simulator, dataset, or VLA configuration, substitute your own `--env-factory`, `--intervention-factory`, `--data-transforms-fn`, and `--vla-config-name` accordingly.
 
 ---
