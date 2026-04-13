@@ -1,6 +1,6 @@
 """Environment factory for Franka Panda with DROID.
 
-Requires the ``droid`` package (from franka_teleop) to be installed.
+Requires the ``droid`` package to be installed (see ``setup_env.sh --robot``).
 Cameras (ZED) must be connected to the machine running this script.
 The Franka robot is accessed via zerorpc (set ``nuc_ip`` in
 ``droid.misc.parameters`` to the CPU machine's IP).
@@ -8,7 +8,7 @@ The Franka robot is accessed via zerorpc (set ``nuc_ip`` in
 Usage::
 
     # Training
-    uv run python scripts/train_online_rl.py \\
+    python scripts/train_online_rl.py \\
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --task-prompt "pick up the cup" \\
         --action-dim 7 --chunk-length 10 \\
@@ -17,7 +17,7 @@ Usage::
         --rl-token-checkpoint /path/to/rl_token.pt
 
     # Evaluation
-    uv run python scripts/evaluate.py \\
+    python scripts/evaluate.py \\
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --task-prompt "pick up the cup" \\
         --checkpoint /path/to/online_rl.pt \\
@@ -50,9 +50,6 @@ def make_franka_env(
     Returns an ``rlt_openpi.rollout.robot_env.RobotEnv`` backed by
     DROID's ``RobotEnv`` for robot control and camera reading.
     """
-    import sys
-    sys.path.insert(0, "/home/alin/franka_teleop")
-    sys.path.insert(0, "/home/alin/franka_teleop/droid/fairo/polymetis/polymetis/python")
     from droid.robot_env import RobotEnv as DroidEnv
 
     from rlt_openpi.rollout.robot_env import RobotEnv

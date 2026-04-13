@@ -61,9 +61,6 @@ class VRInterventionManager(InterventionManager):
         self.control_hz = control_hz
         self._control_period = 1.0 / control_hz
 
-        import sys
-        sys.path.insert(0, "/home/alin/franka_teleop")
-        sys.path.insert(0, "/home/alin/franka_teleop/droid/fairo/polymetis/polymetis/python")
         from droid.controllers.oculus_controller import VRPolicy
 
         self.vr = VRPolicy()
