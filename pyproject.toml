@@ -34,8 +34,8 @@ override-dependencies = [
     "numpy>=2.1.0",
 ]
 
-[tool.uv.sources]
-openpi = { git = "https://github.com/Physical-Intelligence/openpi", rev = "fdc03f5" }
+#[tool.uv.sources]
+#openpi = { git = "https://github.com/Physical-Intelligence/openpi", rev = "fdc03f5" }
 
 [build-system]
 requires = ["hatchling"]

@@ -13,6 +13,10 @@
 #   DROID_DIR=/path/to/droid bash setup_env.sh --robot
 #   DROID_DIR=/path/to/droid bash setup_env.sh myenvname --robot
 #
+# Set OPENPI_DIR to point to a local openpi clone to skip the GitHub fetch:
+#
+#   OPENPI_DIR=/path/to/openpi bash setup_env.sh
+#
 # After setup:
 #   conda activate <env_name>
 #   bash exp/stage1.sh   # or stage2.sh, eval_*.sh, etc.
@@ -29,9 +33,17 @@ for arg in "$@"; do
 done
 
 OPENPI_REV="fdc03f5"
+OPENPI_DIR="${OPENPI_DIR:-}"        # set to local path to skip git clone
 DROID_DIR="${DROID_DIR:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OPENPI_URL="openpi @ git+https://github.com/Physical-Intelligence/openpi@${OPENPI_REV}"
+
+if [ -n "$OPENPI_DIR" ]; then
+    OPENPI_ABS_DIR="$(cd "$OPENPI_DIR" && pwd)"
+    OPENPI_URL="openpi @ ${OPENPI_ABS_DIR}"
+    echo "==> Using local openpi at ${OPENPI_ABS_DIR}"
+else
+    OPENPI_URL="openpi @ git+https://github.com/Physical-Intelligence/openpi@${OPENPI_REV}"
+fi
 
 # ── Core environment ───────────────────────────────────────────────────
 echo "==> Creating conda env '${ENV_NAME}' with Python 3.11..."
@@ -40,7 +52,11 @@ conda create -n "${ENV_NAME}" python=3.11 -y
 echo "==> Installing uv (fast resolver, required for openpi's deep dep graph)..."
 conda run -n "${ENV_NAME}" pip install uv
 
-echo "==> Installing openpi from GitHub (rev ${OPENPI_REV})..."
+if [ -n "${OPENPI_DIR}" ]; then
+    echo "==> Installing openpi from local path..."
+else
+    echo "==> Installing openpi from GitHub (rev ${OPENPI_REV})..."
+fi
 conda run -n "${ENV_NAME}" uv pip install "${OPENPI_URL}"
 
 echo "==> Installing rlt-openpi (with dev dependencies)..."
@@ -50,11 +66,11 @@ ${OPENPI_URL}
 EOF
 
 echo "==> Patching transformers with openpi's transformers_replace files..."
-OPENPI_DIR=$(conda run -n "${ENV_NAME}" python -c \
+OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import openpi, pathlib; print(pathlib.Path(openpi.__file__).parent)")
 TRANSFORMERS_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import transformers, pathlib; print(pathlib.Path(transformers.__file__).parent)")
-cp -r "${OPENPI_DIR}/models_pytorch/transformers_replace/"* "${TRANSFORMERS_DIR}/"
+cp -r "${OPENPI_PKG_DIR}/models_pytorch/transformers_replace/"* "${TRANSFORMERS_DIR}/"
 
 # ── Robot-specific dependencies (optional) ─────────────────────────────
 if [ "$INSTALL_ROBOT" = true ]; then
