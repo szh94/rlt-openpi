@@ -38,6 +38,10 @@ DROID_DIR="${DROID_DIR:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -n "$OPENPI_DIR" ]; then
+    if [ ! -d "$OPENPI_DIR" ]; then
+        echo "ERROR: OPENPI_DIR=${OPENPI_DIR} does not exist."
+        exit 1
+    fi
     OPENPI_ABS_DIR="$(cd "$OPENPI_DIR" && pwd)"
     OPENPI_URL="openpi @ ${OPENPI_ABS_DIR}"
     echo "==> Using local openpi at ${OPENPI_ABS_DIR}"
