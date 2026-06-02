@@ -539,7 +539,434 @@ rlt-openpi/
 
 ---
 
-## 5. 训练流程
+## 5. Stage 2 神经网络与机械臂数据交换详解
+
+Stage 2 的核心是从"摄像头图像 → GPU 推理 → 机器人关节指令 → 传感器反馈 → 训练更新"的完整闭环。下面逐层拆解数据如何通过网络流到物理机械臂。
+
+### 5.1 单次 Chunk 推理→执行数据流
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ RolloutWorker.collect_episode() 中的一个 chunk 循环                        │
+│                                                                          │
+│  ① env.reset() / obs = next_obs                                          │
+│     └── RobotEnv 调用 get_obs_fn()（用户提供的回调）                       │
+│         └── DROID 机器人栈读取:                                            │
+│             ├── 三台 ZED 摄像头 → 3× [480×640×3] uint8 图像               │
+│             ├── 关节编码器 → 7× float32 (关节角度)                         │
+│             └── 夹爪编码器 → 1× float32 (夹爪宽度)                        │
+│         └── 返回 dict: {"observation/joint_position": [...],              │
+│                         "observation/gripper_position": [...],            │
+│                         "observation/exterior_image_1_left": ndarray,     │
+│                         "observation/wrist_image_left": ndarray,          │
+│                         "observation/exterior_image_2_left": ndarray,     │
+│                         "prompt": "task instruction"}                     │
+│                                                                          │
+│  ② RolloutWorker._obs_to_vla_input(obs)                                   │
+│     └── VLAWrapper.preprocess_obs(obs)                                    │
+│         ├── DroidInputs: 按 DROID schema 提取命名图像到模型槽位           │
+│         ├── 注入默认 prompt（如果没有）                                    │
+│         ├── Normalize: 使用数据集 norm_stats 标准化图像/state              │
+│         ├── ResizeImages: [480×640] → [224×224]                          │
+│         ├── TokenizePrompt: 文本指令 → token IDs [1, ≤200]                │
+│         └── PadStatesAndActions: 补齐到固定长度                            │
+│     └── → Observation (包含 images, state, tokenized_prompt 等)           │
+│                                                                          │
+│  ③ RolloutWorker._extract_rl_state(obs) ← 核心 RL 状态构建                │
+│     ├── vla.extract_embeddings(vla_input)                                 │
+│     │   └── EmbeddingExtractor: prefix-only forward pass                  │
+│     │       ├── SigLIP ViT: 3×[224,224,3] → [1, 768, 2048]               │
+│     │       ├── Gemma embedder: token IDs → [1, ≤200, 2048]              │
+│     │       ├── concat → [1, ~968, 2048]                                 │
+│     │       └── PaliGemma LM 前向 (不跑 action expert, 不跑扩散)           │
+│     │   → z: [1, ~968, 2048] (VLA 所有前缀 token 的最终层嵌入)             │
+│     │                                                                     │
+│     ├── rl_token_model.encode(z, pad_mask)                                │
+│     │   └── RLTokenEncoder:                                               │
+│     │       ├── concat(z, e_rl) → [1, ~969, 2048]                        │
+│     │       ├── TransformerEncoder ×2 层 (双向注意力)                      │
+│     │       └── 取最后 [RL] 位置 → z_rl: [1, 2048]                        │
+│     │                                                                     │
+│     ├── vla.get_rl_chunk_reference(vla_input, C)                          │
+│     │   └── sample_actions → flow matching 10 步去噪 → a_tilde [1, 50, d] │
+│     │   └── 取前 C 步 → a_tilde_chunk: [1, C, d]                          │
+│     │   └── reshape → a_tilde_flat: [1, 1600]  (C=10, d=8)               │
+│     │                                                                     │
+│     └── s_p = vla_input.state[:, :d] → [1, 8] (本体感觉, 去掉 VLA 填充)   │
+│     └── x = torch.cat([z_rl, s_p], dim=-1) → [1, 2080]                   │
+│                                                                          │
+│  ④ RolloutWorker._get_actor_action(x, a_tilde_flat)                       │
+│     └── Actor(x_t, a_tilde_t)                                            │
+│         ├── a_tilde_input = a_tilde (eval 模式, 无 dropout)               │
+│         ├── residual = MLP(cat([x, a_tilde_input])) → MLP([1, 3680])     │
+│         │   ├── LayerNorm(3680)                                          │
+│         │   ├── Linear(3680→256) → ReLU                                  │
+│         │   ├── Linear(256→256) → ReLU                                   │
+│         │   └── Linear(256→320) ← 零初始化 → residual = 0 (初始)         │
+│         └── mu = a_tilde + residual → [1, 320]                           │
+│     └── reshape(10, 8) → action_chunk [10, 8]                            │
+│                                                                          │
+│  ⑤ env.step(action_chunk) ← 发送到物理机器人                               │
+│     └── RobotEnv.step()                                                   │
+│         for k in range(C=10):                                            │
+│           ├── self._step_fn(action_chunk[k])                              │
+│           │   └── DROID droid.step(action_7d)                             │
+│           │       └── [关节速度指令] → 电机驱动器 → 物理运动              │
+│           ├── HumanReward.check() ← 非阻塞键盘监听                        │
+│           │   ├── 's' → reward=1.0, done=True, success=True              │
+│           │   ├── 'f' → done=True, success=False                         │
+│           │   └── 'p' → reward=0.5, episode 继续                          │
+│           └── time.sleep(control_period) ← 保持 15Hz 控制频率             │
+│     └── 返回: next_obs (新传感器读数), rewards [10], done, info           │
+│                                                                          │
+│  ⑥ next_x, _ = RolloutWorker._extract_rl_state(next_obs)                 │
+│     └── 对新观测重复步骤②③ → next_x: [2080], a_tilde_flat_new: [1600]   │
+│                                                                          │
+│  ⑦ ReplayBuffer.add(x, a_flat, a_tilde_flat, rewards, next_x, done)     │
+│     └── x:         [2080]  ← 当前 RL 状态                                │
+│     └── a_flat:    [320]   ← Actor 实际执行的动作                        │
+│     └── a_tilde:   [320]   ← VLA 参考动作 (用于 BC 正则)                 │
+│     └── rewards:   [10]    ← 人类反馈的每步奖励                          │
+│     └── next_x:    [2080]  ← 执行 C 步后的 RL 状态                      │
+│     └── done:      [1]     ← 是否终止                                    │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Warmup 阶段数据流
+
+Warmup 与上述流程的区别仅在第④步：不使用 Actor，直接用 VLA 参考动作：
+
+```
+④ Warmup: action_chunk = VLA 参考动作 [C, d]  (无需 Actor 推理)
+           a_flat = action_chunk.reshape(-1)   [320]
+           其余步骤完全相同
+```
+
+Warmup 的目的是用 VLA 基础策略收集初始数据填充 ReplayBuffer（通常 250-1000 个 chunk），为后续 Actor-Critic 训练提供足够的"经验"。
+
+### 5.3 训练更新数据流（每 Episode 后）
+
+```
+RolloutWorker 收集完一个完整 episode 后（可能包含 N 个 chunk 循环）:
+
+OnlineRLTrainer.train() 内循环 (UTD=G, 默认 5 次):
+
+for g in range(G):                           ← 每条 episode 数据被复用 G 次
+    ┌───────────────────────────────────────────────────────────────────┐
+    │ ① ReplayBuffer.sample(B=256)                                      │
+    │   └── 从 buffer 随机均匀采样 256 条 transition:                    │
+    │       x:       [256, 2080]  ← RL 状态                             │
+    │       a:       [256, 320]   ← Actor 动作                          │
+    │       a_tilde: [256, 320]   ← VLA 参考动作                         │
+    │       rewards: [256, 10]    ← chunk 内每步奖励                     │
+    │       next_x:  [256, 2080]  ← 下一状态                            │
+    │       dones:   [256, 1]     ← 终止标志                            │
+    │                                                                   │
+    │ ② compute_td_target: TD target = r_discounted + γ^C·minQ_target  │
+    │   ┌── 折扣块回报: discount = γ^[0:C] → [0.99, 0.9801, ...]       │
+    │   │   discounted_return = (rewards × discount).sum()  [256, 1]   │
+    │   ├── next_a = target_actor(next_x, a_tilde)    [256, 320]        │
+    │   ├── target smoothing: noise = clip(N(0,0.2), -0.5, 0.5)        │
+    │   │   next_a = next_a + noise                     [256, 320]      │
+    │   └── next_q = target_critic_q_min(next_x, next_a) [256, 1]       │
+    │       td_target = discounted_return + γ^C·(1-done)·next_q [256,1] │
+    │                                                                   │
+    │ ③ Critic 更新 (每次执行)                                            │
+    │   ├── q1, q2 = critic(x, a)                    ← 在线 Q 网络      │
+    │   ├── c_loss = MSE(q1, td_target) + MSE(q2, td_target)            │
+    │   ├── c_loss.backward() → 梯度流入 critic.q1/q2.MLP 的所有参数    │
+    │   └── critic_optimizer.step() → 更新 Critic 权重                   │
+    │                                                                   │
+    │ ④ Actor 更新 (每 2 次 Critic 更新执行 1 次, Delayed Policy)        │
+    │   ├── a_actor = actor(x, a_tilde)               [256, 320]        │
+    │   │   注意: 这里训练模式 → ref_dropout 50% 可能置零 a_tilde       │
+    │   ├── q = critic.q_min(x, a_actor)              [256, 1]          │
+    │   ├── a_loss = -q.mean() + β·MSE(a_actor, a_tilde)                │
+    │   ├── a_loss.backward() → 梯度流入 actor.MLP 的所有参数           │
+    │   └── actor_optimizer.step() → 更新 Actor 权重                    │
+    │                                                                   │
+    │ ⑤ Polyak 目标网络更新 (每次执行)                                    │
+    │   └── critic.update_targets(tau=0.005)                            │
+    │       θ_target ← τ·θ_online + (1-τ)·θ_target                     │
+    └───────────────────────────────────────────────────────────────────┘
+```
+
+### 5.4 时序细节：控制频率 vs 训练频率
+
+```
+时间轴 (物理世界):
+                    ┌─── C 步执行 (~0.67s) ──┐
+  Episode: reset → | chunk1 | chunk2 | ... | chunk_N | → episode_done
+                    └─── 每步 ~67ms (15Hz) ──┘
+
+时间轴 (GPU 推理):
+  每 chunk 边界:
+  ├── VLA 前向 (embed + PaliGemma prefix):          ~50-100ms  (取决于 GPU)
+  ├── RL Token encode:                              ~1-2ms
+  ├── VLA 扩散采样 10 步 (参考动作):                  ~100-200ms
+  └── Actor 推理:                                    <1ms
+
+时间轴 (训练):
+  每 episode 收集完毕 (可能 30-150 chunks, 20-100 秒):
+  └── G=5 次 UTD 更新 (每次 ~5ms):                   ~25ms
+```
+
+关键点：推理与机器人执行是**串行**的（推理期间机器人等待），但训练是**异步**的（episode 收集完成后批量更新）。
+
+### 5.5 人类反馈集成
+
+```
+键盘奖励 (HumanReward):
+  物理世界: 人类看到机器人动作 → 按下 's'/'f'/'p'
+  代码世界: RobotEnv.step() 中每步调用 .check()
+           → 信号存入 rewards[C] 数组
+           → 's'/'f' 导致 done=True 结束 episode
+  训练信号: TD target = sum(γ^k·r_k) + ...  ← rewards 直接参与计算
+
+VR 干预 (VRInterventionManager):
+  物理世界: 人类握持 Oculus 手柄 → 机器人被接管
+  代码世界: check_intervention() 返回 True
+           → get_human_action() 返回 human_action
+           → env.step() 被跳过, human_action 直接作为 transition
+  训练信号: 干预动作正常存入 buffer
+           → Actor 的 BC 正则项 MSE(a, a_tilde) 拉向人类动作
+```
+
+---
+
+## 6. 网络参数详解
+
+### 6.1 Stage 1: RL Token 网络参数
+
+#### RLTokenEncoder
+
+| 层 | 变量名 | 输入维度 | 输出维度 | 参数量 | 公式 |
+|----|--------|---------|---------|--------|------|
+| e_rl (可学习 token) | `e_rl` | — | [1, 1, 2048] | 2,048 | 随机初始化 N(0,0.02) |
+| **Layer 1** | | | | | |
+| MultiheadAttention QKV | `transformer.layers.0.self_attn.in_proj_weight` | 2048 | 3×2048 | 12,582,912 | W_q, W_k, W_v 拼接 |
+| Attention 输出投影 | `transformer.layers.0.self_attn.out_proj.weight` | 2048 | 2048 | 4,194,304 | concat(heads)W_O |
+| LayerNorm1 (norm_first) | `transformer.layers.0.norm1.weight/bias` | 2048 | 2048 | 4,096 | γ, β |
+| FFN Linear1 | `transformer.layers.0.linear1.weight/bias` | 2048 | 8192 | 16,785,408 | W₁x + b₁ |
+| FFN Linear2 | `transformer.layers.0.linear2.weight/bias` | 8192 | 2048 | 16,779,264 | W₂·ReLU(·) + b₂ |
+| LayerNorm2 | `transformer.layers.0.norm2.weight/bias` | 2048 | 2048 | 4,096 | γ, β |
+| **Layer 1 小计** | | | | **50,350,080** | |
+| **Layer 2** (与 Layer 1 结构相同) | `transformer.layers.1.*` | 2048 | 2048 | 50,350,080 | |
+| **编码器总计** | | | | **100,702,208** | ≈ 100.7M |
+
+**每层注意力机制细化（nhead=8, head_dim=256）**:
+```
+QKV 拆分:  W_q ∈ ℝ^{2048×2048}, W_k ∈ ℝ^{2048×2048}, W_v ∈ ℝ^{2048×2048}
+           每个 head: 仅处理 256 维子空间
+           并行计算: score = Q_i·K_i^T/√256, output = softmax(score)·V_i
+
+FFN 扩展比: dim_feedforward / d_model = 8192 / 2048 = 4.0
+```
+
+#### RLTokenDecoder
+
+| 层 | 变量名 | 输入维度 | 输出维度 | 参数量 |
+|----|--------|---------|---------|--------|
+| **Layer 1** | | | | |
+| Self-Attention QKV | `transformer.layers.0.self_attn.in_proj_weight` | 2048 | 3×2048 | 12,582,912 |
+| Self-Attention 输出 | `transformer.layers.0.self_attn.out_proj.weight` | 2048 | 2048 | 4,194,304 |
+| Cross-Attention Q | `transformer.layers.0.multihead_attn.in_proj_weight` (q部分) | 2048 | 2048 | 4,194,304 |
+| Cross-Attention KV | `transformer.layers.0.multihead_attn.in_proj_weight` (k,v部分) | 2048 | 2×2048 | 8,388,608 |
+| Cross-Attention 输出 | `transformer.layers.0.multihead_attn.out_proj.weight` | 2048 | 2048 | 4,194,304 |
+| LayerNorm1 (self-attn) | `transformer.layers.0.norm1.weight/bias` | 2048 | 2048 | 4,096 |
+| LayerNorm2 (cross-attn) | `transformer.layers.0.norm2.weight/bias` | 2048 | 2048 | 4,096 |
+| FFN Linear1 | `transformer.layers.0.linear1.weight/bias` | 2048 | 8192 | 16,785,408 |
+| FFN Linear2 | `transformer.layers.0.linear2.weight/bias` | 8192 | 2048 | 16,779,264 |
+| LayerNorm3 | `transformer.layers.0.norm3.weight/bias` | 2048 | 2048 | 4,096 |
+| **Layer 1 小计** | | | | **67,131,392** |
+| **Layer 2** (与 Layer 1 结构相同) | `transformer.layers.1.*` | 2048 | 2048 | 67,131,392 |
+| h_phi 投影 | `h_phi.weight/bias` | 2048 | 2048 | 4,196,352 |
+| **解码器总计** | | | | **138,459,136** | ≈ 138.5M |
+
+#### RLTokenModel 总计
+
+| 组件 | 参数量 |
+|------|--------|
+| 编码器 (2 层 Transformer) | 100,702,208 |
+| e_rl 可学习 token | 2,048 |
+| 解码器 (2 层 Transformer + h_phi) | 138,459,136 |
+| **Stage 1 总参数量** | **239,163,392** ≈ **239.2M** |
+| *(其中推理时仅用编码器)* | *(100.7M)* |
+
+**训练成本**:
+- Frozen VLA 模式: 仅训练 239.2M 参数 (编码器+解码器)
+- 联合微调模式 (alpha>0): 额外训练 VLA 的所有 ~5B 参数
+- 默认配置 (batch=32, steps=5000): 单卡 A100 约 2-4 小时
+
+### 6.2 Stage 2: Actor 网络参数
+
+#### Actor MLP 结构（默认配置）
+
+```
+输入: x = cat(z_rl[2048], s_p[8], a_tilde_flat[1600]) = [3680]
+                                             ↓
+                              ┌─────────────────────────┐
+                              │ LayerNorm(3680)         │  ← γ, β: 7,360 参数
+                              │ weight=[3680], bias=[3680]│
+                              └──────────┬──────────────┘
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(3680 → 256)      │  ← 942,336 参数
+                              │ weight=[256, 3680]      │
+                              │ bias=[256]              │
+                              └──────────┬──────────────┘
+                                         ↓
+                                      ReLU
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(256 → 256)       │  ← 65,792 参数
+                              │ weight=[256, 256]       │
+                              │ bias=[256]              │
+                              └──────────┬──────────────┘
+                                         ↓
+                                      ReLU
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(256 → 320) ◄── 零初始化!
+                              │ weight=[320, 256]       │  ← 82,240 参数
+                              │ bias=[320]              │
+                              └──────────┬──────────────┘
+                                         ↓
+                              残差连接: mu = a_tilde + output
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Clamp [-1, 1]            │
+                              └─────────────────────────┘
+```
+
+| 层 | 变量名 | 输入 | 输出 | 参数量 | 初始化 |
+|----|--------|------|------|--------|--------|
+| LayerNorm | `mlp.net.0.weight/bias` | 3680 | 3680 | 7,360 | γ=1.0, β=0.0 |
+| Linear1 | `mlp.net.1.weight/bias` | 3680 | 256 | 942,336 | Xavier uniform |
+| Linear2 | `mlp.net.3.weight/bias` | 256 | 256 | 65,792 | Xavier uniform |
+| Linear3 (输出) | `mlp.net.5.weight/bias` | 256 | 320 | 82,240 | **零初始化** |
+| **Actor 总计** | | | | **1,097,728** | ≈ **1.1M** |
+
+**零初始化输出的意义**:
+- 训练开始时 residual=0 → mu = a_tilde → 策略 = VLA 参考动作
+- 避免初始阶段 Actor 输出随机动作导致 Critic Q 值崩塌
+- 随训练进行，残差逐渐学习到"修正量"
+
+### 6.3 Stage 2: Critic 网络参数
+
+#### 单个 QNetwork 结构
+
+```
+输入: cat(state[2080], action_chunk[320]) = [2400]
+                                             ↓
+                              ┌─────────────────────────┐
+                              │ LayerNorm(2400)         │  ← 4,800 参数
+                              └──────────┬──────────────┘
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(2400 → 256)      │  ← 614,656 参数
+                              └──────────┬──────────────┘
+                                         ↓
+                                      ReLU
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(256 → 256)       │  ← 65,792 参数
+                              └──────────┬──────────────┘
+                                         ↓
+                                      ReLU
+                                         ↓
+                              ┌─────────────────────────┐
+                              │ Linear(256 → 1)         │  ← 257 参数
+                              └──────────┬──────────────┘
+                                         ↓
+                                     Q 值 [1] (标量)
+```
+
+| 层 | 变量名 | 输入 | 输出 | 参数量 |
+|----|--------|------|------|--------|
+| LayerNorm | `q1.mlp.net.0.weight/bias` | 2400 | 2400 | 4,800 |
+| Linear1 | `q1.mlp.net.1.weight/bias` | 2400 | 256 | 614,656 |
+| Linear2 | `q1.mlp.net.3.weight/bias` | 256 | 256 | 65,792 |
+| Linear3 (输出) | `q1.mlp.net.5.weight/bias` | 256 | 1 | 257 |
+| **单 QNetwork** | | | | **685,505** |
+
+#### TwinQCritic 总计
+
+| 组件 | 参数量 | 是否训练 |
+|------|--------|---------|
+| q1 (online) | 685,505 | ✅ |
+| q2 (online) | 685,505 | ✅ |
+| q1_target (frozen) | 685,505 | ❌ (深拷贝, 冻结) |
+| q2_target (frozen) | 685,505 | ❌ (深拷贝, 冻结) |
+| **Critic 在线参数量** | **1,371,010** | ≈ **1.37M** |
+| **Critic 总计 (含 target)** | **2,742,020** | ≈ **2.74M** |
+
+### 6.4 Stage 2 训练参数量汇总
+
+| 组件 | 参数量 | 优化器 | 学习率 | 计算量 (FLOPs/step) |
+|------|--------|--------|--------|-------------------|
+| Actor | 1,097,728 | Adam | 3e-4 | ~2.4M × 256 = 614M |
+| Critic (online ×2) | 1,371,010 | Adam | 3e-4 | ~1.7M × 256 × 2 = 870M |
+| **在线训练总计** | **2,468,738** ≈ **2.47M** | | | ~1.5 GFLOPS/step |
+| 冻结 VLA + RL Token | ~5.24B | 不更新 | — | 仅在 rollout 时推理 |
+| **全系统总计 (推理时)** | **~5.24B** | — | — | VLA 前向为主 (~98%) |
+
+**对比**:
+- PI0.5 训练: ~5B 参数全部训练, 需数百 GPU
+- RLT Stage 2: 仅 2.47M 参数训练, 单 GPU 足够
+- 训练/推理瓶颈在 VLA 前向 (embedding extraction + diffusion sampling), 占 ~98% 计算时间
+
+### 6.5 输入/输出张量维度总表
+
+#### Stage 1 (RL Token 训练)
+
+| 变量 | 符号 | Shape (B=1) | Shape (B=32) | 说明 |
+|------|------|-------------|--------------|------|
+| VLA 前缀嵌入 | z | [1, ~968, 2048] | [32, ~968, 2048] | 图像768 + 文本~200 |
+| 可学习 RL token | e_rl | [1, 1, 2048] | — | 与 batch 无关 |
+| 编码器输入 | concat(z, e_rl) | [1, ~969, 2048] | [32, ~969, 2048] | 每 batch 拼接 |
+| RL Token 输出 | z_rl | [1, 2048] | [32, 2048] | 取最后位置 |
+| 解码器输入 | tgt | [1, ~968, 2048] | [32, ~968, 2048] | [z_rl, z_1, ..., z_{M-1}] |
+| 重构嵌入 | z_hat | [1, ~968, 2048] | [32, ~968, 2048] | h_phi(decoder_out) |
+| 掩码 MSE 损失 | loss | scalar | scalar | 仅有效位置 |
+
+#### Stage 2 (在线 RL, Actor/Critic)
+
+| 变量 | 符号 | Shape (单样本) | Shape (Batch=256) | 来自 |
+|------|------|----------------|-------------------|------|
+| RL Token | z_rl | [2048] | [256, 2048] | RLTokenEncoder |
+| 本体感觉 | s_p | [8] | [256, 8] | preprocessed obs state[:d] |
+| RL 状态 | x | [2080] | [256, 2080] | cat(z_rl, s_p) |
+| VLA 参考动作块 | a_tilde | [1600] | [256, 1600] | get_rl_chunk_reference, flatten |
+| **Actor 输入** | cat(x, a_tilde) | **[3680]** | **[256, 3680]** | |
+| Actor 残差 | residual | [320] | [256, 320] | MLP 输出 |
+| **Actor 输出** | mu = a_tilde + residual | **[320]** | **[256, 320]** | 10×8=320 |
+| **Critic 输入** | cat(x, a) | **[2400]** | **[256, 2400]** | |
+| Critic 输出 (Q1) | q1 | [1] | [256, 1] | |
+| Critic 输出 (Q2) | q2 | [1] | [256, 1] | |
+| TD target | y | [1] | [256, 1] | r + γ^C·minQ |
+| 折扣块奖励 | discounted_return | [1] | [256, 1] | sum(γ^k·r_k) |
+| Actor 损失 | L_π | scalar | scalar | -Q + β·MSE |
+| Critic 损失 | L_Q | scalar | scalar | MSE(q1,y)+MSE(q2,y) |
+
+### 6.6 内存占用估算
+
+| 组件 | 参数量 | 精度 | 显存占用 | 说明 |
+|------|--------|------|---------|------|
+| VLA 模型 (PI0.5) | ~5.0B | bfloat16 | ~9.4 GB | 冻结, 不存梯度 |
+| RL Token Encoder | 100.7M | float32 | ~384 MB | 推理时冻结 |
+| RL Token Decoder | 138.5M | float32 | ~529 MB | Stage 1 训练, Stage 2 丢弃 |
+| Actor | 1.1M | float32 | ~4.2 MB | |
+| Critic (online ×2) | 1.37M | float32 | ~5.2 MB | |
+| Critic (target ×2) | 1.37M | float32 | ~5.2 MB | 冻结 |
+| 优化器状态 (Actor) | 2×1.1M | float32 | ~8.4 MB | Adam: m + v |
+| 优化器状态 (Critic) | 2×1.37M | float32 | ~10.5 MB | Adam: m + v |
+| **Stage 2 总计** | | | **~9.8 GB** | 主要被 VLA 占据 |
+| Batch 数据 (256条) | — | float32 | ~5.6 MB | x, a, a_tilde 等 |
+
+---
+
+## 7. 训练流程
 
 ### 前置条件
 
