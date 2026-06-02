@@ -27,7 +27,7 @@ set -euo pipefail
 
 # ── Parse args ──────────────────────────────────────────────────────────
 INSTALL_ROBOT=false
-ENV_NAME="rlt"
+ENV_NAME="rl_token"
 for arg in "$@"; do
     case "$arg" in
         --robot) INSTALL_ROBOT=true ;;
@@ -36,21 +36,18 @@ for arg in "$@"; do
 done
 
 OPENPI_REV="fdc03f5"
-# === [用户配置] 本地 openpi 路径 ===
-# 如果设置了此路径，脚本将跳过 GitHub 克隆，直接安装本地 openpi。
-# 留空则从 GitHub 克隆（需联网）。
+# === [必须修改] 设置你的本地 openpi 路径 ===
+# 将下面 /home/path/to/openpi 替换为你的真实 openpi 克隆路径。
+# 脚本启动时会检查该路径是否存在，如果不存在将报错退出。
 #
-# 两种配置方式，选一种即可:
+# 如果保持为空 ""，则从 GitHub 克隆（需要联网）。
 #
-#   方式 A: 带默认值，仍允许命令行覆盖
-#       OPENPI_DIR="${OPENPI_DIR:-/home/path/to/openpi}"
-#       运行: OPENPI_DIR=/other/path bash setup_env.sh  ← 仍可临时切换
+# 示例:
+#   OPENPI_DIR="${OPENPI_DIR:-/home/user/code/openpi}"   # 改为你的真实路径
+#   运行时仍可用环境变量临时覆盖:
+#     OPENPI_DIR=/other/path bash setup_env.sh
 #
-#   方式 B: 直接写死，命令行无法覆盖
-#       OPENPI_DIR="/home/path/to/openpi"
-#       运行: bash setup_env.sh  ← 始终用此路径
-#
-OPENPI_DIR="${OPENPI_DIR:-}"
+OPENPI_DIR="${OPENPI_DIR:-/home/path/to/openpi}"   # ← 修改此路径！
 DROID_DIR="${DROID_DIR:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -66,26 +63,48 @@ else
     OPENPI_URL="openpi @ git+https://github.com/Physical-Intelligence/openpi@${OPENPI_REV}"
 fi
 
-# ── Core environment ───────────────────────────────────────────────────
-echo "==> Creating conda env '${ENV_NAME}' with Python 3.11..."
-conda create -n "${ENV_NAME}" python=3.11 -y
-
-echo "==> Installing uv (fast resolver, required for openpi's deep dep graph)..."
-conda run -n "${ENV_NAME}" pip install uv
-
-if [ -n "${OPENPI_DIR}" ]; then
-    echo "==> Installing openpi from local path..."
-else
-    echo "==> Installing openpi from GitHub (rev ${OPENPI_REV})..."
+# ── Check if env already exists ────────────────────────────────────────
+ENV_EXISTS=false
+if conda info --envs | grep -q "^${ENV_NAME}[[:space:]]"; then
+    ENV_EXISTS=true
 fi
-conda run -n "${ENV_NAME}" uv pip install "${OPENPI_URL}"
 
-echo "==> Installing rlt-openpi (with dev dependencies)..."
-conda run -n "${ENV_NAME}" uv pip install -e "${SCRIPT_DIR}[dev]" \
-    --overrides /dev/stdin <<EOF
+if [ "$ENV_EXISTS" = true ]; then
+    echo "==> Conda env '${ENV_NAME}' already exists. Skipping env creation and openpi install."
+    echo "==> Only installing rlt-openpi and patching transformers..."
+else
+    # ── Core environment (new) ──────────────────────────────────────────
+    echo "==> Creating conda env '${ENV_NAME}' with Python 3.11..."
+    conda create -n "${ENV_NAME}" python=3.11 -y
+
+    echo "==> Installing uv (fast resolver, required for openpi's deep dep graph)..."
+    conda run -n "${ENV_NAME}" pip install uv
+
+    if [ -n "${OPENPI_DIR}" ]; then
+        echo "==> Installing openpi from local path..."
+    else
+        echo "==> Installing openpi from GitHub (rev ${OPENPI_REV})..."
+    fi
+    conda run -n "${ENV_NAME}" uv pip install "${OPENPI_URL}"
+fi
+
+# ── Install rlt-openpi ────────────────────────────────────────────────
+# 新环境: 用 --overrides 指定 openpi 来源（覆盖 pyproject.toml 中的 openpi 依赖）
+# 已有环境: 直接安装，不碰已装好的 openpi
+if [ "$ENV_EXISTS" = true ]; then
+    echo "==> Installing rlt-openpi (without touching existing openpi)..."
+    conda run -n "${ENV_NAME}" uv pip install -e "${SCRIPT_DIR}[dev]" \
+        --no-deps 2>/dev/null \
+        || conda run -n "${ENV_NAME}" uv pip install -e "${SCRIPT_DIR}[dev]"
+else
+    echo "==> Installing rlt-openpi (with dev dependencies)..."
+    conda run -n "${ENV_NAME}" uv pip install -e "${SCRIPT_DIR}[dev]" \
+        --overrides /dev/stdin <<EOF
 ${OPENPI_URL}
 EOF
+fi
 
+# ── Patch transformers ────────────────────────────────────────────────
 echo "==> Patching transformers with openpi's transformers_replace files..."
 OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import openpi, pathlib; print(pathlib.Path(openpi.__file__).parent)")
