@@ -17,6 +17,9 @@
 #
 #   OPENPI_DIR=/path/to/openpi bash setup_env.sh
 #
+# Or hardcode your local path below (line 37) so you can just run:
+#   bash setup_env.sh
+#
 # After setup:
 #   conda activate <env_name>
 #   bash exp/stage1.sh   # or stage2.sh, eval_*.sh, etc.
@@ -33,7 +36,21 @@ for arg in "$@"; do
 done
 
 OPENPI_REV="fdc03f5"
-OPENPI_DIR="${OPENPI_DIR:-}"        # set to local path to skip git clone
+# === [用户配置] 本地 openpi 路径 ===
+# 如果设置了此路径，脚本将跳过 GitHub 克隆，直接安装本地 openpi。
+# 留空则从 GitHub 克隆（需联网）。
+#
+# 两种配置方式，选一种即可:
+#
+#   方式 A: 带默认值，仍允许命令行覆盖
+#       OPENPI_DIR="${OPENPI_DIR:-/home/path/to/openpi}"
+#       运行: OPENPI_DIR=/other/path bash setup_env.sh  ← 仍可临时切换
+#
+#   方式 B: 直接写死，命令行无法覆盖
+#       OPENPI_DIR="/home/path/to/openpi"
+#       运行: bash setup_env.sh  ← 始终用此路径
+#
+OPENPI_DIR="${OPENPI_DIR:-}"
 DROID_DIR="${DROID_DIR:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
