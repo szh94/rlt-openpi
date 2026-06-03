@@ -116,6 +116,7 @@ def main(config: TrainConfig) -> None:
     rl_logger = Logger.from_train_config(config.train)
 
     log.info("Loading demo dataset: %s", config.repo_id)
+
     data_loader = build_data_loader(
         openpi_config_name=config.train.vla_config_name,
         repo_id=config.repo_id,
@@ -125,9 +126,10 @@ def main(config: TrainConfig) -> None:
         data_transforms=data_transforms,
     )
 
+    print("Start to train RL token encoder-decoder...")
     trainer.train(vla, iter(data_loader), log_fn=rl_logger.log)
-    rl_logger.finish()
 
+    rl_logger.finish()
 
 if __name__ == "__main__":
     main(tyro.cli(TrainConfig))
