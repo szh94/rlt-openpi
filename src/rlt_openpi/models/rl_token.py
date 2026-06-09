@@ -13,25 +13,19 @@ from torch import Tensor
 
 
 class RLTokenEncoder(nn.Module):
-    """Encode VLA embeddings into a single RL token.
-
-    Appends a learnable e_rl token to z_{1:M}, processes through a
-    TransformerEncoder, and extracts the output at the RL position.
-
-    Args:
-        embedding_dim: Dimension of VLA embeddings (default 2048).
-        num_layers: Number of transformer encoder layers.
-        num_heads: Number of attention heads.
-    """
-
     def __init__(
         self,
         embedding_dim: int = 2048,
         num_layers: int = 2,
         num_heads: int = 8,
+        max_position_embeddings: int = 1024, # 预设一个足够大的最大Token数
     ) -> None:
         super().__init__()
         self.e_rl = nn.Parameter(torch.randn(1, 1, embedding_dim) * 0.02)
+        
+        # 💡 新增：Encoder的位置编码 (包括M个位置 + 1个RL位置)
+        self.pos_embeddings = nn.Embedding(max_position_embeddings, embedding_dim)
+        
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=embedding_dim,
             nhead=num_heads,
@@ -45,27 +39,19 @@ class RLTokenEncoder(nn.Module):
         )
 
     def forward(self, z: Tensor, pad_mask: Tensor) -> Tensor:
-        """Encode VLA embeddings into z_rl.
-
-        Args:
-            z: VLA embeddings [B, M, D] (should be detached / stop-grad).
-            pad_mask: Boolean mask [B, M] (True = valid token).
-
-        Returns:
-            z_rl: RL token [B, D].
-        """
-        B = z.shape[0]
+        B, M, D = z.shape
 
         # Append learnable e_rl token: [B, M+1, D]
         e_rl = self.e_rl.expand(B, -1, -1)
         tokens = torch.cat([z, e_rl], dim=1)
 
+        # 💡 新增：为输入注入位置编码
+        pos_indices = torch.arange(M + 1, device=z.device).unsqueeze(0).expand(B, -1)
+        tokens = tokens + self.pos_embeddings(pos_indices)
+
         # Extend pad_mask for the RL token (always valid)
         rl_mask = torch.ones(B, 1, dtype=torch.bool, device=z.device)
         extended_pad_mask = torch.cat([pad_mask, rl_mask], dim=1)
-
-        # TransformerEncoder uses src_key_padding_mask where True = IGNORE
-        # Our pad_mask has True = valid, so invert it
         ignore_mask = ~extended_pad_mask
 
         out = self.transformer(tokens, src_key_padding_mask=ignore_mask)
@@ -76,25 +62,18 @@ class RLTokenEncoder(nn.Module):
 
 
 class RLTokenDecoder(nn.Module):
-    """Reconstruct VLA embeddings from the RL token.
-
-    Uses teacher-forced input [z_rl, z_1, ..., z_{M-1}] with causal masking.
-    Cross-attends to z_rl as memory. Linear projection h_phi maps back to
-    embedding space.
-
-    Args:
-        embedding_dim: Dimension of VLA embeddings (default 2048).
-        num_layers: Number of transformer decoder layers.
-        num_heads: Number of attention heads.
-    """
-
     def __init__(
         self,
         embedding_dim: int = 2048,
         num_layers: int = 2,
         num_heads: int = 8,
+        max_position_embeddings: int = 1024,
     ) -> None:
         super().__init__()
+        
+        # 💡 新增：Decoder的位置编码
+        self.pos_embeddings = nn.Embedding(max_position_embeddings, embedding_dim)
+        
         decoder_layer = nn.TransformerDecoderLayer(
             d_model=embedding_dim,
             nhead=num_heads,
@@ -109,26 +88,16 @@ class RLTokenDecoder(nn.Module):
         self.h_phi = nn.Linear(embedding_dim, embedding_dim)
 
     def forward(self, z_rl: Tensor, z: Tensor, pad_mask: Tensor) -> Tensor:
-        """Reconstruct VLA embeddings from z_rl.
-
-        Teacher-forced input: [z_rl, z_1, ..., z_{M-1}] (shifted right).
-        Output at position i predicts z_i.
-
-        Args:
-            z_rl: RL token [B, D].
-            z: Original VLA embeddings [B, M, D] (stop-grad).
-            pad_mask: Boolean mask [B, M] (True = valid token).
-
-        Returns:
-            z_hat: Reconstructed embeddings [B, M, D].
-        """
+        B, M, D = z.shape
+        
         # Teacher-forced input: [z_rl, z_1, ..., z_{M-1}]
-        # Position 0 input = z_rl, position i input = z_{i-1}
-        # Output at position i should reconstruct z_i
         tgt = torch.cat([z_rl.unsqueeze(1), z[:, :-1, :]], dim=1)  # [B, M, D]
 
-        # Causal mask: position i can only attend to positions <= i
-        M = tgt.shape[1]
+        # 💡 新增：为 Decoder 的 tgt 注入显式的位置编码，建立强烈的坐标秩序
+        pos_indices = torch.arange(M, device=z.device).unsqueeze(0).expand(B, -1)
+        tgt = tgt + self.pos_embeddings(pos_indices)
+
+        # Causal mask
         causal_mask = nn.Transformer.generate_square_subsequent_mask(
             M,
             device=tgt.device,
@@ -137,7 +106,7 @@ class RLTokenDecoder(nn.Module):
         # Memory = z_rl as a single token for cross-attention
         memory = z_rl.unsqueeze(1)  # [B, 1, D]
 
-        # Padding mask for target: same as input (True = IGNORE for pytorch)
+        # 💡 优化：把这唯一的 memory 也染上位置色彩（或者这里可以保持干净，但 tgt 必须有位置信息）
         tgt_key_padding_mask = ~pad_mask
 
         out = self.transformer(

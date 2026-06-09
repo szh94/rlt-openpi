@@ -427,3 +427,88 @@ RL Token 的 encoder-decoder 训练本质上是一个**自监督的表示压缩*
 代码层面实现了两种训练模式：
 1. **Frozen模式**: VLA完全冻结，只训练 encoder-decoder，适用于快速原型验证
 2. **Joint模式**: 通过精巧的计算图分离设计，在一次backward中同时更新 encoder-decoder 和 VLA，适用于需要调优VLA表示的场景
+
+---
+
+## 附：Encoder-Decoder 架构的范式与变动空间
+
+### 问题
+
+Encoder-Decoder 架构有什么固定的范式吗？还是说有比较大的修改变动空间？
+
+### 回答
+
+#### 一、唯一"固定"的核心范式
+
+```
+输入 z_{1:M} (变长, D=2048)
+  → Encoder (自注意力) → z_rl (单向量, D=2048)  ← 信息瓶颈
+  → Decoder (自注意力 + 交叉注意力) → z_hat (重建)
+  → Masked MSE Loss
+```
+
+这个范式是固定的，但**除此之外几乎全是可变的**。
+
+#### 二、巨大的改动空间
+
+##### 1. 瓶颈的构建方式（最核心的设计选择）
+
+| 方式 | 当前项目做法 | 其他可能方案 |
+|------|------------|------------|
+| **如何得到隐变量** | 追加可学习 `e_rl` token，用 encoder 输出 | 平均池化、注意力池化、Perceiver Resampler、Q-Former 式查询 |
+| **隐变量维度** | 单向量 (1×2048) | 多向量 (N×D)、更低维 (如 512)、更高维 |
+| **隐变量性质** | 连续确定向量 | 离散编码 (VQ-VAE)、随机变量 (VAE, 加 KL 散度)、扩散潜变量 |
+
+举例 — 用 Perceiver Resampler（Flamingo 架构）替代单 token 瓶颈：
+```python
+# 用 N 个可学习查询向量通过交叉注意力从 z 中提取信息
+queries = nn.Parameter(torch.randn(1, N, D))  # e_rl 的推广版本
+z_rl = cross_attn(queries, z, z)  # [B, N, D]
+```
+这样能得到多个 RL token，信息容量更大。
+
+##### 2. Encoder 架构
+
+| 当前 | 可替换为 |
+|------|---------|
+| `nn.TransformerEncoder` (2层, 8头, FFN=4D) | 更深/更浅、MLP-Mixer、Mamba (状态空间模型)、RWKV、甚至 CNN |
+| 双向自注意力 | 因果自注意力、带相对位置编码 |
+
+##### 3. Decoder 架构
+
+| 当前 | 可替换为 |
+|------|---------|
+| `nn.TransformerDecoder` + causal mask | 双向解码（非自回归）、迭代精炼、扩散解码 |
+| Teacher forcing（右移输入） | 从头生成（用起始符）、MLP 直接映射 |
+| 交叉注意力到 `z_rl` | 把 `z_rl` concat 到 decoder 输入、自适应层归一化 (AdaLN) |
+
+##### 4. 损失函数
+
+| 当前 | 可替换为 |
+|------|---------|
+| Masked MSE | 余弦相似度、对比损失 (InfoNCE)、感知损失、加 KL 散度做 VAE、GAN 式判别器 |
+
+##### 5. 训练方式
+
+| 当前 | 可替换为 |
+|------|---------|
+| 仅重建 loss | 联合 VLA loss 微调（`vla_finetune_alpha` 已支持）、对比学习、next-token prediction |
+
+#### 三、对 RL Token 项目最有意义的改动方向
+
+**1. 瓶颈容量** — 当前 `z_rl` 是单个 2048 维向量。对于复杂任务，1 个 token 可能不够。可以用 4-8 个 token 做瓶颈（类似 Perceiver 或 Q-Former），decoder 通过交叉注意力读取。这会增加 actor 的输入维度，但信息更丰富。
+
+**2. Encoder/Decoder 层数** — 当前各 2 层。如果 VLA 的 prefix embedding 序列很长（如 256+ tokens），增加 encoder 层数（如 4-6 层）有助于更好地压缩。如果序列短，1 层可能就够。
+
+**3. 瓶颈结构** — 如果用 VAE 式（预测均值+方差，加 KL loss），`z_rl` 就变成一个分布采样，RL 训练时天然有随机性，可能比 actor 加探索噪声更稳定。
+
+**4. Decoder 结构** — 当前 decoder 用 teacher forcing 自回归地重建。但重建质量对下游 RL 真的重要吗？可能直接用一个简单的 MLP 把 `z_rl` 映射回 `z_hat`（去掉 decoder 中的自注意力），训练更快，效果未必差。
+
+#### 四、总结
+
+```
+Encoder-Decoder 的"固定"核心:  输入 → 瓶颈 → 重建
+Encoder-Decoder 的"变动"空间:  瓶颈形式 / 架构 / 损失 / 训练方式 → 几乎无限
+```
+
+当前项目实现的是**一种经典且可靠的方案**（标准 Transformer + MSE），但瓶颈如何构造、损失如何设计、要不要重建，都是可以大改的点。
