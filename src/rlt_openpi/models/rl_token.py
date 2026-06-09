@@ -148,6 +148,7 @@ class RLTokenModel(nn.Module):
         self.encoder = RLTokenEncoder(embedding_dim, encoder_layers, encoder_heads)
         self.decoder = RLTokenDecoder(embedding_dim, decoder_layers, decoder_heads)
         self.cosine_weight = cosine_weight
+        self.norm = nn.LayerNorm(embedding_dim)  # 输入归一化，稳定训练
 
     def forward(
         self,
@@ -165,18 +166,19 @@ class RLTokenModel(nn.Module):
             z_rl: Encoded RL token [B, D].
             z_hat: Reconstructed embeddings [B, M, D].
         """
-        # Stop gradient on VLA embeddings
+        # Stop gradient on VLA embeddings, then normalize
         z = z.detach()
+        z_norm = self.norm(z)  # LayerNorm across D dim
 
-        z_rl = self.encoder(z, pad_mask)
-        z_hat = self.decoder(z_rl, z, pad_mask)
+        z_rl = self.encoder(z_norm, pad_mask)
+        z_hat = self.decoder(z_rl, z_norm, pad_mask)
 
         # Masked MSE: only compute loss on valid (non-padded) positions
-        mse = (z_hat - z).pow(2).mean(dim=-1)  # [B, M]
+        mse = (z_hat - z_norm).pow(2).mean(dim=-1)  # [B, M]
         masked_mse = mse * pad_mask.float()  # zero out padded positions
 
-        # Masked cosine similarity loss: 1 - cos(z_hat, z), direction alignment
-        cos_sim = F.cosine_similarity(z_hat, z, dim=-1)  # [B, M], range [-1, 1]
+        # Masked cosine similarity loss: 1 - cos(z_hat, z_norm), direction alignment
+        cos_sim = F.cosine_similarity(z_hat, z_norm, dim=-1)  # [B, M], range [-1, 1]
         loss_cos = (1.0 - cos_sim) * pad_mask.float()
 
         # Average over valid tokens
@@ -196,4 +198,4 @@ class RLTokenModel(nn.Module):
         Returns:
             z_rl: RL token [B, D].
         """
-        return self.encoder(z, pad_mask)
+        return self.encoder(self.norm(z), pad_mask)

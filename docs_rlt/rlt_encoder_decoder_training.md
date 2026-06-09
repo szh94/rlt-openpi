@@ -413,7 +413,7 @@ checkpoint = {
 | `z_hat` | `[B, M, 2048]` | decoder 重构的 embeddings |
 | `e_rl` | `[1, 1, 2048]` | 可学习的 RL token embedding |
 | `actions` | `[B, H, action_dim]` | ground-truth 演示动作 |
-| `loss` | scalar | masked MSE 重构损失 |
+| `loss` | scalar | masked MSE + cosine 联合重构损失 |
 | `l_vla` | scalar | VLA flow-matching 损失 (joint mode) |
 | `ignore_mask` | `[B, M+1]` | ~extended_pad_mask (PyTorch convention) |
 | `causal_mask` | `[M, M]` | decoder 因果注意力掩码 |
@@ -486,7 +486,9 @@ z_rl = cross_attn(queries, z, z)  # [B, N, D]
 
 | 当前 | 可替换为 |
 |------|---------|
-| Masked MSE | 余弦相似度、对比损失 (InfoNCE)、感知损失、加 KL 散度做 VAE、GAN 式判别器 |
+| Masked MSE + Cosine Similarity（已实现） | 对比损失 (InfoNCE)、感知损失、加 KL 散度做 VAE、GAN 式判别器 |
+
+> **已更新**: 当前代码已将纯 MSE 升级为 **MSE + Cosine 联合损失**，详见下文「附：MSE + Cosine 联合训练范式」。
 
 ##### 5. 训练方式
 
@@ -511,4 +513,140 @@ Encoder-Decoder 的"固定"核心:  输入 → 瓶颈 → 重建
 Encoder-Decoder 的"变动"空间:  瓶颈形式 / 架构 / 损失 / 训练方式 → 几乎无限
 ```
 
-当前项目实现的是**一种经典且可靠的方案**（标准 Transformer + MSE），但瓶颈如何构造、损失如何设计、要不要重建，都是可以大改的点。
+当前项目实现的是**一种经典且可靠的方案**（标准 Transformer + MSE + Cosine），但瓶颈如何构造、损失如何设计、要不要重建，都是可以大改的点。
+
+---
+
+## 附：MSE + Cosine 联合训练范式
+
+### 为什么需要 Cosine Loss？
+
+在高维 embedding 空间（D=2048）中：
+
+| | MSE | Cosine |
+|---|---|---|
+| 关注点 | 逐元素数值大小 + 方向 | 仅方向（向量夹角） |
+| 对 magnitude 敏感 | 是 | 否 |
+| 对方向偏差敏感 | 中等 | 非常敏感 |
+
+- **MSE 约束幅度**：要求 `z_hat` 每个维度值和 `z` 接近，保证数值范围一致
+- **Cosine 对齐方向**：在高维空间中"指向同一方向"比"每个坐标都对"更重要，cosine 更能捕捉语义层面的相似性
+
+**纯 MSE 的问题**：可能得到一个"模长偏小但数值接近"的向量
+**纯 Cosine 的问题**：可以重建出一个方向正确但模长完全不对的向量
+**组合使用**：既保证方向正确（语义保留），又保证数值范围匹配（便于下游 actor 使用）
+
+### 代码实现
+
+文件 `src/rlt_openpi/models/rl_token.py`，核心改动：
+
+```python
+# RLTokenModel.__init__ 新增参数
+cosine_weight: float = 0.1   # 0 = 退化为纯 MSE，向后兼容
+
+# forward 中的联合 loss 计算
+mse = (z_hat - z).pow(2).mean(dim=-1)                     # [B, M] MSE
+cos_sim = F.cosine_similarity(z_hat, z, dim=-1)            # [B, M], range [-1,1]
+loss_cos = (1.0 - cos_sim) * pad_mask.float()              # [B, M], cos=1时loss=0
+
+num_valid = pad_mask.float().sum().clamp(min=1.0)
+loss = (masked_mse.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
+```
+
+### 使用方式
+
+- `cosine_weight=0` → 退化为纯 MSE（向后兼容旧行为）
+- `cosine_weight=0.1` → 默认值，MSE 为主，cosine 提供方向辅助信号
+- `cosine_weight=1.0` → MSE 和 cosine 等权重
+
+---
+
+## 附：MAE vs VAE vs RL Token 架构对比
+
+三者都遵循 encode → bottleneck → decode 的结构，但**瓶颈设计**和**训练目标**完全不同。
+
+```
+输入 ──► Encoder ──► Bottleneck ──► Decoder ──► 输出
+                        │
+                        ▼
+                 核心差异在这里
+```
+
+### MAE (Masked Autoencoder)
+
+```
+输入图像 → Encoder(只看25%可见patch) → Decoder(可见latent + 75%mask token) → 重建完整图像
+                                              ↑
+                                       只算被mask位置的loss
+```
+
+- Encoder 只处理**未被 mask 的 patch**（高效）
+- Decoder 输入 = encoder 输出的 latent + 可学习的 `[MASK]` token 填充被 mask 的位置
+- **只对被 mask 的位置算 loss**，迫使模型从少量可见信息推断全局
+
+### VAE (Variational Autoencoder)
+
+```
+输入 → Encoder → μ, σ → 采样 z = μ + ε·σ → Decoder → 重建输出
+                     ↑                    ↑
+                  N(0,1)先验          KL( N(μ,σ²) || N(0,1) ) 约束
+```
+
+- 瓶颈不是固定向量，而是一个**概率分布**
+- 训练时从分布采样 `z`（reparameterization trick: `z = μ + ε·σ`）
+- Loss = **重建 loss + KL 散度**，KL 项迫使隐空间接近标准正态分布
+- 推理时可以从 N(0,1) 随机采样生成新样本
+
+### 对比总结
+
+| | MAE | VAE | RL Token |
+|---|---|---|---|
+| **瓶颈形式** | 可见 patch 的 latent + mask token | 均值 μ 和方差 σ（分布） | 单个 learnable token `e_rl` |
+| **瓶颈维度** | 同输入维度（部分 masked） | 压缩到隐变量 z ~ N(μ, σ²) | 1×D 固定向量 |
+| **Decoder 输入** | 可见 latent + 被 mask 的位置 | 从分布中采样 z | `z_rl` 作为 memory（交叉注意力） |
+| **训练目标** | 只重建被 mask 的区域 (MSE) | 重建 + KL 散度约束 | 重建全部 token（MSE + cosine） |
+| **瓶颈性质** | 确定性（部分缺失） | 随机性（分布采样） | 确定性（固定压缩） |
+
+### RL Token 与 MAE/VAE 的关系
+
+| 借鉴 MAE 的 | 借鉴 VAE 的 |
+|---|---|
+| Encoder-Decoder 结构 | 信息瓶颈压缩思想 |
+| 重建 loss 作为训练信号 | 把变长序列压缩成固定表示 |
+| 用 pad_mask 忽略无效位置（类似 MAE 只算 masked 区域） | — |
+
+关键区别：RL Token 的瓶颈是**确定性的**（单个 `z_rl` 向量），不是 MAE 的 mask-then-predict，也不是 VAE 的概率采样。如果未来要加探索，可以把 VAE 的采样机制引入——让 `z_rl` 从分布中采样，RL 时天然带随机性。
+
+---
+
+## 附：关键代码行解读
+
+### `pos_indices = torch.arange(M + 1, device=z.device).unsqueeze(0).expand(B, -1)`
+
+逐步骤拆解（见于 `RLTokenEncoder.forward`）：
+
+```python
+# 1. torch.arange(M + 1, device=z.device)
+#    创建 1D tensor: [0, 1, 2, ..., M]
+#    M+1 是序列长度（M 个 VLA token + 1 个 RL token）
+
+# 2. .unsqueeze(0)
+#    [M+1] → [1, M+1]，增加 batch 维度
+#    内容: [[0, 1, 2, ..., M]]
+
+# 3. .expand(B, -1)
+#    [1, M+1] → [B, M+1]
+#    -1 表示该维度保持不变
+#    在 batch 维度上重复 B 次（不复制内存，只是 view）
+
+# 最终结果: shape [B, M+1]
+# [[0, 1, 2, ..., M],
+#  [0, 1, 2, ..., M],
+#  ...
+#  [0, 1, 2, ..., M]]   # B 行完全一致
+```
+
+**用途**：每个样本在 batch 中使用相同的位置索引 `[0..M]`，通过 `self.pos_embeddings(pos_indices)` 查表得到位置编码，注入到 token 序列中。对应的 Decoder 版本使用 `torch.arange(M)`（不包含 RL token 位置）。
+
+**为什么不用 `torch.arange(M+1).expand(B, -1)`直接写？**
+- `.expand()` 需要源 tensor 的第一个维度为 1 才能广播，`torch.arange(M+1)` 的 shape 是 `[M+1]`，没有 batch 维度，直接 expand 会报错。必须先 `unsqueeze(0)` 变成 `[1, M+1]`。
