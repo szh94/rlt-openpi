@@ -2,13 +2,14 @@
 
 Compresses variable-length VLA prefix embeddings z_{1:M} into a single
 fixed-size RL token z_rl via an information bottleneck, and reconstructs
-the original embeddings to train the bottleneck via masked MSE loss.
+the original embeddings to train the bottleneck via masked MSE + cosine loss.
 
 Paper reference: "RL Token: Bootstrapping Online RL with VLA Models"
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -141,10 +142,12 @@ class RLTokenModel(nn.Module):
         encoder_heads: int = 8,
         decoder_layers: int = 2,
         decoder_heads: int = 8,
+        cosine_weight: float = 0.1,
     ) -> None:
         super().__init__()
         self.encoder = RLTokenEncoder(embedding_dim, encoder_layers, encoder_heads)
         self.decoder = RLTokenDecoder(embedding_dim, decoder_layers, decoder_heads)
+        self.cosine_weight = cosine_weight
 
     def forward(
         self,
@@ -172,9 +175,13 @@ class RLTokenModel(nn.Module):
         mse = (z_hat - z).pow(2).mean(dim=-1)  # [B, M]
         masked_mse = mse * pad_mask.float()  # zero out padded positions
 
+        # Masked cosine similarity loss: 1 - cos(z_hat, z), direction alignment
+        cos_sim = F.cosine_similarity(z_hat, z, dim=-1)  # [B, M], range [-1, 1]
+        loss_cos = (1.0 - cos_sim) * pad_mask.float()
+
         # Average over valid tokens
-        num_valid = pad_mask.float().sum()
-        loss = masked_mse.sum() / num_valid.clamp(min=1.0)
+        num_valid = pad_mask.float().sum().clamp(min=1.0)
+        loss = (masked_mse.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
 
         return loss, z_rl, z_hat
 
