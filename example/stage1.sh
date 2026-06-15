@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export WANDB_MODE=disabled
+
 CHECKPOINT_DIR="$HOME/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch/model.safetensors"
 export HF_LEROBOT_HOME="/home/nyk7535/data"
 

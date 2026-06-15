@@ -170,8 +170,15 @@ class RLTokenModel(nn.Module):
         z = z.detach()
         z_norm = self.norm(z)  # LayerNorm across D dim
 
+        # Save stats for potential denormalization
+        self._last_mean = z.mean(dim=-1, keepdim=True)      # [B, M, 1]
+        self._last_var = z.var(dim=-1, unbiased=False, keepdim=True)  # [B, M, 1]
+
         z_rl = self.encoder(z_norm, pad_mask)
         z_hat = self.decoder(z_rl, z_norm, pad_mask)
+
+        # Denormalize z_hat back to original space for comparison with z
+        z_hat_denorm = self._denorm(z_hat)
 
         # Masked MSE: only compute loss on valid (non-padded) positions
         mse = (z_hat - z_norm).pow(2).mean(dim=-1)  # [B, M]
@@ -186,6 +193,19 @@ class RLTokenModel(nn.Module):
         loss = (masked_mse.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
 
         return loss, z_rl, z_hat
+
+    def _denorm(self, z_norm: Tensor) -> Tensor:
+        """Inverse of LayerNorm: map z_norm back to original space.
+
+        z_norm = (z - mean) / sqrt(var + eps) * gamma + beta
+        => z = (z_norm - beta) / gamma * sqrt(var + eps) + mean
+        """
+        mean = self._last_mean      # [B, M, 1]
+        var = self._last_var        # [B, M, 1]
+        eps = self.norm.eps
+        gamma = self.norm.weight    # [D]
+        beta = self.norm.bias       # [D]
+        return (z_norm - beta) / gamma * torch.sqrt(var + eps) + mean
 
     @torch.no_grad()
     def encode(self, z: Tensor, pad_mask: Tensor) -> Tensor:
