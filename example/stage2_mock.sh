@@ -7,19 +7,19 @@ set -euo pipefail
 # Usage:
 #   bash example/stage2_mock.sh
 
-VLA_CKPT="${VLA_CKPT:-checkpoints/pi05_droid_pytorch/model.safetensors}"
-RL_TOKEN_CKPT="${RL_TOKEN_CKPT:-checkpoints/rl_token/rl_token_step3000.pt}"
+VLA_CHECKPOINT="/home/zhike/model/openpi_pytorch/30000/model.safetensors"
+RLT_CHECKPOINT="checkpoints/rl_token/run_20260615_160105/rl_token_step10000.pt"
 
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"
-echo "   VLA checkpoint  = $VLA_CKPT"
-echo "   RLToken ckpt    = $RL_TOKEN_CKPT"
+echo "   VLA checkpoint  = $VLA_CHECKPOINT"
+echo "   RLToken ckpt    = $RLT_CHECKPOINT"
 echo "========================================"
 
 python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CKPT" \
-    --rl-token-checkpoint "$RL_TOKEN_CKPT" \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
+    --rl-token-checkpoint "$RLT_CHECKPOINT" \
     --save-dir checkpoints/online_rl \
     --task-prompt "stack the three blocks on the tray" \
     --max-env-steps 31500 \
