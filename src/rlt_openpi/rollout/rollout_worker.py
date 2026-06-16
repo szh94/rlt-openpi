@@ -8,6 +8,7 @@ human intervention.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,6 +21,8 @@ from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.rollout.intervention import InterventionManager, InterventionResult
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,6 +67,8 @@ class RolloutWorker:
         chunk_length: int,
         action_dim: int,
         device: torch.device | str = "cuda",
+        max_deviation: float = 0.3,
+        deviation_abort_threshold: float = 0.8,
     ) -> None:
         self.env = env
         self.vla = vla
@@ -74,6 +79,8 @@ class RolloutWorker:
         self.chunk_length = chunk_length
         self.action_dim = action_dim
         self.device = torch.device(device)
+        self.max_deviation = max_deviation
+        self.deviation_abort_threshold = deviation_abort_threshold
 
         self._action_chunk_dim = chunk_length * action_dim
 
@@ -153,6 +160,27 @@ class RolloutWorker:
         a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
+
+        # Safety: abort if raw deviation is abnormally large
+        raw_max_dev = (a_flat - a_tilde_t).abs().max().item()
+        if raw_max_dev > self.deviation_abort_threshold:
+            logger.error(
+                "ABORT: Actor raw deviation %.4f exceeds threshold %.4f. "
+                "The model is producing extreme outputs — check training.",
+                raw_max_dev,
+                self.deviation_abort_threshold,
+            )
+            raise RuntimeError(
+                f"Actor raw max deviation {raw_max_dev:.4f} > "
+                f"abort threshold {self.deviation_abort_threshold:.4f}"
+            )
+
+        # Safety: cap deviation from VLA reference
+        deviation = a_flat - a_tilde_t
+        deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
+        a_flat = a_tilde_t + deviation
+        a_flat = a_flat.clamp(-1.0, 1.0)
+
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
     def collect_warmup(self, num_chunks: int) -> int:

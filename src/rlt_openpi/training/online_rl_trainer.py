@@ -110,6 +110,8 @@ class OnlineRLTrainer:
             chunk_length=self.config.chunk_length,
             action_dim=self.config.action_dim,
             device=self.device,
+            max_deviation=self.config.max_deviation,
+            deviation_abort_threshold=self.config.deviation_abort_threshold,
         )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:

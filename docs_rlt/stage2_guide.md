@@ -103,10 +103,17 @@ Algorithm 1: RLT — Train RL Actor and Critic (Stage 2)
 | σ_target (TD3 平滑噪声) | `target_noise_sigma` | `target_noise_sigma` | 0.2 |
 | c_target (噪声裁剪) | `target_noise_clip` | `target_noise_clip` | 0.5 |
 | ref_dropout | `ref_action_dropout` | `ref_action_dropout` | 0.5 |
+| max_deviation | `max_deviation` | `max_deviation` | 0.3 |
 | critic_updates_per_actor | `critic_updates_per_actor` | `critic_updates_per_actor` | 2 |
 | a_tilde_masked | `Actor._apply_ref_dropout()` | — | — |
 | Q_min | `TwinQCritic.q_min()` | — | — |
 | chunk_return | `compute_td_target()` | — | — |
+
+> **C=10 选取依据**：VLA 预测 H=50 步动作，C=10 将决策频率从 50 Hz 压缩约 5 倍到 ~5 Hz，在 VLA 推理开销和 RL 修正粒度之间折中：
+> - C 太大 → RL 修正不够及时，VLA 错误无法快速纠正
+> - C 太小 → 每个 chunk 都要跑一次 VLA 前向，推理开销过大
+>
+> 可通过 `--chunk-length` 调整。
 
 ### 1.4 运行命令
 
@@ -480,6 +487,30 @@ x [B, 2056]    a_tilde [B, 80]
 | `src/rlt_openpi/envs/franka/intervention.py` | `VRInterventionManager` | VR 手柄干预 |
 | `src/rlt_openpi/training/replay_buffer.py` | `ReplayBuffer` | 经验回放缓存 |
 
+#### 2.3.0 env 接口约定
+
+`trainer.train()` 不对 `env` 做具体类型假设，只依赖鸭子类型的 **3 个方法 + 2 个属性**：
+
+| 接口 | 类型 | 调用形式 | 方向 | 作用 |
+|------|------|---------|------|------|
+| `env.action_dim` | `int` | 属性读取 | — | 单步动作维度，用于切 s^p 宽度、reshape action_chunk |
+| `env.chunk_length` | `int` | 属性读取 | — | 每 chunk 步数 C，用于取 a_tilde 前 C 步、step 循环次数 |
+| `env.reset()` | 方法 | `→ dict[str, Any]` | **机器人→模型** | 复位，返回初始观测（图像+关节+指令） |
+| `env.step(chunk)` | 方法 | `[C, d] → (obs, rewards, done, info)` | **模型→机器人** | 执行 C 步动作，返回新观测 + per-step 奖励 `[C]` |
+| `env.step()` 返回值 | — | `rewards [C], done bool, info dict` | **机器人→模型** | 驱动的下一轮推理的输入 |
+
+三种实现的差异：
+
+| | `RobotEnv` | `SimEnv` | `MockEnv` |
+|---|---|---|---|
+| `reset()` | 机器人复位 + 等待 Enter 键 | `gym.env.reset()` | 返回随机假观测 |
+| `step()` | 逐步发机器人指令 + `HumanReward` 键盘检测 | 逐步 `gym.env.step()` | 动作被丢弃，返回零奖励 |
+| `obs` 格式 | DROID schema（3 相机 + joint state） | `{"state": np.array}` | DROID schema（随机图像） |
+| 奖励来源 | 人工键盘标注 (S/F/P) | 环境自动返回 | 固定零值 |
+| `_display_episode_num` | 有 | 无 | 无 |
+
+> 唯一非必需的接口是 `_display_episode_num` 属性，只 `RobotEnv` 有，`trainer.train()` 通过 `hasattr` 做可选注入，用于终端显示当前 episode 编号。
+
 #### 2.3.1 Transition 结构
 
 每次存储到 ReplayBuffer 的 transition 包含 6 个字段：
@@ -511,9 +542,46 @@ s_p = vla_input.state[:, :action_dim]  # [1, d]
 x = cat(z_rl, s_p)  # [1, state_dim]
 ```
 
+> **`s^p` 的提取细节**：`vla_input.state` 是 VLA 预处理后的状态张量，包含 7 维关节位置 + 1 维夹爪 = 8 维实际本体数据。但 VLA 的 `PadStatesAndActions` 变换会将其零填充到 VLA 内部宽度（如 32 维）。切片 `[:, :action_dim]` 只取前 8 维实际数据，丢弃后面的零填充。
+
 **`_get_warmup_action(obs)`**（`rollout_worker.py:130-139`）：纯 VLA 参考动作，不经 Actor。
 
-**`_get_actor_action(x, a_tilde_flat)`**（`rollout_worker.py:141-156`）：Actor 推理，输出动作 chunk。
+**`_get_actor_action(x, a_tilde_flat)`**（`rollout_worker.py:144-164`）：
+
+```python
+# rollout_worker.py:154-163
+x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+a_flat = self.actor(x_t, a_tilde_t)  # ← rollout_worker.py:157, Actor 原始输出
+
+# Safety: cap deviation from VLA reference  ← rollout_worker.py:159-163
+deviation = a_flat - a_tilde_t
+deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
+a_flat = a_tilde_t + deviation
+a_flat = a_flat.clamp(-1.0, 1.0)
+return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
+```
+
+> `self.actor()` 的最终实现在 `src/rlt_openpi/models/actor.py:58` → `Actor.forward(x, a_tilde)`。
+
+**Deviation Cap 安全设计**：
+
+`a_flat` 是传给机械臂控制的最终动作（经 `env.step(action_chunk)` → `robot.move_to(action)` 执行），Actor 仅在 VLA 基模周围做小修正：
+
+```
+a_output = a_tilde(VLA基模) + clamp( Actor残差 , ±max_deviation )
+```
+
+| 设计要素 | 说明 |
+|---------|------|
+| **a_tilde 来源** | `VLAWrapper.get_rl_chunk_reference(obs, C)` → VLA 冻结基模预测 H=50 步，取前 C 步。受过大规模预训练，大概率不会输出危险动作 |
+| **Actor 角色** | 只学习残差修正，初始化为零（最后层零初始化），训练起点 = 纯 VLA 参考 |
+| **deviation cap** | `max_deviation=0.3`（可配置），强制每个动作元素偏离 VLA 参考不超过 ±0.3（动作已归一化到 [-1,1]） |
+| **双重 clamp** | 残差 clamp 后，最终输出再做一次 `clamp(-1.0, 1.0)` 确保在合法动作范围内 |
+| **配置参数** | `--max-deviation`（`OnlineRLTrainConfig.max_deviation`，默认 0.3） |
+
+> 这是模型输出到机械臂之前的最后一道关卡。无论 Actor 训练结果如何，最终动作永远在 VLA 基模 ±0.3 范围内，物理上杜绝了大偏离导致机械臂失控的风险。
 
 **`collect_episode()`**（`rollout_worker.py:205-280`）：完整 episode 循环：
 
@@ -646,6 +714,188 @@ total_env_steps >= max_env_steps → 最终 save() → 训练结束
 | Critic Loss | `MSE(Q₁, y) + MSE(Q₂, y)` | 双 Q 逼近 TD target |
 | Actor Loss | `-Q_min(x, a).mean() + β·MSE(a, a_tilde)` | 最大化 Q 值 + 贴近 VLA 参考 |
 
+#### 3.2.2 Critic Update 详解
+
+Critic 更新是 TD3 的核心，在 `_update_step()` 中分三步执行（`online_rl_trainer.py:137-159`）：
+
+**Step 1: 计算 TD Target**（`td3_utils.py:compute_td_target`）
+
+```
+y = Σ_{k=0}^{C-1} γᵏ·rₖ   +   γ^C · (1 - done) · min Q_target(x', a')
+     \_________________/       \___________________________________/
+        chunk 内贴现回报                下一状态 bootstrap
+```
+
+关键点：
+- **rewards** shape `[B, C]` — 一个 chunk 里 C=10 步各自的 reward，不是单个标量
+- **chunk_return** = `γ⁰·r₀ + γ¹·r₁ + ... + γ⁹·r₉` → `[B, 1]`
+- **next_a** = `actor(next_x, next_a_tilde)` + `clip(N(0, σ_target), ±c_target)` — TD3 的 target policy smoothing，防止 Q 网络过拟合到 sharp 峰值
+- **bootstrap** = `γ^C · (1 - done) · min(Q1_target, Q2_target)` — clipped double Q 减少 overestimation bias
+- 整个计算在 `@torch.no_grad()` 下，`td_target` 不参与梯度回传
+
+**Step 2: 算当前 Q 值**
+
+```python
+q1, q2 = self.critic(x, a)   # 每个 [B, 1]
+```
+
+`x` = 当前 RL state，`a` = 实际执行的动作 chunk（buffer 里存的）。问的是"当时在这个状态下做这个动作，值多少？"
+
+**Step 3: MSE Loss + 更新**
+
+```python
+c_loss = MSE(q1, y) + MSE(q2, y)
+```
+
+两个 Q 网络独立向同一个 target 回归。梯度只流过 `q1` 和 `q2`，不流过 `y`。
+
+**Critic 更新数据流图**：
+
+```
+rewards [B,C]                   next_x [B,2056]
+    │                                │
+    ▼                                ▼
+discounted sum          actor(next_x, next_a_tilde)
+    │                     + clipped noise
+    ▼                     + clamp[-1,1]
+chunk_return [B,1]           │
+    │                         ▼
+    │              min Q_target(x', a') [B,1]
+    │                         │
+    │                     × γ^C·(1-done)
+    │                         │
+    ▼                         ▼
+    └─────── + ───────────────┘
+                 │
+                 ▼
+           td_target [B,1]  ←── detached (no grad)
+
+x [B,2056]  ─┬─→  Q1  ─→ q1 [B,1]  ─→ MSE(q1, y)  ─┐
+             │                                        ├─→ c_loss → backward → step
+a [B,80]  ───┴─→  Q2  ─→ q2 [B,1]  ─→ MSE(q2, y)  ─┘
+```
+
+#### 3.2.2.1 HumanReward 得分与训练信号
+
+**HumanReward 按键映射**（`src/rlt_openpi/rollout/reward.py`）：
+
+| 按键 | 含义 | reward 值 | episode 行为 | 信号状态 |
+|:----:|------|:---------:|-------------|---------|
+| `S` / `Space` | 成功 | **+1.0** | 立即终止 (`done=True`) | 锁定（按一次后每次都返回 `"s"`） |
+| `F` | 失败 | **0.0** | 立即终止 (`done=True`) | 锁定（按一次后每次都返回 `"f"`） |
+| `P` | 进展（进度） | **+0.5**（可配置 `progress_reward`） | 继续 | 瞬时（返回一次后清空，可按多次） |
+| 不操作 | 无信号 | **0** | 继续 | — |
+
+> **为什么 S/F 锁定、P 不锁定？** 成功/失败是 episode 的最终结局，一旦发生就不应再改变，所以锁住信号保证所有后续步都能检测到终止条件。P 是进度标记，每次按键代表感受到机器人又往前推进了一步，消耗后等待下一次按键，可以在一个 episode 中多次标注。
+
+**全零 Reward Chunk 的 TD Target 信号传播**：
+
+大部分 chunk 人类不会按键（reward 全是 0），此时项①（chunk 贴现回报）= 0，TD target 退化为纯 bootstrap：
+
+```
+y = 0 + γ^C · (1 - done) · min Q_target(x', a')
+  = γ^C · min Q_target(x', a')
+```
+
+信号完全依赖 `γ^C ≈ 0.904` 的折扣因子逐 chunk 反向传播。以一个 20 chunk 的 episode 为例，假设只在最后一个 chunk 人类按了 `S`（reward=1.0）：
+
+```
+chunk 19 (最后): y = 1.0 + 0                = 1.000  ← 直接拿到成功信号
+chunk 18:        y = 0   + 0.904 × 1.000   = 0.904
+chunk 17:        y = 0   + 0.904 × 0.904   = 0.817
+chunk 16:        y = 0   + 0.904 × 0.817   = 0.739
+...
+chunk 0:         y = 0.904²⁰               ≈ 0.133  ← 仅剩 13%
+```
+
+第一个 chunk 的 TD target 只剩成功信号的 **13%**。chunk 越多，越早的 chunk 信号越弱。这是稀疏奖励 + chunk 级 MDP 的结构性特征，不是 bug：
+
+| 场景 | 项①（chunk 回报） | 项②（bootstrap） | 信号来源 |
+|------|:---:|:---:|------|
+| 人类按了 S/F/P | 非零 | 叠加 bootstrap | 项① + 项② |
+| 人类没按键（**大多数情况**） | **0** | 全靠 `γ^C·Q_target(x', a')` | 纯项② |
+| episode 最后 chunk（done=1） | 可能有最后一步的 reward | **0**（done 截断） | 纯项① |
+
+**缓解手段**：
+
+| 手段 | 效果 | 代价 |
+|------|------|------|
+| **多用 P 键标注进度** | 中间 chunk 的项①不再为零，打断纯 bootstrap 链，信号更直接回传 | 需人工持续关注并标注 |
+| **增大 γ**（如 0.99→0.995） | `γ^10 ≈ 0.951`，20 chunk 后剩 37%（vs 13%） | 策略更"远视"，价值估计方差增大 |
+| **减小 C**（如 C=10→5） | `γ^5 ≈ 0.951`，同样 episode chunk 数加倍但每次衰减更小 | VLA 推理开销翻倍 |
+| **增大 G（UTD ratio）** | 同样 episode 数做更多次更新，加速 Q 值反向传播 | 训练时间增加 |
+
+> **P 键是最有效的缓解手段**——它在中间 chunk 注入非零 reward（默认 +0.5），直接打断纯 bootstrap 链。不需要改任何参数，只需要操作者在机器人有实质进展时随手按一下。
+
+**当前已知问题**：
+
+1. **`next_a_tilde` 近似**（`online_rl_trainer.py:145`）：用当前 transition 的 `a_tilde` 代替真正的 `next_a_tilde`（下一个 chunk 的 VLA 参考动作）。ReplayBuffer 只存了 `(x, a, a_tilde, rewards, next_x, done)`，没存 `next_a_tilde`。在 episode 边界附近或时序不连续时误差较大。**修复方案**：采集 episode 时顺手存 `next_a_tilde`（不需要额外 VLA 推理，收集时已经有了），或在 buffer 里加一个字段。
+
+2. **Metrics 覆盖**（`online_rl_trainer.py:284-286`）：`for g in range(utd_ratio)` 循环中每次 `update_metrics = step_metrics` 会覆盖上一次结果，只保留最后一次 G 的指标。应改为累加取平均：
+
+   ```python
+   for g in range(cfg.utd_ratio):
+       step_metrics = self._update_step(g)
+       for k, v in step_metrics.items():
+           update_metrics[k] = update_metrics.get(k, 0.0) + v / cfg.utd_ratio
+   ```
+
+#### 3.2.3 与标准 TD3 的对比
+
+对比 canonical TD3 (Fujimoto et al., 2018)：
+
+| TD3 组件 | 标准做法 | 你的实现 | 是否标准 |
+|---------|---------|---------|:---:|
+| Twin Q (Clipped Double Q) | `y = r + γ·min(Q1', Q2')(s', a')` | `y = Σγᵏrₖ + γ^C·min(Q1', Q2')(x', a')` | ✓ 标准 |
+| Target Policy Smoothing | `a' = π'(s') + clip(N, ±c)` | `a' = actor(x', a_tilde') + clip(N, ±c)` | ✓ 标准 |
+| Delayed Actor Updates | 每 d 次 critic 更新 1 次 actor | `update_idx % critic_updates_per_actor == 0` | ✓ 标准 |
+| Polyak Target Update | `θ' = (1-τ)θ' + τθ` | 每个 `_update_step` 都更新 | ✓ 标准 |
+| 单步 MDP | `y = r + γ·Q(s', a')` | Chunk 级: `y = Σγᵏrₖ + γ^C·Q(x', a')` | 标准推导* |
+| 存 true next state | buffer 存完整 transition | `next_a_tilde ≈ a_tilde`（近似） | ✗ 非标准 |
+| 每步更新 | 每 env step 做 1 次 update | 每 episode 后做 G=5 次 | off-policy 下合法 |
+
+> \*Chunk 级 MDP 推导：将 C 步原始动作打包为一个 macro-step，discount 变为 γ^C，reward 为 Σγᵏ·rₖ。数学上等价于将 chunk 视为一个抽象时间步。
+
+核心 TD3 三件套（twin Q + target smoothing + delayed actor）全部标准。唯一非标准的是 `next_a_tilde` 近似和 per-episode UTD 节奏。
+
+#### 3.2.4 调参空间
+
+按优先级和影响面分三个梯队：
+
+**第一梯队：直接影响 Q 值估计质量**
+
+| 参数 | 当前值 | 作用 | 调参方向 |
+|------|--------|------|---------|
+| `target_noise_sigma` | 0.2 | 目标策略平滑强度 | 太小→Q 值过拟合尖峰；太大→bootstrap 信号太弱。范围 0.1~0.3 |
+| `target_noise_clip` | 0.5 | 噪声裁剪 | 跟 action 范围 [-1,1] 配合。范围 0.3~0.5 |
+| `gamma` | 0.99 | 远期回报权重 | `γ^C = 0.99^10 ≈ 0.904`，每 chunk bootstrap 权重只剩 90%，有效 horizon ~10 chunk。减小=更短视，增大=更远视 |
+| `tau` | 0.005 | Polyak 更新速率 | **关键：跟 UTD ratio 联调。** G=5 次后 `θ_target` 偏离约 `(1-(1-τ)^G) ≈ 2.5%`。如果 G 增大需相应减小 τ。等效 tau ≈ τ × G |
+
+**第二梯队：Actor-Critic 平衡**
+
+| 参数 | 当前值 | 作用 | 调参方向 |
+|------|--------|------|---------|
+| `utd_ratio` | 5 | 每个 episode 的更新次数 | 增大→训练更快但可能过拟合当前 episode。收集慢就增大 G |
+| `critic_updates_per_actor` | 2 | Actor 更新延迟 | TD3 论文推荐 2。增大→Actor 更稳定但学得更慢 |
+| `bc_regularizer_beta` | 0.5 | BC 正则项权重 | 控制偏离 VLA 的程度。初期大→安全，后期小→更多探索。可考虑退火 |
+| `actor_lr` / `critic_lr` | 3e-4 / 3e-4 | 学习率 | 通常 `critic_lr > actor_lr`（如 1e-3 vs 1e-4）。当前相同可试试放大 critic |
+
+**第三梯队：探索与稳健性**
+
+| 参数 | 当前值 | 作用 | 调参方向 |
+|------|--------|------|---------|
+| `actor_noise_sigma` | 0.1 | 探索噪声标准差 | 0.1 相对保守。增大→更多探索但可能不稳定 |
+| `ref_action_dropout` | 0.5 | 训练时丢弃 VLA 参考 | 50% 不用 VLA 参考。增大→更独立，减小→更依赖 VLA |
+| `batch_size` | 256 | 每次更新采样数 | 对于 off-policy RL 偏小，可试 512 或 1024 |
+| `mlp_hidden_dim` | 256 | 网络宽度 | 2048 维 z_rl 压缩后进 256 宽 MLP，可适当加宽到 512 |
+
+**建议优先关注**：
+
+1. **`tau` 和 UTD ratio 联动** — 当前 `tau=0.005`、G=5 时等效更新量 ≈2.5%，合理。如果增大 G，需相应减小 tau
+2. **`next_a_tilde` 近似影响** — 在 buffer 里加 `next_a_tilde` 字段消除近似误差
+3. **Q 值监控** — logger 里关注 `q1_mean`、`q2_mean`，如果 Q 值随时间单调膨胀，说明 overestimation 没被控住
+4. **`bc_regularizer_beta` 退火** — 训练初期 beta 大（多依赖 VLA 参考），后期逐步减小（多信任自己的 Q 值估计）
+
 ### 3.3 人工介入节点
 
 > **注意**：以下仅在真实机器人（`RobotEnv`）中需要；仿真环境（`SimEnv`）自动返回奖励。VR 干预仅在配置 `--intervention-factory` 时启用。
@@ -661,7 +911,9 @@ Stage 2 中有 **3 处需要人为介入**：
                     ┌─────────────────┐
                     │   Warmup Phase   │
                     │  (VLA-only,      │
-                    │   无需人为介入)    │
+                    │   无 Actor 参与)  │
+                    │ → trainer:213-243│
+                    │ → worker:158-203 │
                     └────────┬────────┘
                              │
                              ▼
@@ -680,6 +932,8 @@ Stage 2 中有 **3 处需要人为介入**：
                          ▼
 ┌────────────────────────────────────────────────────────────┐
 │                   Episode 循环 (每个 chunk)                  │
+│                   → 对应 rollout_worker.py:205-280          │
+│                      collect_episode()                      │
 │                                                            │
 │   ┌─────────────────────┐                                  │
 │   │ _extract_rl_state() │  VLA → z_rl + a_tilde → x       │
@@ -719,6 +973,9 @@ Stage 2 中有 **3 处需要人为介入**：
                ▼
 ┌──────────────────────────────────────────────────────────┐
 │              TD3 更新 (G 次, 无需人为介入)                 │
+│              → 主循环: online_rl_trainer.py:284-286        │
+│              → 单步:  online_rl_trainer.py:115-184          │
+│                      _update_step()                         │
 │  for g in 1..G:                                          │
 │    batch ← ReplayBuffer.sample()                         │
 │    y ← chunk_return + γ^C·(1-done)·min_Q_target(x', a')  │
@@ -754,11 +1011,12 @@ Stage 2 中有 **3 处需要人为介入**：
 | **架构** | `embedding_dim` | 2048 | 与 Stage 1 保持一致 |
 | **动作空间** | `action_dim` | 8 | 单步动作维度 |
 | | `chunk_length` (C) | 10 | 每 chunk 步数 |
-| | `vla_action_horizon` (H) | 16 | VLA 输出的动作 horizon |
+| | `vla_action_horizon` (H) | 50 | VLA 输出的动作 horizon |
 | **Actor-Critic** | `mlp_hidden_dim` | 256 | MLP 隐藏层宽度 |
 | | `mlp_num_hidden_layers` | 2 | MLP 深度 |
 | | `actor_noise_sigma` | 0.1 | 探索噪声标准差 |
 | | `ref_action_dropout` | 0.5 | 参考动作 dropout 比例 |
+| | `max_deviation` | 0.3 | Actor 输出偏离 VLA 参考的安全上限 |
 | **RL 超参** | `gamma` | 0.99 | 折扣因子 |
 | | `tau` | 0.005 | 目标网络软更新系数 |
 | | `utd_ratio` (G) | 5 | 每 episode 的梯度更新次数 |
@@ -838,12 +1096,97 @@ Stage 2 中有 **3 处需要人为介入**：
 
 ### 4.3 数据流
 
+#### 模型 ←→ 环境 交互循环
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        单次 chunk 交互循环                                │
+│                                                                          │
+│  ┌─────────────────────┐              ┌──────────────────────────────┐   │
+│  │    模型侧 (GPU)      │              │       环境侧 (机器人/仿真)    │   │
+│  │                      │              │                              │   │
+│  │  VLA (冻结)          │              │                              │   │
+│  │  RLTokenModel (冻结)  │              │                              │   │
+│  │  Actor (可训)        │              │                              │   │
+│  │  Critic (可训)       │              │                              │   │
+│  └──────────┬───────────┘              └──────────┬───────────────────┘   │
+│             │                                     │                       │
+│             │  ① env.reset()                      │                       │
+│             │◄────────────────────────────────────│                       │
+│             │  obs = {                            │                       │
+│             │    joint_position:  [7] float32      │  相机拍照 + 读取编码器  │
+│             │    gripper_position: [1] float32      │                       │
+│             │    exterior_image_1: [H,W,3] uint8   │                       │
+│             │    wrist_image:      [H,W,3] uint8   │                       │
+│             │    exterior_image_2: [H,W,3] uint8   │                       │
+│             │    prompt: "pick up the pen"         │                       │
+│             │  }                                   │                       │
+│             │                                     │                       │
+│             │  ② VLA 编码:                         │                       │
+│             │  VLA.preprocess_obs(obs)              │                       │
+│             │    → VLA.extract_embeddings()        │                       │
+│             │      → z [1, M, 2048]                │                       │
+│             │    → RLTokenModel.encode(z)          │                       │
+│             │      → z_rl [1, 2048]                │                       │
+│             │    → VLA.get_rl_chunk_ref(C=10)      │                       │
+│             │      → a_tilde [1, 10, 8] → [1, 80]  │                       │
+│             │    → vla_input.state[:, :action_dim] │                       │
+│             │      → s^p [1, 8]                    │                       │
+│             │  x = cat(z_rl, s^p) → [1, 2056]      │                       │
+│             │     ▲ env.action_dim=8  决定 s^p 宽   │                       │
+│             │     ▲ env.chunk_length=10 决定 C      │                       │
+│             │                                     │                       │
+│             │  ③ Actor 推理:                        │                       │
+│             │  Actor(x, a_tilde)                    │                       │
+│             │    = a_tilde + MLP残差 + 探索噪声      │                       │
+│             │    → [1, 80]                          │                       │
+│             │  reshape(env.chunk_length,             │                       │
+│             │          env.action_dim)               │                       │
+│             │    → action_chunk [10, 8]              │                       │
+│             │                                     │                       │
+│             │  ④ env.step(action_chunk)             │                       │
+│             ├────────────────────────────────────→│                       │
+│             │                                     │  for k in 0..9:       │
+│             │                                     │    robot.step(a[k])   │
+│             │                                     │    ├─ 关节运动         │
+│             │                                     │    └─ HumanReward      │
+│             │                                     │       S→+1 F→0 P→+0.5│
+│             │                                     │                       │
+│             │  ⑤ 返回: next_obs, rewards[10],     │                       │
+│             │◄────────────────────────────────────│      done, info       │
+│             │                                     │                       │
+│             │  ⑥ next_obs → _extract_rl_state()    │                       │
+│             │     → next_x [2056]                  │                       │
+│             │                                     │                       │
+│  ──────────┼─────────────────────────────────────┼───────────────────────  │
+│             │                                     │                       │
+│  transition = (x, a, a_tilde, rewards[0..9],       │                       │
+│                next_x, done)                      │                       │
+│  → replay_buffer.add(transition)                  │                       │
+│  → obs = next_obs, 回到 ②                          │                       │
+│             │                                     │                       │
+│  ═══════════════════════════════════════════════════════════════════════   │
+│  每 chunk 循环: obs → ②编码 → ③推理 → ④执行 → ⑤⑥存储 → 回到②             │
+│  ═══════════════════════════════════════════════════════════════════════   │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+**env 接口在交互循环中的角色总结**：
+
+| 接口 | 对应步骤 | 方向 | 一句话 |
+|------|---------|------|--------|
+| `env.reset()` | ①→② | **机器人→模型** | 获取初始观测，是整个推理链的起点 |
+| `env.action_dim` | ②③ | — | 决定 s^p 的切片宽度和 action_chunk 的 reshape 列数 |
+| `env.chunk_length` | ②③④ | — | 决定取 VLA 前几步动作、step 循环执行次数 |
+| `env.step(action)` | ③→④ | **模型→机器人** | 发送 Actor 输出的 10 步动作，机器人逐步执行 |
+| `env.step()` 返回值 | ④→② | **机器人→模型** | 执行后返回新观测 + per-step 奖励，驱动下一轮推理 |
+
 #### 变量说明
 
 | 符号 | 含义 | 来源 |
 |------|------|------|
 | `z_rl` | RL token，prefix embedding 压缩成的单向量 | VLA 提取 `z` → RLTokenModel.encode(z) |
-| `s^p` | proprioceptive state = 关节位置 + 夹爪 | VLA 预处理后 `Observation.state` 取前 `action_dim` 维 |
+| `s^p` | proprioceptive state = 7 维关节位置 + 1 维夹爪 = 8 维（上标 p 表示 proprioceptive，本体感受） | VLA 预处理后 `Observation.state` 取前 `action_dim` 维 |
 | `a_tilde` | VLA 参考动作 chunk = H 步中取前 C 步展平 | `VLA.get_rl_chunk_reference(obs, C)` |
 | `x` | RL 状态 = cat(z_rl, s^p) | 拼接 |
 | `a` | Actor 输出的动作 chunk = a_tilde + 残差 + 噪声 | Actor 前向 |

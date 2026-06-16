@@ -20,15 +20,17 @@ python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir "$VLA_CKPT" \
     --rl-token-checkpoint "$RL_TOKEN_CKPT" \
-    --task-prompt "stack the three blocks on the tray" \
-    --warmup-steps 250 \
-    --chunk-length 5 \
-    --max-episode-chunks 150 \
     --save-dir checkpoints/online_rl \
+    --task-prompt "stack the three blocks on the tray" \
+    --max-env-steps 31500 \
+    --warmup-steps 150 \
+    --chunk-length 10 \
+    --max-episode-chunks 150 \
+    --save-every 10 \
     $(
     # === 以下参数使用默认值，必要时取消注释修改 ===
-    # --max-env-steps 100000              # 总环境交互步数上限
-    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint
+    # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
+    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
     # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)
     # --batch-size 256                    # 训练 minibatch 大小
     # --buffer-capacity 100000            # ReplayBuffer 最大容量
