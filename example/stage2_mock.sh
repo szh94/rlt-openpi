@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stage 2 online RL training — real robot + VR intervention.
+# Stage 2 offline training — same as stage2.sh but with MockEnv.
+# No robot, no VR intervention, fake observations → real VLA.
 #
 # Usage:
-#   bash example/stage2.sh
+#   bash example/stage2_mock.sh
+
+VLA_CKPT="${VLA_CKPT:-checkpoints/pi05_droid_pytorch/model.safetensors}"
+RL_TOKEN_CKPT="${RL_TOKEN_CKPT:-checkpoints/rl_token/rl_token_step3000.pt}"
 
 echo "========================================"
-echo " Stage 2 Online RL (Real Robot)"
+echo " Stage 2 Offline (MockEnv)"
+echo "   VLA checkpoint  = $VLA_CKPT"
+echo "   RLToken ckpt    = $RL_TOKEN_CKPT"
 echo "========================================"
 
-python scripts/train_online_rl.py \
-    --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
-    --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
+python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-    --rl-token-checkpoint checkpoints/rl_token/rl_token_step3000.pt \
+    --vla-checkpoint-dir "$VLA_CKPT" \
+    --rl-token-checkpoint "$RL_TOKEN_CKPT" \
     --task-prompt "stack the three blocks on the tray" \
     --warmup-steps 250 \
     --chunk-length 5 \
