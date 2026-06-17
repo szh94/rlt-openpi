@@ -104,25 +104,29 @@ class VLAWrapper:
 
         dt = data_transforms or data_config.data_transforms
 
+        # Patch DroidOutputs action_dim BEFORE compose, since the composed
+        # object may not expose its internal transform list.
+        output_transforms = [
+            *data_config.model_transforms.outputs,
+            Unnormalize(norm_stats, use_quantiles=use_q),
+            *dt.outputs,
+        ]
+        if output_action_dim is not None:
+            print(f"[VLA] Patching output transforms (target action_dim={output_action_dim}):")
+            for t in output_transforms:
+                print(f"[VLA]   {type(t).__name__}  attrs={[a for a in dir(t) if 'action' in a.lower() or 'dim' in a.lower() or 'output' in a.lower()]}")
+                if hasattr(t, "action_dim"):
+                    old = t.action_dim
+                    t.action_dim = output_action_dim
+                    print(f"[VLA]   → Patched action_dim: {old} → {output_action_dim}")
+
         self._input_transform = compose([
             *dt.inputs,
             InjectDefaultPrompt(default_prompt),
             Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
         ])
-        self._output_transform = compose([
-            *data_config.model_transforms.outputs,
-            Unnormalize(norm_stats, use_quantiles=use_q),
-            *dt.outputs,
-        ])
-
-        # Patch DroidOutputs action_dim to match the robot's actual DOF.
-        # VLA model.action_dim (e.g. 32) is the internal diffusion output dim;
-        # output_action_dim (e.g. 14) is the physical robot DOF after transforms.
-        if output_action_dim is not None:
-            print(f"[VLA] _output_transform type: {type(self._output_transform).__name__}")
-            print(f"[VLA] _output_transform dir: {[a for a in dir(self._output_transform) if not a.startswith('_')]}")
-            self._patch_output_action_dim(output_action_dim)
+        self._output_transform = compose(output_transforms)
 
     @staticmethod
     def _load_norm_stats(checkpoint_dir: pathlib.Path, data_config) -> dict[str, _transforms.NormStats]:
