@@ -120,6 +120,8 @@ class VLAWrapper:
         # VLA model.action_dim (e.g. 32) is the internal diffusion output dim;
         # output_action_dim (e.g. 14) is the physical robot DOF after transforms.
         if output_action_dim is not None:
+            print(f"[VLA] _output_transform type: {type(self._output_transform).__name__}")
+            print(f"[VLA] _output_transform dir: {[a for a in dir(self._output_transform) if not a.startswith('_')]}")
             self._patch_output_action_dim(output_action_dim)
 
     @staticmethod
@@ -158,15 +160,21 @@ class VLAWrapper:
         stack = [self._output_transform]
         while stack:
             t = stack.pop()
-            # Print every transform with action-related attrs for diagnostics
-            attrs = [a for a in dir(t) if "action" in a.lower() or "dim" in a.lower()]
+            attrs = [a for a in dir(t) if "action" in a.lower() or "dim" in a.lower() or "output" in a.lower()]
             print(f"[VLA]   transform={type(t).__name__}  attrs={attrs}")
             if hasattr(t, "action_dim"):
                 old = t.action_dim
                 t.action_dim = action_dim
                 print(f"[VLA]   → Patched: action_dim {old} → {action_dim}")
+            # Try multiple ways to access sub-transforms
             if hasattr(t, "transforms"):
                 stack.extend(t.transforms)
+            elif hasattr(t, "__iter__"):
+                try:
+                    stack.extend(list(t))
+                    print(f"[VLA]   → Iterated {len(list(t))} sub-transforms")
+                except Exception:
+                    pass
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
