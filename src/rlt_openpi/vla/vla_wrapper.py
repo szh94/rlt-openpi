@@ -115,6 +115,9 @@ class VLAWrapper:
             *dt.outputs,
         ])
 
+        # Patch DroidOutputs action_dim to match the VLA model's actual output dimension.
+        self._patch_output_action_dim(self.action_dim)
+
     @staticmethod
     def _load_norm_stats(checkpoint_dir: pathlib.Path, data_config) -> dict[str, _transforms.NormStats]:
         """Load norm stats, preferring checkpoint-embedded assets over config assets.
@@ -140,6 +143,25 @@ class VLAWrapper:
             f"No norm stats found in checkpoint ({checkpoint_dir}/assets/{asset_id}) "
             f"or config assets dir. Run compute_norm_stats.py first."
         )
+
+    def _patch_output_action_dim(self, action_dim: int) -> None:
+        """Recursively patch DroidOutputs transforms to use the given action_dim.
+
+        Walks through the composed output transform and sets ``action_dim`` on
+        any transform that has the attribute (e.g. ``DroidOutputs``).
+        """
+        stack = [self._output_transform]
+        while stack:
+            t = stack.pop()
+            if hasattr(t, "action_dim"):
+                old = t.action_dim
+                t.action_dim = action_dim
+                logger.info(
+                    "Patched %s: action_dim %d → %d",
+                    type(t).__name__, old, action_dim,
+                )
+            if hasattr(t, "transforms"):
+                stack.extend(t.transforms)
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
