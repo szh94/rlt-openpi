@@ -41,6 +41,9 @@ assets/
 # Binary packages
 *.whl
 
+# Local docs
+docs_rlt/
+
 # OS
 .DS_Store
 Thumbs.db
