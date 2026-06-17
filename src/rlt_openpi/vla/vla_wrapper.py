@@ -73,6 +73,7 @@ class VLAWrapper:
         device: torch.device | str = "cuda",
         data_transforms: _transforms.Group | None = None,
         default_prompt: str | None = None,
+        output_action_dim: int | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
@@ -115,8 +116,11 @@ class VLAWrapper:
             *dt.outputs,
         ])
 
-        # Patch DroidOutputs action_dim to match the VLA model's actual output dimension.
-        self._patch_output_action_dim(self.action_dim)
+        # Patch DroidOutputs action_dim to match the robot's actual DOF.
+        # VLA model.action_dim (e.g. 32) is the internal diffusion output dim;
+        # output_action_dim (e.g. 14) is the physical robot DOF after transforms.
+        if output_action_dim is not None:
+            self._patch_output_action_dim(output_action_dim)
 
     @staticmethod
     def _load_norm_stats(checkpoint_dir: pathlib.Path, data_config) -> dict[str, _transforms.NormStats]:

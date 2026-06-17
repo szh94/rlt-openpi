@@ -39,6 +39,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         checkpoint_path=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
         device="cuda",
+        output_action_dim=config.action_dim,
     )
 
     # Load frozen RL token model from Stage 1
