@@ -114,7 +114,8 @@ class VLAWrapper:
         if output_action_dim is not None:
             print(f"[VLA] Patching output transforms (target action_dim={output_action_dim}):")
             for t in output_transforms:
-                print(f"[VLA]   {type(t).__name__}  attrs={[a for a in dir(t) if 'action' in a.lower() or 'dim' in a.lower() or 'output' in a.lower()]}")
+                public_attrs = {a: getattr(t, a) for a in dir(t) if not a.startswith('_') and not callable(getattr(t, a, None))}
+                print(f"[VLA]   {type(t).__name__}  public_attrs={public_attrs}")
                 if hasattr(t, "action_dim"):
                     old = t.action_dim
                     t.action_dim = output_action_dim
