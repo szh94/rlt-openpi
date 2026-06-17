@@ -63,7 +63,7 @@ class Actor(nn.Module):
             a_tilde: Flattened VLA reference action chunk [B, action_chunk_dim].
 
         Returns:
-            Action chunk [B, action_chunk_dim], clamped to [-1, 1].
+            Action chunk [B, action_chunk_dim] = a_tilde + residual (+ noise).
             During training: a_tilde + residual + noise, with ref dropout.
             During eval: a_tilde + residual, with full a_tilde.
         """
@@ -73,8 +73,8 @@ class Actor(nn.Module):
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma
-            return (mu + noise).clamp(-1.0, 1.0)
-        return mu.clamp(-1.0, 1.0)
+            return mu + noise
+        return mu
 
     def _apply_ref_dropout(self, a_tilde: Tensor) -> Tensor:
         """Zero out reference actions for a fraction of the batch during training."""
