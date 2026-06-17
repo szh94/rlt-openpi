@@ -150,16 +150,14 @@ class VLAWrapper:
         Walks through the composed output transform and sets ``action_dim`` on
         any transform that has the attribute (e.g. ``DroidOutputs``).
         """
+        print(f"[VLA] model.action_dim = {action_dim}")
         stack = [self._output_transform]
         while stack:
             t = stack.pop()
             if hasattr(t, "action_dim"):
                 old = t.action_dim
                 t.action_dim = action_dim
-                logger.info(
-                    "Patched %s: action_dim %d → %d",
-                    type(t).__name__, old, action_dim,
-                )
+                print(f"[VLA] Patched {type(t).__name__}: action_dim {old} → {action_dim}")
             if hasattr(t, "transforms"):
                 stack.extend(t.transforms)
 
