@@ -162,24 +162,66 @@ class RolloutWorker:
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
 
         # Safety: abort if raw deviation is abnormally large
-        raw_max_dev = (a_flat - a_tilde_t).abs().max().item()
+        raw_dev = (a_flat - a_tilde_t).abs()
+        raw_max_dev = raw_dev.max().item()
         if raw_max_dev > self.deviation_abort_threshold:
+            max_idx = raw_dev.argmax().item()
             logger.error(
-                "ABORT: Actor raw deviation %.4f exceeds threshold %.4f. "
+                "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
+                "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
+                "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
+                "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
                 "The model is producing extreme outputs — check training.",
                 raw_max_dev,
                 self.deviation_abort_threshold,
+                max_idx,
+                a_tilde_t[0, max_idx].item(),
+                a_flat[0, max_idx].item(),
+                a_tilde_t.mean().item(), a_tilde_t.std().item(),
+                a_tilde_t.min().item(), a_tilde_t.max().item(),
+                a_flat.mean().item(), a_flat.std().item(),
+                a_flat.min().item(), a_flat.max().item(),
             )
             raise RuntimeError(
                 f"Actor raw max deviation {raw_max_dev:.4f} > "
-                f"abort threshold {self.deviation_abort_threshold:.4f}"
+                f"abort threshold {self.deviation_abort_threshold:.4f} "
+                f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
+                f"a_actor={a_flat[0, max_idx].item():.4f})"
             )
 
         # Safety: cap deviation from VLA reference
         deviation = a_flat - a_tilde_t
         deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
         a_flat = a_tilde_t + deviation
-        a_flat = a_flat.clamp(-1.0, 1.0)
+        # a_flat = a_flat.clamp(-1.0, 1.0)
+
+        # Safety: abort if raw deviation is abnormally large
+        # raw_dev = (a_flat - a_tilde_t).abs()
+        # raw_max_dev = raw_dev.max().item()
+        # if raw_max_dev > self.deviation_abort_threshold:
+        #     max_idx = raw_dev.argmax().item()
+        #     logger.error(
+        #         "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
+        #         "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
+        #         "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
+        #         "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
+        #         "The model is producing extreme outputs — check training.",
+        #         raw_max_dev,
+        #         self.deviation_abort_threshold,
+        #         max_idx,
+        #         a_tilde_t[0, max_idx].item(),
+        #         a_flat[0, max_idx].item(),
+        #         a_tilde_t.mean().item(), a_tilde_t.std().item(),
+        #         a_tilde_t.min().item(), a_tilde_t.max().item(),
+        #         a_flat.mean().item(), a_flat.std().item(),
+        #         a_flat.min().item(), a_flat.max().item(),
+        #     )
+        #     raise RuntimeError(
+        #         f"Actor raw max deviation {raw_max_dev:.4f} > "
+        #         f"abort threshold {self.deviation_abort_threshold:.4f} "
+        #         f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
+        #         f"a_actor={a_flat[0, max_idx].item():.4f})"
+        #     )
 
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
