@@ -24,7 +24,7 @@ class RLTokenEncoder(nn.Module):
         super().__init__()
         self.e_rl = nn.Parameter(torch.randn(1, 1, embedding_dim) * 0.02)
         
-        # 💡 新增：Encoder的位置编码 (包括M个位置 + 1个RL位置)
+        # Encoder position embeddings (M positions + 1 RL position)
         self.pos_embeddings = nn.Embedding(max_position_embeddings, embedding_dim)
         
         encoder_layer = nn.TransformerEncoderLayer(
@@ -46,7 +46,7 @@ class RLTokenEncoder(nn.Module):
         e_rl = self.e_rl.expand(B, -1, -1)
         tokens = torch.cat([z, e_rl], dim=1)
 
-        # 💡 新增：为输入注入位置编码
+        # Add position embeddings to input tokens
         pos_indices = torch.arange(M + 1, device=z.device).unsqueeze(0).expand(B, -1)
         tokens = tokens + self.pos_embeddings(pos_indices)
 
@@ -72,7 +72,7 @@ class RLTokenDecoder(nn.Module):
     ) -> None:
         super().__init__()
         
-        # 💡 新增：Decoder的位置编码
+        # Decoder position embeddings
         self.pos_embeddings = nn.Embedding(max_position_embeddings, embedding_dim)
         
         decoder_layer = nn.TransformerDecoderLayer(
@@ -94,7 +94,7 @@ class RLTokenDecoder(nn.Module):
         # Teacher-forced input: [z_rl, z_1, ..., z_{M-1}]
         tgt = torch.cat([z_rl.unsqueeze(1), z[:, :-1, :]], dim=1)  # [B, M, D]
 
-        # 💡 新增：为 Decoder 的 tgt 注入显式的位置编码，建立强烈的坐标秩序
+        # Inject explicit position embeddings into decoder target
         pos_indices = torch.arange(M, device=z.device).unsqueeze(0).expand(B, -1)
         tgt = tgt + self.pos_embeddings(pos_indices)
 
@@ -107,7 +107,7 @@ class RLTokenDecoder(nn.Module):
         # Memory = z_rl as a single token for cross-attention
         memory = z_rl.unsqueeze(1)  # [B, 1, D]
 
-        # 💡 优化：把这唯一的 memory 也染上位置色彩（或者这里可以保持干净，但 tgt 必须有位置信息）
+        # The single memory token can also carry position information
         tgt_key_padding_mask = ~pad_mask
 
         out = self.transformer(
