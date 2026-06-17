@@ -77,10 +77,14 @@ class VLAWrapper:
         self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
 
-        pi0_model = self.train_config.model.load_pytorch(
-            self.train_config,
-            checkpoint_path,
-        )
+        # important to use try
+        try:
+            pi0_model = self.train_config.model.load_pytorch(
+                self.train_config,
+                checkpoint_path,
+            )
+        except Exception:
+            print("No config file")
         pi0_model = pi0_model.to(self.device)
 
         self.extractor = EmbeddingExtractor(pi0_model)
