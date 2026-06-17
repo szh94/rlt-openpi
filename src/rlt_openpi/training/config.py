@@ -32,8 +32,8 @@ class RLTokenTrainConfig:
     resume_checkpoint: str = ""  # Path to Stage 1 checkpoint to resume training from
     save_dir: str = "checkpoints/rl_token"
     run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
-    save_every: int = 1000
-    log_every: int = 1  # wandb logging interval (steps)
+    save_every: int = 10000
+    log_every: int = 1000  # wandb logging interval (steps)
     print_every: int = 100  # stdout logging interval (steps)
 
     # wandb
