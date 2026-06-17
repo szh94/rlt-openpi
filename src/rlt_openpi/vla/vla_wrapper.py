@@ -154,14 +154,17 @@ class VLAWrapper:
         Walks through the composed output transform and sets ``action_dim`` on
         any transform that has the attribute (e.g. ``DroidOutputs``).
         """
-        print(f"[VLA] model.action_dim = {action_dim}")
+        print(f"[VLA] _patch_output_action_dim: target robot action_dim = {action_dim}")
         stack = [self._output_transform]
         while stack:
             t = stack.pop()
+            # Print every transform with action-related attrs for diagnostics
+            attrs = [a for a in dir(t) if "action" in a.lower() or "dim" in a.lower()]
+            print(f"[VLA]   transform={type(t).__name__}  attrs={attrs}")
             if hasattr(t, "action_dim"):
                 old = t.action_dim
                 t.action_dim = action_dim
-                print(f"[VLA] Patched {type(t).__name__}: action_dim {old} → {action_dim}")
+                print(f"[VLA]   → Patched: action_dim {old} → {action_dim}")
             if hasattr(t, "transforms"):
                 stack.extend(t.transforms)
 
@@ -228,12 +231,16 @@ class VLAWrapper:
 
         out = []
         for i in range(actions_np.shape[0]):
+            actions_in = actions_np[i]  # [H, action_dim_raw]
             t = self._output_transform({
                 "state": state_np[i],
-                "actions": actions_np[i],
+                "actions": actions_in,
             })
             out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)
+        result = torch.as_tensor(np.stack(out), device=self.device)
+        if actions_np.shape[0] == 1:
+            print(f"[VLA] _output_transform: {raw.shape} (model) → {result.shape} (robot)")
+        return result
 
     def get_rl_chunk_reference(
         self,
