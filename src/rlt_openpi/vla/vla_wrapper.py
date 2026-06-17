@@ -29,6 +29,21 @@ from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
 logger = logging.getLogger(__name__)
 
 
+class _SliceAction:
+    """Simple transform that slices actions to the first N dimensions.
+
+    Used as a replacement for DroidOutputs when the output action dimension
+    differs from the default registered data config.
+    """
+
+    def __init__(self, action_dim: int) -> None:
+        self._action_dim = action_dim
+
+    def __call__(self, data: dict) -> dict:
+        data["actions"] = data["actions"][:, :self._action_dim]
+        return data
+
+
 class VLAWrapper:
     """Loads and wraps a VLA model for use by RLT components.
 
@@ -104,22 +119,17 @@ class VLAWrapper:
 
         dt = data_transforms or data_config.data_transforms
 
-        # Patch DroidOutputs action_dim BEFORE compose, since the composed
-        # object may not expose its internal transform list.
+        # When output_action_dim is specified, replace DroidOutputs with a
+        # simple slice since DroidOutputs has no configurable attribute.
         output_transforms = [
             *data_config.model_transforms.outputs,
             Unnormalize(norm_stats, use_quantiles=use_q),
-            *dt.outputs,
         ]
         if output_action_dim is not None:
-            print(f"[VLA] Patching output transforms (target action_dim={output_action_dim}):")
-            for t in output_transforms:
-                public_attrs = {a: getattr(t, a) for a in dir(t) if not a.startswith('_') and not callable(getattr(t, a, None))}
-                print(f"[VLA]   {type(t).__name__}  public_attrs={public_attrs}")
-                if hasattr(t, "action_dim"):
-                    old = t.action_dim
-                    t.action_dim = output_action_dim
-                    print(f"[VLA]   → Patched action_dim: {old} → {output_action_dim}")
+            output_transforms.append(_SliceAction(output_action_dim))
+            print(f"[VLA] Replaced DroidOutputs with SliceAction(dim={output_action_dim})")
+        else:
+            output_transforms.extend(dt.outputs)
 
         self._input_transform = compose([
             *dt.inputs,
@@ -154,32 +164,6 @@ class VLAWrapper:
             f"No norm stats found in checkpoint ({checkpoint_dir}/assets/{asset_id}) "
             f"or config assets dir. Run compute_norm_stats.py first."
         )
-
-    def _patch_output_action_dim(self, action_dim: int) -> None:
-        """Recursively patch DroidOutputs transforms to use the given action_dim.
-
-        Walks through the composed output transform and sets ``action_dim`` on
-        any transform that has the attribute (e.g. ``DroidOutputs``).
-        """
-        print(f"[VLA] _patch_output_action_dim: target robot action_dim = {action_dim}")
-        stack = [self._output_transform]
-        while stack:
-            t = stack.pop()
-            attrs = [a for a in dir(t) if "action" in a.lower() or "dim" in a.lower() or "output" in a.lower()]
-            print(f"[VLA]   transform={type(t).__name__}  attrs={attrs}")
-            if hasattr(t, "action_dim"):
-                old = t.action_dim
-                t.action_dim = action_dim
-                print(f"[VLA]   → Patched: action_dim {old} → {action_dim}")
-            # Try multiple ways to access sub-transforms
-            if hasattr(t, "transforms"):
-                stack.extend(t.transforms)
-            elif hasattr(t, "__iter__"):
-                try:
-                    stack.extend(list(t))
-                    print(f"[VLA]   → Iterated {len(list(t))} sub-transforms")
-                except Exception:
-                    pass
 
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
@@ -250,10 +234,7 @@ class VLAWrapper:
                 "actions": actions_in,
             })
             out.append(t["actions"])
-        result = torch.as_tensor(np.stack(out), device=self.device)
-        if actions_np.shape[0] == 1:
-            print(f"[VLA] _output_transform: {raw.shape} (model) → {result.shape} (robot)")
-        return result
+        return torch.as_tensor(np.stack(out), device=self.device)
 
     def get_rl_chunk_reference(
         self,
