@@ -225,14 +225,10 @@ class OnlineRLTrainer:
             stored = 0
             obs = env.reset()
             for i in range(cfg.warmup_steps):
-                # Get normalized VLA reference action (sets _last_vla_state)
-                action_chunk_norm = worker._get_warmup_action(obs)
+                action_chunk = worker._get_warmup_action(obs)
                 x, a_tilde_flat = worker._extract_rl_state(obs)
-                a_flat = action_chunk_norm.reshape(-1)
-
-                # Unnormalize for env execution
-                action_chunk_raw = worker._unnormalize_action_chunk(action_chunk_norm)
-                next_obs, rewards, done, _info = env.step(action_chunk_raw)
+                a_flat = action_chunk.reshape(-1)
+                next_obs, rewards, done, _info = env.step(action_chunk)
                 next_x, _ = worker._extract_rl_state(next_obs)
                 self.replay_buffer.add(
                     x=x, a=a_flat, a_tilde=a_tilde_flat,

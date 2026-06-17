@@ -6,6 +6,9 @@ set -euo pipefail
 # Usage:
 #   bash example/stage2.sh
 
+VLA_CHECKPOINT="/home/zhike/model/openpi_pytorch/30000/model.safetensors"
+RLT_CHECKPOINT="checkpoints/rl_token/run_20260615_160105/rl_token_step10000.pt"
+
 echo "========================================"
 echo " Stage 2 Online RL (Real Robot)"
 echo "========================================"

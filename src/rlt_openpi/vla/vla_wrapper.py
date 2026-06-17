@@ -99,20 +99,15 @@ class VLAWrapper:
 
         dt = data_transforms or data_config.data_transforms
 
-        self._norm_stats = norm_stats
-        self._use_quantile_norm = use_q
-        self._normalize = Normalize(norm_stats, use_quantiles=use_q)
-        self._unnormalize = Unnormalize(norm_stats, use_quantiles=use_q)
-
         self._input_transform = compose([
             *dt.inputs,
             InjectDefaultPrompt(default_prompt),
-            self._normalize,
+            Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
         ])
         self._output_transform = compose([
             *data_config.model_transforms.outputs,
-            self._unnormalize,
+            Unnormalize(norm_stats, use_quantiles=use_q),
             *dt.outputs,
         ])
 
@@ -220,82 +215,6 @@ class VLAWrapper:
         """
         full_actions = self.sample_reference_actions(observation)
         return full_actions[:, :chunk_length, :]
-
-    def get_rl_chunk_reference_normalized(
-        self,
-        observation: Observation,
-        chunk_length: int = 10,
-    ) -> Tensor:
-        """Get first C action steps in **normalized** space (before Unnormalize).
-
-        This is the version that should be fed to the Actor and stored in
-        the replay buffer.  The Actor operates in normalized space [-1, 1].
-
-        Args:
-            observation: Batched openpi Observation.
-            chunk_length: Number of action steps to slice (C).
-
-        Returns:
-            a_tilde: [B, C, action_dim] in normalized space.
-        """
-        raw = self.extractor.sample_actions(observation, self.device)
-        return raw[:, :chunk_length, :]
-
-    def unnormalize_actions(
-        self,
-        actions_normalized: Tensor,
-        state: Tensor,
-    ) -> Tensor:
-        """Convert normalized actions back to robot space for execution.
-
-        Applies the same Unnormalize transform used in
-        ``sample_reference_actions``.
-
-        Args:
-            actions_normalized: [B, C, action_dim] in normalized space.
-            state: [B, state_dim] normalized state tensor (from Observation.state).
-
-        Returns:
-            actions: [B, C, action_dim] in robot space.
-        """
-        actions_np = actions_normalized.cpu().numpy()
-        state_np = state.cpu().numpy()
-        out = []
-        for i in range(actions_np.shape[0]):
-            t = self._unnormalize({
-                "state": state_np[i],
-                "actions": actions_np[i],
-            })
-            out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)
-
-    def normalize_actions(
-        self,
-        actions_robot: Tensor,
-        state: Tensor,
-    ) -> Tensor:
-        """Convert robot-space actions to normalized space.
-
-        Used to normalize human intervention actions before storing in
-        the replay buffer.
-
-        Args:
-            actions_robot: [B, C, action_dim] in robot space.
-            state: [B, state_dim] normalized state tensor (from Observation.state).
-
-        Returns:
-            actions: [B, C, action_dim] in normalized space.
-        """
-        actions_np = actions_robot.cpu().numpy()
-        state_np = state.cpu().numpy()
-        out = []
-        for i in range(actions_np.shape[0]):
-            t = self._normalize({
-                "state": state_np[i],
-                "actions": actions_np[i],
-            })
-            out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)
 
     def compute_vla_loss(
         self,
