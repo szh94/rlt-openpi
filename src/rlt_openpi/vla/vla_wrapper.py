@@ -83,7 +83,7 @@ class VLAWrapper:
                 self.train_config,
                 checkpoint_path,
             )
-        except Exception:
+        except FileNotFoundError:
             print("No config file")
         pi0_model = pi0_model.to(self.device)
 

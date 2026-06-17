@@ -45,10 +45,11 @@ class ThreeCameraDroidInputs(transforms.DataTransformFn):
     model_type: _model.ModelType
 
     def __call__(self, data: dict) -> dict:
-        gripper_pos = np.asarray(data["observation/gripper_position"])
-        if gripper_pos.ndim == 0:
-            gripper_pos = gripper_pos[np.newaxis]
-        state = np.concatenate([data["observation/joint_position"], gripper_pos])
+        # gripper_pos = np.asarray(data["observation/gripper_position"])
+        # if gripper_pos.ndim == 0:
+        #     gripper_pos = gripper_pos[np.newaxis]
+        # state = np.concatenate([data["observation/joint_position"], gripper_pos])
+        state = np.asarray(data["observation/joint_position"])
 
         base_image = _parse_image(data["observation/exterior_image_1_left"])
         wrist_image = _parse_image(data["observation/wrist_image_left"])
@@ -76,9 +77,10 @@ class ThreeCameraDroidInputs(transforms.DataTransformFn):
 
         if "actions" in data:
             inputs["actions"] = np.asarray(data["actions"])
-        if "prompt" in data:
-            if isinstance(data["prompt"], bytes):
-                data["prompt"] = data["prompt"].decode("utf-8")
-            inputs["prompt"] = data["prompt"]
+        # if "prompt" in data:
+        #     if isinstance(data["prompt"], bytes):
+        #         data["prompt"] = data["prompt"].decode("utf-8")
+        #     inputs["prompt"] = data["prompt"]
+        inputs["prompt"] = "place phone"
 
         return inputs

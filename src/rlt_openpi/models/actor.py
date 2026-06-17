@@ -73,6 +73,8 @@ class Actor(nn.Module):
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma
+        #     return (mu + noise).clamp(-1.0, 1.0)  # assuming actions are normalized to [-1, 1]
+        # return mu.clamp(-1.0, 1.0)
             return mu + noise
         return mu
 

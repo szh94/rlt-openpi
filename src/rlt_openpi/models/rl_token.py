@@ -174,24 +174,40 @@ class RLTokenModel(nn.Module):
         self._last_mean = z.mean(dim=-1, keepdim=True)      # [B, M, 1]
         self._last_var = z.var(dim=-1, unbiased=False, keepdim=True)  # [B, M, 1]
 
+        # z_rl = self.encoder(z, pad_mask)
         z_rl = self.encoder(z_norm, pad_mask)
+        # z_hat = self.decoder(z_rl, z, pad_mask)
         z_hat = self.decoder(z_rl, z_norm, pad_mask)
 
         # Denormalize z_hat back to original space for comparison with z
         z_hat_denorm = self._denorm(z_hat)
 
+        print(f"z_norm  min={z_norm.min().item():.4f} max={z_norm.max().item():.4f} mean={z_norm.mean().item():.4f}")
+        print(f"z_hat   min={z_hat.min().item():.4f} max={z_hat.max().item():.4f} mean={z_hat.mean().item():.4f}")
+
         # Masked MSE: only compute loss on valid (non-padded) positions
+        # mse = (z_hat - z).pow(2).mean(dim=-1)  # [B, M]
         mse = (z_hat - z_norm).pow(2).mean(dim=-1)  # [B, M]
+        mse_denorm = (z_hat_denorm - z).pow(2).mean(dim=-1)  # [B, M]
+
         masked_mse = mse * pad_mask.float()  # zero out padded positions
+        masked_mse_denorm = mse_denorm * pad_mask.float()  # zero out padded positions
 
         # Masked cosine similarity loss: 1 - cos(z_hat, z_norm), direction alignment
         cos_sim = F.cosine_similarity(z_hat, z_norm, dim=-1)  # [B, M], range [-1, 1]
         loss_cos = (1.0 - cos_sim) * pad_mask.float()
 
         # Average over valid tokens
+        # num_valid = pad_mask.float().sum().clamp(min=1.0)
         num_valid = pad_mask.float().sum().clamp(min=1.0)
+        # loss = masked_mse.sum() / num_valid
         loss = (masked_mse.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
 
+        # loss_denorm = masked_mse_denorm.sum() / num_valid
+        loss_denorm = (masked_mse_denorm.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
+
+        print(f"loss (norm)={loss.item():.6f}  loss (denorm)={loss_denorm.item():.6f}")
+        
         return loss, z_rl, z_hat
 
     def _denorm(self, z_norm: Tensor) -> Tensor:
