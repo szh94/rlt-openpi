@@ -52,10 +52,10 @@ class OnlineRLTrainConfig:
     # Architecture (shared by RLTokenTrainConfig — must match the Stage 1 model)
     embedding_dim: int = 2048
 
-    # Action space
-    action_dim: int = 8
+    # Action space (dual-arm: 6 DOF + 1 gripper per arm = 14)
+    action_dim: int = 14
     chunk_length: int = 10  # C
-    vla_action_horizon: int = 16  # H: number of action steps the VLA outputs
+    vla_action_horizon: int = 50  # H: number of action steps the VLA outputs
 
     # Actor-critic architecture
     mlp_hidden_dim: int = 256

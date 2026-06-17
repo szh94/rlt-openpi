@@ -181,9 +181,19 @@ class VLAWrapper:
     ) -> Tensor:
         """Get full VLA reference action trajectory, unnormalized to robot space.
 
-        Mirrors OpenPI's ``Policy.infer`` output path: passes both
-        ``state`` and ``actions`` through the output transform so that
-        ``Unnormalize`` can operate on the full norm_stats.
+        Mirrors OpenPI's ``Policy.infer`` output path.
+
+        Intermediate shapes (H = action_horizon, e.g. 50):
+            raw:           [B, H, action_dim]  VLA diffusion output (normalized space)
+            actions_np:    [B, H, action_dim]  as numpy
+            state_np:      [B, state_dim]      observation state (normalized)
+            _output_transform input:  {"state": [state_dim], "actions": [H, action_dim]}
+            _output_transform output: {"state": ..., "actions": [H, robot_action_dim]}
+
+        The output transform chain (Unnormalize → DroidOutputs) converts
+        actions from normalized space to robot space.  Both ``state`` and
+        ``actions`` must be passed together so ``Unnormalize`` can use the
+        full norm_stats.
 
         Returns:
             actions: [B, H, robot_action_dim] where H = action_horizon.
