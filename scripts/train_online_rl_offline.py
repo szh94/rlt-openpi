@@ -88,6 +88,10 @@ def main(config: OnlineRLTrainConfig) -> None:
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
         max_episode_chunks=config.max_episode_chunks,
+        num_joints=config.mock_num_joints,
+        num_arms=config.mock_num_arms,
+        image_size=config.mock_image_size,
+        cameras=config.mock_cameras,
     )
 
     # ── 5. Run training (same OnlineRLTrainer.train) ────────────────

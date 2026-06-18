@@ -89,6 +89,16 @@ class OnlineRLTrainConfig:
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
 
+    # MockEnv configuration (only used when env is MockEnv)
+    mock_num_joints: int = 7  # per-arm joint dimension (e.g. 6 DOF + 1 = 7)
+    mock_num_arms: int = 1  # 1 = single-arm, 2 = dual-arm
+    mock_image_size: int = 64  # H=W of generated random images
+    mock_cameras: tuple[str, ...] = (
+        "exterior_image_1_left",
+        "wrist_image_left",
+        "exterior_image_2_left",
+    )  # camera key suffixes
+
     # Training loop
     max_env_steps: int = 100_000
 
