@@ -30,7 +30,7 @@ class RLTokenTrainConfig:
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_droid_finetune"
     resume_checkpoint: str = ""  # Path to Stage 1 checkpoint to resume training from
-    save_dir: str = "checkpoints/rl_token"
+    save_dir: str = "checkpoints/stage1_rlt_encoder"
     run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
     save_every: int = 10000
     log_every: int = 1000  # wandb logging interval (steps)
@@ -108,7 +108,7 @@ class OnlineRLTrainConfig:
     vla_config_name: str = "pi05_droid_finetune"
     resume_checkpoint: str = ""  # Path to Stage 2 checkpoint to resume training from
     warmup_buffer: str = ""  # Path to a standalone warmup buffer .pt file (skips warmup if provided)
-    save_dir: str = "checkpoints/online_rl"
+    save_dir: str = "checkpoints/stage2_ac_online"
     run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
     save_every: int = 50
     log_every: int = 1  # wandb logging interval (steps)

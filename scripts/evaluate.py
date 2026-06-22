@@ -11,16 +11,16 @@ Usage:
     # Stage 1: evaluate fine-tuned VLA
     uv run python scripts/evaluate.py \
         --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-        --stage1-checkpoint checkpoints/rl_token/rl_token_step5000.pt \
+        --stage1-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
         --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50
 
     # Stage 2: evaluate full trained model
     uv run python scripts/evaluate.py \
-        --checkpoint checkpoints/online_rl/run_latest/online_rl_ep100.pt \
+        --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100.pt \
         --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-        --rl-token-checkpoint checkpoints/rl_token/rl_token_step5000.pt \
+        --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
         --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50

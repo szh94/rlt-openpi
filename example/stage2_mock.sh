@@ -8,7 +8,7 @@ set -euo pipefail
 #   bash example/stage2_mock.sh
 
 VLA_CHECKPOINT="/home/zhike/model/openpi_pytorch/30000/model.safetensors"
-RLT_CHECKPOINT="checkpoints/rl_token/run_20260615_160105/rl_token_step10000.pt"
+RLT_CHECKPOINT="checkpoints/stage1_rlt_encoder/run_20260615_160105/rl_token_step10000.pt"
 
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"
@@ -20,7 +20,7 @@ python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$RLT_CHECKPOINT" \
-    --save-dir checkpoints/online_rl \
+    --save-dir checkpoints/stage2_ac_online \
     --task-prompt "stack the three blocks on the tray" \
     --max-env-steps 31500 \
     --warmup-steps 150 \

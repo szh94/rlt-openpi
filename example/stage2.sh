@@ -7,7 +7,7 @@ set -euo pipefail
 #   bash example/stage2.sh
 
 VLA_CHECKPOINT="/home/zhike/model/openpi_pytorch/30000/model.safetensors"
-RLT_CHECKPOINT="checkpoints/rl_token/run_20260615_160105/rl_token_step10000.pt"
+RLT_CHECKPOINT="checkpoints/stage1_rlt_encoder/run_20260615_160105/rl_token_step10000.pt"
 
 echo "========================================"
 echo " Stage 2 Online RL (Real Robot)"
@@ -18,12 +18,12 @@ python scripts/train_online_rl.py \
     --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-    --rl-token-checkpoint checkpoints/rl_token/rl_token_step3000.pt \
+    --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step3000.pt \
     --task-prompt "stack the three blocks on the tray" \
     --warmup-steps 250 \
     --chunk-length 5 \
     --max-episode-chunks 150 \
-    --save-dir checkpoints/online_rl \
+    --save-dir checkpoints/stage2_ac_online \
     $(
     # === 以下参数使用默认值，必要时取消注释修改 ===
     # --max-env-steps 100000              # 总环境交互步数上限

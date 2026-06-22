@@ -123,7 +123,7 @@ Key flags (full list in `src/rlt_openpi/training/config.py::RLTokenTrainConfig`)
 | `--repo-id` | LeRobot dataset ID. |
 | `--data-transforms-fn` | Import path to a data-transform factory (e.g. `rlt_openpi.policies.franka.config.three_camera_droid`). |
 
-Outputs land under `checkpoints/rl_token/<run_name>/rl_token_step<N>.pt`, where `run_name` defaults to `run_YYYYMMDD_HHMMSS`.
+Outputs land under `checkpoints/stage1_rlt_encoder/<run_name>/rl_token_step<N>.pt`, where `run_name` defaults to `run_YYYYMMDD_HHMMSS`.
 
 ---
 
@@ -149,12 +149,12 @@ python scripts/train_online_rl.py \
     --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-    --rl-token-checkpoint checkpoints/rl_token/rl_token_step3000.pt \
+    --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step3000.pt \
     --task-prompt "stack the three blocks on the tray" \
     --warmup-steps 250 \
     --chunk-length 5 \
     --max-episode-chunks 150 \
-    --save-dir checkpoints/online_rl
+    --save-dir checkpoints/stage2_ac_online
 ```
 
 Key flags (full list in `src/rlt_openpi/training/config.py::OnlineRLTrainConfig`):
@@ -203,8 +203,8 @@ python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-    --rl-token-checkpoint checkpoints/rl_token/rl_token_step5000.pt \
-    --checkpoint checkpoints/online_rl/run_latest/online_rl_ep100.pt \
+    --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
+    --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100.pt \
     --task-prompt "stack the three blocks on the tray" \
     --num-episodes 50
 ```

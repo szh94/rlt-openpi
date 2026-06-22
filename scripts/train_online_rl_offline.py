@@ -14,7 +14,7 @@ Usage::
 
     python scripts/test_stage2_offline.py \
         --vla-checkpoint-dir ~/.cache/openpi/.../model.safetensors \
-        --rl-token-checkpoint checkpoints/rl_token/run_xxx/step_5000.pt \
+        --rl-token-checkpoint checkpoints/stage1_rlt_encoder/run_xxx/step_5000.pt \
         --episodes 5
 """
 
