@@ -91,8 +91,8 @@ class OnlineRLTrainConfig:
 
     # MockEnv configuration (only used when env is MockEnv)
     mock_num_joints: int = 7  # per-arm joint dimension (e.g. 6 DOF + 1 = 7)
-    mock_num_arms: int = 1  # 1 = single-arm, 2 = dual-arm
-    mock_image_size: int = 64  # H=W of generated random images
+    mock_num_arms: int = 2  # 1 = single-arm, 2 = dual-arm
+    mock_image_size: int = 256  # H=W of generated random images
     mock_cameras: tuple[str, ...] = (
         "exterior_image_1_left",
         "wrist_image_left",
