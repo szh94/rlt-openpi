@@ -50,3 +50,4 @@ Thumbs.db
 
 .claude
 .vscode
+/example/keyPath.sh

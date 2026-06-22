@@ -6,8 +6,8 @@ set -euo pipefail
 # Usage:
 #   bash example/stage2.sh
 
-VLA_CHECKPOINT="/home/zhike/model/openpi_pytorch/30000/model.safetensors"
-RLT_CHECKPOINT="checkpoints/stage1_rlt_encoder/run_20260615_160105/rl_token_step10000.pt"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/keyPath.sh"
 
 echo "========================================"
 echo " Stage 2 Online RL (Real Robot)"
@@ -17,8 +17,8 @@ python scripts/train_online_rl.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-    --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step3000.pt \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT_DIR" \
+    --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --task-prompt "stack the three blocks on the tray" \
     --warmup-steps 250 \
     --chunk-length 5 \
