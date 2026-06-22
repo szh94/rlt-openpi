@@ -10,8 +10,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
+TASK_PROMPT="stack the three blocks on the tray"
+
 echo "========================================"
 echo " Stage 2 Online RL (Real Robot)"
+echo "   VLA checkpoint  = $VLA_CHECKPOINT"
+echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
 echo "========================================"
 
 python scripts/train_online_rl.py \
@@ -20,15 +24,15 @@ python scripts/train_online_rl.py \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
-    --task-prompt "stack the three blocks on the tray" \
+    --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
+    --task-prompt "$TASK_PROMPT" \
     --warmup-steps 250 \
     --chunk-length 5 \
     --max-episode-chunks 150 \
-    --save-dir checkpoints/stage2_ac_online \
     $(
     # === 以下参数使用默认值，必要时取消注释修改 ===
-    # --max-env-steps 100000              # 总环境交互步数上限
-    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint
+    # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
+    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
     # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)
     # --batch-size 256                    # 训练 minibatch 大小
     # --buffer-capacity 100000            # ReplayBuffer 最大容量

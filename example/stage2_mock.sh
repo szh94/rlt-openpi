@@ -11,6 +11,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
+TASK_PROMPT="stack the three blocks on the tray"
+
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT"
@@ -21,7 +23,7 @@ python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
-    --save-dir checkpoints/stage2_ac_online \
+    --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
     --task-prompt "stack the three blocks on the tray" \
     --max-env-steps 31500 \
     --warmup-steps 150 \
