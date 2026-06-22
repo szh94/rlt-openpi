@@ -7,6 +7,7 @@ set -euo pipefail
 #   bash example/stage2.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./keyPath.sh
 source "$SCRIPT_DIR/keyPath.sh"
 
 echo "========================================"

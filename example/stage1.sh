@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./keyPath.sh
 source "$SCRIPT_DIR/keyPath.sh"
 
 export WANDB_MODE=disabled
