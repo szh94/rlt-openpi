@@ -51,4 +51,4 @@ Thumbs.db
 .claude
 .vscode
 checkpoints
-/example/keyPath*.sh
+/example/keyPara*.sh

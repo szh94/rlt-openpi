@@ -2,8 +2,8 @@
 # Evaluate the Stage 1 fine-tuned VLA (no RL token head, no actor).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./keyPath.sh
-source "$SCRIPT_DIR/keyPath.sh"
+# shellcheck source=./keyPara.sh
+source "$SCRIPT_DIR/keyPara.sh"
 
 python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \

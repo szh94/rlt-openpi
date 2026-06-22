@@ -8,8 +8,8 @@ set -euo pipefail
 #   bash example/stage2_mock.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=./keyPath.sh
-source "$SCRIPT_DIR/keyPath.sh"
+# shellcheck source=./keyPara.sh
+source "$SCRIPT_DIR/keyPara.sh"
 
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"
