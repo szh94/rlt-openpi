@@ -95,6 +95,7 @@ def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
 
 def main(config: TrainConfig) -> None:
     log.info("Stage 1 config: %s", config)
+    log.info("Save dir: %s", config.train.save_dir)
 
     data_transforms = _resolve_data_transforms(
         config.data_transforms_fn, config.train.vla_config_name
