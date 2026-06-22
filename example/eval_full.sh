@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/keyPath.sh"
 python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CHECKPOINT_DIR" \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --checkpoint "$STAGE2_AC_CHECKPOINT" \
     --task-prompt "stack the three blocks on the tray" \

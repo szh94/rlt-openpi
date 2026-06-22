@@ -8,7 +8,7 @@ export WANDB_MODE=disabled
 
 python scripts/train_rl_token.py \
     --train.vla-config-name pi05_droid_finetune \
-    --train.vla-checkpoint-dir "$VLA_CHECKPOINT_DIR" \
+    --train.vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --train.vla-finetune-alpha 1.0 \
     --train.batch-size 32 \
     --train.num-train-steps 3000 \

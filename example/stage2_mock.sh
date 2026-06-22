@@ -12,13 +12,13 @@ source "$SCRIPT_DIR/keyPath.sh"
 
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"
-echo "   VLA checkpoint  = $VLA_CHECKPOINT_DIR"
+echo "   VLA checkpoint  = $VLA_CHECKPOINT"
 echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
 echo "========================================"
 
 python scripts/train_online_rl_offline.py \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CHECKPOINT_DIR" \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir checkpoints/stage2_ac_online \
     --task-prompt "stack the three blocks on the tray" \

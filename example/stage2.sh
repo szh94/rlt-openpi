@@ -17,7 +17,7 @@ python scripts/train_online_rl.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CHECKPOINT_DIR" \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --task-prompt "stack the three blocks on the tray" \
     --warmup-steps 250 \
