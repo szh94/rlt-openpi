@@ -47,12 +47,12 @@ def make_franka_env(
 ):
     """Create a Franka Panda environment for online RL.
 
-    Returns an ``rlt_openpi.envs.robot_base.robot_env.RobotEnv`` backed by
+    Returns an ``rlt_openpi.envs.robot_env_base.robot_env.RobotEnv`` backed by
     DROID's ``RobotEnv`` for robot control and camera reading.
     """
     from droid.robot_env import RobotEnv as DroidEnv
 
-    from rlt_openpi.envs.robot_base.robot_env import RobotEnv
+    from rlt_openpi.envs.robot_env_base.robot_env import RobotEnv
 
     droid = DroidEnv(action_space=action_space, control_hz=control_hz)
 

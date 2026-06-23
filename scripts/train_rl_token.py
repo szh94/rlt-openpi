@@ -94,6 +94,18 @@ def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
 
 
 def main(config: TrainConfig) -> None:
+    print("=" * 60)
+    print("Stage 1: RL Token Encoder-Decoder Training")
+    print("=" * 60)
+    print(f"  VLA config:      {config.train.vla_config_name}")
+    print(f"  VLA checkpoint:  {config.train.vla_checkpoint_dir}")
+    print(f"  Dataset:         {config.repo_id}")
+    print(f"  Batch size:      {config.train.batch_size}")
+    print(f"  Train steps:     {config.train.num_train_steps}")
+    print(f"  Save dir:        {config.train.save_dir}")
+    print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha}")
+    print("-" * 60)
+
     log.info("Stage 1 config: %s", config)
     log.info("Save dir: %s", config.train.save_dir)
 
@@ -101,6 +113,7 @@ def main(config: TrainConfig) -> None:
         config.data_transforms_fn, config.train.vla_config_name
     )
 
+    print("[1/4] Loading VLA model...")
     log.info(
         "Loading VLA: config=%s, checkpoint=%s",
         config.train.vla_config_name,
@@ -112,10 +125,14 @@ def main(config: TrainConfig) -> None:
         device="cuda",
         data_transforms=data_transforms,
     )
+    print("  VLA model loaded successfully.")
 
+    print("[2/4] Creating RL token trainer...")
     trainer = RLTokenTrainer(config.train, device="cuda")
     rl_logger = Logger.from_train_config(config.train)
+    print("  Trainer created (RLTokenModel + optimizer).")
 
+    print("[3/4] Loading demonstration dataset...")
     log.info("Loading demo dataset: %s", config.repo_id)
 
     data_loader = build_data_loader(
@@ -126,10 +143,15 @@ def main(config: TrainConfig) -> None:
         shuffle=True,
         data_transforms=data_transforms,
     )
+    print("  Data loader ready.")
 
-    print("Start to train RL token encoder-decoder...")
+    print("[4/4] Starting training loop...")
+    print("-" * 60)
     trainer.train(vla, iter(data_loader), log_fn=rl_logger.log)
 
+    print("-" * 60)
+    print("Training complete.")
+    print("=" * 60)
     rl_logger.finish()
 
 if __name__ == "__main__":
