@@ -52,7 +52,7 @@ class OnlineRLTrainConfig:
     # Architecture (shared by RLTokenTrainConfig — must match the Stage 1 model)
     embedding_dim: int = 2048
 
-    # Action space (dual-arm: 6 DOF + 1 gripper per arm = 14)
+    # Action space (ALOHA dual-arm: 6 DOF + 1 gripper per arm = 14)
     action_dim: int = 14
     chunk_length: int = 10  # C
     vla_action_horizon: int = 50  # H: number of action steps the VLA outputs
@@ -90,14 +90,7 @@ class OnlineRLTrainConfig:
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
 
     # MockEnv configuration (only used when env is MockEnv)
-    mock_num_joints: int = 7  # per-arm joint dimension (e.g. 6 DOF + 1 = 7)
-    mock_num_arms: int = 2  # 1 = single-arm, 2 = dual-arm
-    mock_image_size: int = 256  # H=W of generated random images
-    mock_cameras: tuple[str, ...] = (
-        "exterior_image_1_left",
-        "wrist_image_left",
-        "exterior_image_2_left",
-    )  # camera key suffixes
+    mock_image_size: int = 224  # H=W of generated random camera images (ALOHA default)
 
     # Training loop
     max_env_steps: int = 100_000
@@ -105,7 +98,7 @@ class OnlineRLTrainConfig:
     # Checkpoints
     rl_token_checkpoint: str = ""
     vla_checkpoint_dir: str = ""
-    vla_config_name: str = "pi05_droid_finetune"
+    vla_config_name: str = "pi05_aloha"
     resume_checkpoint: str = ""  # Path to Stage 2 checkpoint to resume training from
     warmup_buffer: str = ""  # Path to a standalone warmup buffer .pt file (skips warmup if provided)
     save_dir: str = "checkpoints/stage2_ac_online"

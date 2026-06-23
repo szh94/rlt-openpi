@@ -1,6 +1,6 @@
 """Offline Stage 2 pipeline test with real VLA + real Stage 1 checkpoint.
 
-Uses MockEnv (fake DROID-format observations) + real VLA checkpoint +
+Uses MockEnv (fake ALOHA-format observations) + real VLA checkpoint +
 real Stage 1 RLTokenModel checkpoint, then calls the **exact same**
 ``OnlineRLTrainer.train()`` as ``train_online_rl.py`` — only the env
 is different.
@@ -12,7 +12,7 @@ is different.
 
 Usage::
 
-    python scripts/test_stage2_offline.py \
+    python scripts/train_online_rl_offline.py \
         --vla-checkpoint-dir ~/.cache/openpi/.../model.safetensors \
         --rl-token-checkpoint checkpoints/stage1_rlt_encoder/run_xxx/step_5000.pt \
         --episodes 5
@@ -27,6 +27,7 @@ import tyro
 
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.envs.mock.mock_env import MockEnv
+from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -52,6 +53,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         config_name=config.vla_config_name,
         device="cuda",
         output_action_dim=config.action_dim,
+        data_transforms=aloha_data_transforms(),
     )
 
     # ── 2. Load frozen RL token model (same as train_online_rl.py) ─
@@ -88,10 +90,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
         max_episode_chunks=config.max_episode_chunks,
-        num_joints=config.mock_num_joints,
-        num_arms=config.mock_num_arms,
         image_size=config.mock_image_size,
-        cameras=config.mock_cameras,
     )
 
     # ── 5. Run training (same OnlineRLTrainer.train) ────────────────
