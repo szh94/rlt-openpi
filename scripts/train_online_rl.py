@@ -14,8 +14,8 @@ import logging
 import torch
 import tyro
 
-from rlt_openpi.rollout.factory import make_env, make_intervention
-from rlt_openpi.rollout.intervention import InterventionManager
+from rlt_openpi.envs.factory import make_env, make_intervention
+from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -73,7 +73,7 @@ def main(config: OnlineRLTrainConfig) -> None:
     # Create environment via pluggable factory.
     # Pass --env-factory to specify a Python import path, e.g.:
     #   --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env
-    #   --env-factory rlt_openpi.rollout.sim_env.make_sim_env
+    #   --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
     if not config.env_factory:
         log.error("--env-factory is required. Provide a Python import path to an env factory function.")
         raise SystemExit(1)

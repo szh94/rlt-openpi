@@ -6,7 +6,7 @@ import gymnasium as gym
 import torch
 
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.sim_env import SimEnv
+from rlt_openpi.envs.sim.sim_env import SimEnv
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 

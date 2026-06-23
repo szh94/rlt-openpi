@@ -84,3 +84,18 @@ class SimEnv:
         # obs is guaranteed non-None because C >= 1
         assert obs is not None
         return self._make_obs_dict(obs), rewards, done, info
+
+
+def make_sim_env(
+    env: gym.Env,
+    action_dim: int,
+    chunk_length: int,
+    **kwargs,
+) -> SimEnv:
+    """Factory for ``--env-factory`` CLI argument.
+
+    Usage::
+
+        --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
+    """
+    return SimEnv(env=env, action_dim=action_dim, chunk_length=chunk_length)

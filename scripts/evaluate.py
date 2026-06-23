@@ -38,8 +38,8 @@ import torch
 import tyro
 
 from rlt_openpi.models.actor import Actor
-from rlt_openpi.rollout.factory import make_env
-from rlt_openpi.rollout.intervention import InterventionManager
+from rlt_openpi.envs.factory import make_env
+from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer

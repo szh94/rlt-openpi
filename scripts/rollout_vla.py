@@ -25,7 +25,7 @@ from pathlib import Path
 import torch
 import tyro
 
-from rlt_openpi.rollout.factory import make_env
+from rlt_openpi.envs.factory import make_env
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")

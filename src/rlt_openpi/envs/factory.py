@@ -26,7 +26,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from rlt_openpi.rollout.intervention import InterventionManager
+from rlt_openpi.envs.intervention import InterventionManager
 
 logger = logging.getLogger(__name__)
 

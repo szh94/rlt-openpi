@@ -138,7 +138,7 @@ def make_mock_env(
 
     Usage::
 
-        --env-factory rlt_openpi.rollout.mock_env.make_mock_env
+        --env-factory rlt_openpi.envs.mock.mock_env.make_mock_env
     """
     return MockEnv(
         action_dim=action_dim,

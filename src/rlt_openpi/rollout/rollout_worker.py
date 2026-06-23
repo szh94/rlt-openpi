@@ -18,7 +18,7 @@ from numpy.typing import NDArray
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
-from rlt_openpi.rollout.intervention import InterventionManager, InterventionResult
+from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
@@ -161,6 +161,24 @@ class RolloutWorker:
 
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
 
+        # Debug: print first action of chunk before and after actor
+        a_tilde_first = a_tilde_t.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
+        a_raw_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
+        logger.info(
+            "Actor action[0]: a_tilde=%s",
+            np.array2string(
+                a_tilde_first.cpu().numpy(),
+                precision=4, suppress_small=True, max_line_width=200,
+            ),
+        )
+        logger.info(
+            "Actor action[0]: raw_out=%s",
+            np.array2string(
+                a_raw_first.cpu().numpy(),
+                precision=4, suppress_small=True, max_line_width=200,
+            ),
+        )
+
         # Safety: abort if raw deviation is abnormally large
         raw_dev = (a_flat - a_tilde_t).abs()
         raw_max_dev = raw_dev.max().item()
@@ -193,6 +211,16 @@ class RolloutWorker:
         deviation = a_flat - a_tilde_t
         deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
         a_flat = a_tilde_t + deviation
+
+        # Debug: print first action after deviation cap
+        a_capped_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
+        logger.info(
+            "Actor action[0]: capped  =%s",
+            np.array2string(
+                a_capped_first.cpu().numpy(),
+                precision=4, suppress_small=True, max_line_width=200,
+            ),
+        )
         # a_flat = a_flat.clamp(-1.0, 1.0)
 
         # Safety: abort if raw deviation is abnormally large

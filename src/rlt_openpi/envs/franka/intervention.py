@@ -26,7 +26,7 @@ from typing import Any
 
 import numpy as np
 
-from rlt_openpi.rollout.intervention import InterventionManager, InterventionResult
+from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
 
 logger = logging.getLogger(__name__)
 

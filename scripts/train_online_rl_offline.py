@@ -25,8 +25,8 @@ import logging
 import torch
 import tyro
 
-from rlt_openpi.rollout.intervention import InterventionManager
-from rlt_openpi.rollout.mock_env import MockEnv
+from rlt_openpi.envs.intervention import InterventionManager
+from rlt_openpi.envs.mock.mock_env import MockEnv
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model

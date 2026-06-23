@@ -6,7 +6,7 @@ robot through three user-supplied callables (``step_fn``, ``reset_fn``,
 polymetis, ROS, etc.) — the wiring happens in the user's launch script.
 
 Human reward (success/failure) is collected via
-:class:`~rlt_openpi.rollout.human_reward.HumanReward` using instant
+:class:`~rlt_openpi.envs.robot_base.reward.HumanReward` using instant
 keypress detection (no Enter needed) during episodes.
 
 Usage (with DROID)::
@@ -49,7 +49,7 @@ from typing import Any, Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from rlt_openpi.rollout.reward import HumanReward
+from rlt_openpi.envs.robot_base.reward import HumanReward
 from rlt_openpi.utils import display
 
 logger = logging.getLogger(__name__)
