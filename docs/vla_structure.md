@@ -81,8 +81,8 @@ PI0.5 没有传统的 encoder-decoder 结构。prefix 和 suffix 共享 18 层 T
   ║      │                         │                                     ║
   ║      │  包含: prefix token       │  包含: suffix token                 ║
   ║      │  之间互相 attend 后       │  attend 了全部 prefix              ║
-  ║      │  的语义融合结果           │  + 之前的 suffix + state           ║
-  ║      │  不含任何 suffix 信息     │  后的动作上下文                    ║
+  ║      │  的语义融合结果           │  (含 PI0.5 的离散 state)          ║
+  ║      │  不含任何 suffix 信息     │  + 之前的 suffix 的动作上下文      ║
   ║      │                         │                                     ║
   ║      ▼                         ▼                                     ║
   ║  ┌──────────────┐    ┌──────────────────────────────┐                ║
@@ -176,12 +176,12 @@ PI0.5 没有传统的 encoder-decoder 结构。prefix 和 suffix 共享 18 层 T
 | 阶段 | Tensor 名 | Shape | 含义 |
 |------|----------|-------|------|
 | ① 预处理 | `images` | `[B, N_img, P²·C]` | patch 化后的多视角图像 |
-| | `lang_tokens` | `[B, L]` | tokenized 任务指令 |
-| | `state` | `[B, action_dim]` | 本体感知（关节角等） |
-| ② prefix 嵌入 | `prefix_embs` | `[B, M, 2048]` | 图像+语言混合嵌入序列 |
+| | `lang_tokens` | `[B, L]` | tokenized 任务指令（PI0.5 含离散 state） |
+| | `state` | `[B, action_dim]` | 本体感知（PI0: 入 suffix; PI0.5: 离散化入 lang_tokens） |
+| ② prefix 嵌入 | `prefix_embs` | `[B, M, 2048]` | 图像+语言混合嵌入序列（PI0.5 含 state 信息） |
 | | `prefix_pad_masks` | `[B, M]` | 有效位置标记 |
 | | `prefix_att_masks` | `[B, M]` | 注意力类型标记 |
-| ② suffix 嵌入 | `suffix_embs` | `[B, H, 2048]` | 噪声动作+状态+时间步嵌入 |
+| ② suffix 嵌入 | `suffix_embs` | `[B, H, 2048]` (PI0.5) / `[B, 1+H, 2048]` (PI0) | 噪声动作嵌入（PI0 多一个 state token） |
 | | `x_t` | `[B, H, action_dim]` | 扩散过程中的带噪动作 |
 | ③ Transformer | `prefix_out` = `z` | `[B, M, 2048]` | PaliGemma FFN 输出（观测理解） |
 | | `suffix_out` | `[B, H, 2048]` | Expert FFN 输出（动作倾向） |
@@ -240,6 +240,27 @@ inputs_embeds = [prefix_embs, suffix_embs]
 
 由 `make_att_2d_masks` 的 `cumsum[j] <= cumsum[i]` 规则决定（token i 能看 token j 当且仅当 j 的 cumsum 不大于 i 的 cumsum）：
 
+**PI0.5（本图默认）**：suffix 只有 action token，无 state token。
+
+```
+att_masks:
+  prefix (M个)              action (H个)
+  [0, 0, ..., 0,            1, 0, 0, ..., 0]
+                            
+cumsum:
+  [0, 0, ..., 0,            1, 1, 1, ..., 1]
+   └─ prefix ─┘             └── suffix ───┘
+   (含 language + image      (纯 action, 因果组)
+    + PI0.5 离散 state)
+
+Attention 矩阵 (↓i 看 j→):
+              prefix_j      action_j
+  prefix_i   [  ✓  ]       [  ✗  ]      ← prefix 看不到 suffix
+  action_i   [  ✓  ]       [✓causal]    ← suffix 看到全部 prefix + 因果
+```
+
+**PI0**：suffix 多一个 state token，attention mask 变为 `[1, 1, 0, ..., 0]`：
+
 ```
 att_masks:
   prefix (M个)       state  action (H个)
@@ -248,21 +269,15 @@ att_masks:
 cumsum:
   [0, 0, ..., 0,      1,    2, 2, 2, ..., 2]
    └─ prefix ─┘       └──── suffix ────────┘
-
-Attention 矩阵 (↓i 看 j→):
-              prefix_j    state_j   action_j
-  prefix_i   [  ✓  ]     [  ✗  ]   [  ✗  ]    ← state/action 的 cumsum > 0，prefix 看不到
-  state_i    [  ✓  ]     [  ✓  ]   [  ✗  ]    
-  action_i   [  ✓  ]     [  ✓  ]   [✓causal]   ← 同组内因果 (同 cumsum 值互相可见)
 ```
 
-**关键结论：prefix token (cumsum=0) 只能 attend cumsum≤0 的位置，即只有其他 prefix token。state 和 action 的 cumsum ≥ 1，prefix 看不到它们。**
-
-因此 state 在**任何时候**都不会影响 prefix_out (z)——无论 extract_embeddings (suffix=None) 还是完整 forward (prefix+suffix) 都是如此。
+**关键结论：prefix 的 attention 始终只看 prefix（cumsum=0），suffix 侧的任何 token 都不会影响 prefix_out (z)。PI0.5 的 state 在 prefix 内部（离散文本 token），所以被 prefix attention 看到；PI0 的 state 在 suffix 侧，prefix 看不到。**
 
 ### 非对称信息流
 
-Attention mask 的非对称设计导致 prefix_out 和 suffix_out 包含的信息完全不同：
+Attention mask 的非对称设计导致 prefix_out 和 suffix_out 包含的信息完全不同。
+
+**PI0.5（本图默认）**：state 在 prefix 内部。
 
 ```
          prefix_out              suffix_out
@@ -273,22 +288,37 @@ Attention mask 的非对称设计导致 prefix_out 和 suffix_out 包含的信�
               │                       │
     ┌─ Self-Attention ──── Self-Attention ─┐
     │  prefix ↔ prefix      suffix 看到:    │
-    │  (双向, 只看自己)      ├─ prefix (全部) │
-    │                       ├─ state        │
-    │                       └─ 之前的 suffix │
+    │  (双向, 含 image +    ├─ prefix (全部, │
+    │   language + 离散      │   含 state)   │
+    │   state)              └─ 之前的 suffix │
     │                       │               │
     │  prefix 看不到:        │               │
     │  suffix 的全部         │               │
     └───────────────────────────────────────┘
               ↑                       ↑
         prefix_embs             suffix_embs
-        (image+lang)           (state+action+time)
+    (image+lang+离散state)    (action_emb only)
+```
+
+**PI0**：state 在 suffix 内部，作为单独的 suffix token。
+
+```
+    prefix_embs                 suffix_embs
+    (image+lang)           (state+action+time)
+
+    ┌─ Self-Attention ──── Self-Attention ─┐
+    │  prefix ↔ prefix      suffix 看到:    │
+    │  (双向, 只看自己)      ├─ prefix (全部) │
+    │                       ├─ state token  │
+    │                       └─ 之前的 suffix │
+    └───────────────────────────────────────┘
 ```
 
 | | prefix_out (z) | suffix_out |
 |---|---|---|
-| 包含 | image + language 的语义理解 | prefix 的场景理解 + state + action 上下文 |
-| 不受影响于 | state, 噪声动作 x_t, 扩散时间步 | —（所有这些都在 suffix 侧） |
+| 包含 (PI0.5) | image + language + **离散 state** 的语义理解 | prefix 全部 + 之前的 suffix 的动作上下文 |
+| 包含 (PI0) | image + language 的语义理解（**不含 state**） | prefix 全部 + **state token** + 之前的 suffix |
+| 不受影响于 | 噪声动作 x_t, 扩散时间步（两种版本一致） | — |
 | 为什么 | attention mask 阻断 prefix→suffix | attention mask 允许 suffix→prefix |
 | 下游用途 | Stage 1 RL Token, Stage 2 RL state | action_out_proj → 去噪 → 最终动作 |
 
@@ -329,6 +359,7 @@ for i, hidden_states in enumerate(inputs_embeds):
 1. **代码层**：`inputs_embeds=[prefix, None]` → Expert 模型无输入，不产生 suffix_out
 2. **架构层**：即使有 suffix，prefix 的 FFN 也是 PaliGemma 原版，不走 Action Expert
 3. **语义层**：suffix_out 依赖当前噪声动作 `x_t` 和扩散时间步 `time`，不是观测的稳定编码。Stage 1 要的是场景语义理解，不是特定噪声状态下的动作倾向
+4. **PI0.5 特有**：state 已经离散化进入 prefix（lang_tokens），prefix_out 直接包含 state 信息，不需要从 suffix 获取
 
 ---
 
@@ -340,7 +371,27 @@ for i, hidden_states in enumerate(inputs_embeds):
 
 ### suffix_embs 的构成
 
-从 `pi0_pytorch.py:238-315` (`embed_suffix`) 追踪：
+从 `pi0_pytorch.py:238-315` (`embed_suffix`) 追踪。**PI0.5** 无 state token，结构更简单：
+
+```
+      noisy_actions [B, H, action_dim]     timestep [B]
+                │                                  │
+                ▼                                  ▼
+         action_in_proj                   sinusoidal embedding
+         Linear(ad→2048)                   sin/cos → 2048-dim
+                │                                  │
+                ▼                                  ▼
+         [B, H, 2048]                    time_mlp (SiLU → SiLU)
+                │                                  │
+                │                                  ▼
+                │                           adarms_cond [B, 2048]
+                │                           (调制 Expert RMSNorm,
+                │                            不进入 token 序列)
+                ▼
+    suffix_embs = action_emb  [B, H, 2048]
+```
+
+**PI0** 多一个 state token，且时间步与 action 融合：
 
 ```
 state [B, action_dim]     noisy_actions [B, H, action_dim]     timestep [B]
@@ -409,6 +460,23 @@ PaliGemma 原版 FFN 是通用视觉/语言知识。Action Expert FFN 是专门�
 
 ### suffix_out 的最终去路
 
+**PI0.5**：suffix_embs 无 state token，直接投影。
+
+```
+suffix_embs [B, H, 2048]
+      │
+      ▼ (经过 Transformer)
+suffix_out [B, H, 2048]
+      │
+      ▼ action_out_proj        ← Linear(2048 → action_dim)
+ v_t [B, H, action_dim]        ← Flow Matching 速度场
+      │
+      ▼ Euler 积分             ← x_{t-Δt} = x_t + v_t · Δt，迭代 10 步
+ actions [B, H, action_dim]    ← 最终动作序列
+```
+
+**PI0**：suffix_embs 多一个 state token，需先切掉。
+
 ```
 suffix_embs [B, 1+H, 2048]
       │
@@ -418,11 +486,11 @@ suffix_out [B, 1+H, 2048]
       ▼ suffix_out[:, -H:]    ← 去掉 state token 位置 0
  [B, H, 2048]
       │
-      ▼ action_out_proj        ← Linear(2048 → action_dim)
- v_t [B, H, action_dim]        ← Flow Matching 速度场
+      ▼ action_out_proj
+ v_t [B, H, action_dim]
       │
-      ▼ Euler 积分             ← x_{t-Δt} = x_t + v_t · Δt，迭代 10 步
- actions [B, H, action_dim]    ← 最终动作序列
+      ▼ Euler 积分
+ actions [B, H, action_dim]
 ```
 
 ---
