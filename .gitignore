@@ -44,6 +44,10 @@ assets/
 # Local docs
 docs_rlt/
 
+# Test artifacts
+image/
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
