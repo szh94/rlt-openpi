@@ -278,7 +278,12 @@ class RLTokenTrainer:
         self.scheduler.step()
 
         self._global_step += 1
-        return {"loss": loss.item(), "grad_norm": grad_norm.item(), "lr": self.optimizer.param_groups[0]["lr"], "step": self._global_step}
+        return {
+            "loss": loss.item(),
+            "grad_norm": grad_norm.item(),
+            "lr": self.optimizer.param_groups[0]["lr"],
+            "step": self._global_step,
+        }
 
     def _step_joint(
         self,

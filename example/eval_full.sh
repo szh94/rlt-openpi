@@ -2,6 +2,7 @@
 # Evaluate the full trained model (Stage 1 RL token + Stage 2 actor).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 

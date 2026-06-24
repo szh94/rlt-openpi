@@ -8,10 +8,14 @@ set -euo pipefail
 #   bash example/stage2_mock.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
 TASK_PROMPT="stack the three blocks on the tray"
+
+export WANDB_MODE=offline
+# export WANDB_MODE=disabled
 
 echo "========================================"
 echo " Stage 2 Offline (MockEnv)"

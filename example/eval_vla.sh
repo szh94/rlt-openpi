@@ -2,6 +2,7 @@
 # Evaluate the Stage 1 fine-tuned VLA (no RL token head, no actor).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 

@@ -21,6 +21,7 @@ STAGE1_RLT_CHECKPOINT_DIR="checkpoints/stage1_rlt_encoder"
 STAGE1_RLT_CHECKPOINT="${STAGE1_RLT_CHECKPOINT_DIR}/run_xxxx_xxxx/rl_token_stepxxx.pt"
 STAGE2_AC_CHECKPOINT_DIR="checkpoints/stage2_ac_online"
 STAGE2_AC_CHECKPOINT="${STAGE2_AC_CHECKPOINT_DIR}/run_xxxx_xxxx/online_rl_epxxx.pt"
+
 VLA_CHECKPOINT_DIR=""
 export HF_LEROBOT_HOME=""
 

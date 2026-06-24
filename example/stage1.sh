@@ -2,10 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
-export WANDB_MODE=disabled
+export WANDB_MODE=offline
+# export WANDB_MODE=disabled
 
 echo "========================================"
 echo " Stage 1 RL Token Training"
