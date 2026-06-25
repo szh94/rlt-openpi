@@ -68,6 +68,7 @@ class HumanReward:
         if self._raw_mode:
             if select.select([sys.stdin], [], [], 0)[0]:
                 ch = sys.stdin.read(1).lower()
+                print(f"[HumanReward] raw ch={ch!r} (ord={ord(ch) if ch else -1})", flush=True)
                 if ch in ("s", " "):
                     self._signal = "s"
                 elif ch == "f":

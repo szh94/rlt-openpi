@@ -123,12 +123,15 @@ def make_alicd_env(
         """Send joint position + gripper target to the robot.
 
         Args:
-            action: ``[action_dim]`` — first 6 values are joint angles
-                in radians, the 7th is gripper position (0-1000).
+            action: ``[action_dim]`` — first 6 values (dims 0-5) are joint
+                angles in radians; dim 7 is gripper position in [0,1]
+                (scaled to 0-1000 below).  DROID's 7th joint (dim 6) is
+                discarded because Alicia-D has only 6 joints.
         """
-        # Clamp to safe ranges
+        # Joints: take first 6 DROID joints (dims 0-5), discard dim 6
         joint_targets = np.clip(action[:6].astype(np.float64), -math.pi, math.pi).tolist()
-        gripper_target = float(np.clip(action[6], 0.0, 1000.0))
+        # Gripper: DROID dim 7 is in [0,1], scale to [0, 1000]
+        gripper_target = float(np.clip(action[7] * 1000.0, 0.0, 1000.0))
 
         robot.set_robot_state(
             target_joints=joint_targets,

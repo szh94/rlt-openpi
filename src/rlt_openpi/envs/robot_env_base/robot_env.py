@@ -159,9 +159,15 @@ class RobotEnv:
             t_start = time.time()
 
             if self._dry_run:
-                # Print action values without sending to hardware
-                action_str = "  ".join(f"[{i:>2d}] {v:>10.6f}" for i, v in enumerate(action_chunk[k]))
-                print(f"  [dry_run] step {k:>2d}: {action_str}")
+                # Print actions in human-readable units:
+                #   dims 0-6 → joints (rad → deg)
+                #   dim  7   → gripper [0, 1000]
+                #   dims 8-9 → raw values
+                a = action_chunk[k]
+                joints_deg = ", ".join(f"{np.rad2deg(a[i]):7.2f}" for i in range(7))
+                grip_val = float(np.clip(a[7] * 1000.0, 0.0, 1000.0))
+                extra_str = "  ".join(f"[{i}] {a[i]:.6f}" for i in range(8, len(a)))
+                print(f"[dry_run] step {k:>2d}: J=[{joints_deg}]°  grip={grip_val:.0f}/1000  extra: {extra_str}")
                 # Still sleep to simulate control period
                 time.sleep(self._control_period)
             else:
@@ -193,6 +199,10 @@ class RobotEnv:
 
         info["steps_executed"] = k + 1
         self._chunk_count += 1
+
+        # Chunk separator (dry_run readability)
+        if self._dry_run:
+            print(f"{'─' * 60}")
 
         # Timeout: force episode end after max chunks
         if not done and self._chunk_count >= self._max_episode_chunks:

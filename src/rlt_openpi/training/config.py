@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Annotated
+
+import tyro
 
 
 @dataclass
@@ -89,7 +92,9 @@ class OnlineRLTrainConfig:
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
     env_kwargs: str = "{}"  # JSON string of extra kwargs forwarded to the env factory
-    dry_run: bool = False  # If True, print actions instead of sending to hardware
+    dry_run: Annotated[str, tyro.conf.arg(metavar="{true,false}")] = (
+        "false"  # If True, print actions instead of sending to hardware
+    )
 
     # MockEnv configuration (only used when env is MockEnv)
     mock_image_size: int = 224  # H=W of generated random camera images (ALOHA default)
@@ -116,6 +121,8 @@ class OnlineRLTrainConfig:
     def __post_init__(self) -> None:
         if not self.run_name:
             self.run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        if isinstance(self.dry_run, str):
+            self.dry_run = self.dry_run.lower() in ("true", "1", "yes")
 
     @property
     def state_dim(self) -> int:

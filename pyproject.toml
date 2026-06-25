@@ -5,7 +5,7 @@ description = "RL Token: Bootstrapping Online RL with Vision-Language-Action Mod
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
-    "torch==2.7.1",
+    "torch==2.8.0",
     "transformers==4.53.2",
     "safetensors",
     "wandb>=0.19",
@@ -18,6 +18,7 @@ dependencies = [
     "chex",
     "datasets>=3.0,<4.0",
     "torchcodec<0.11",
+    "torchvision",
 ]
 
 # cmake is a build-time dep of lerobot (openpi transitive) — not needed at runtime.
@@ -32,10 +33,11 @@ override-dependencies = [
     "labmaze ; sys_platform == 'never'",
     "ml-dtypes>=0.5.0",
     "numpy>=2.1.0",
+    "torch==2.8.0",
 ]
 
-#[tool.uv.sources]
-#openpi = { git = "https://github.com/Physical-Intelligence/openpi", rev = "fdc03f5" }
+[tool.uv.sources]
+openpi = { path = "/home/shenzh/Robot/openpi" }
 
 [build-system]
 requires = ["hatchling"]
