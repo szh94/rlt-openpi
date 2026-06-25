@@ -54,6 +54,8 @@ def make_alicd_env(
     camera_ids: dict[str, int] | None = None,
     image_size: tuple[int, int] = (224, 224),
     live_image_dir: str = "",
+    print_actions: bool = False,
+    joint_override: dict[str, float] | None = None,
     **kwargs: Any,
 ):
     """Create an Alicia-D environment for online RL.
@@ -130,6 +132,15 @@ def make_alicd_env(
         """
         # Joints: take first 6 DROID joints (dims 0-5), discard dim 6
         joint_targets = np.clip(action[:6].astype(np.float64), -math.pi, math.pi).tolist()
+
+        # Apply joint override (safety filter).  None = pass-through.
+        if joint_override is not None:
+            for idx_str, val in joint_override.items():
+                i = int(idx_str)
+                if 0 <= i < 6:
+                    joint_targets[i] = float(val)
+                    logger.debug("Joint %d overridden to %.4f rad (%.1f°)", i, val, math.degrees(val))
+
         # Gripper: DROID dim 7 is in [0,1], scale to [0, 1000]
         gripper_target = float(np.clip(action[7] * 1000.0, 0.0, 1000.0))
 
@@ -165,6 +176,7 @@ def make_alicd_env(
     # get_obs_fn — read robot state and camera images
     # ------------------------------------------------------------------
     _zero_frame = np.zeros((*image_size, 3), dtype=np.uint8)
+    _frame_stats = [0, 0]  # [ok_count, fail_count]
 
     def get_obs_fn() -> dict[str, Any]:
         """Return observation dict in DROID-schema keys."""
@@ -186,10 +198,24 @@ def make_alicd_env(
                 continue
             ret, frame = cap.read()
             if ret and frame is not None:
+                _frame_stats[0] += 1
+                if _frame_stats[0] == 1:  # only on first successful read
+                    logger.info(
+                        "Camera '%s' first frame: shape=%s, dtype=%s, "
+                        "min=%.1f max=%.1f mean=%.1f",
+                        cam_name, frame.shape, frame.dtype,
+                        frame.min(), frame.max(), frame.mean(),
+                    )
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 if frame.shape[:2] != image_size:
                     frame = cv2.resize(frame, image_size[::-1])
             else:
+                _frame_stats[1] += 1
+                if _frame_stats[1] <= 3 or _frame_stats[1] % 50 == 0:
+                    logger.warning(
+                        "Camera '%s' read failed (ret=%s, frame is None=%s) [ok=%d fail=%d]",
+                        cam_name, ret, frame is None, _frame_stats[0], _frame_stats[1],
+                    )
                 frame = _zero_frame.copy()
             obs[f"observation/{cam_name}"] = frame
 
@@ -218,6 +244,7 @@ def make_alicd_env(
         chunk_length=chunk_length,
         control_hz=control_hz,
         max_episode_chunks=max_episode_chunks,
+        print_actions=print_actions,
         **kwargs,
     )
 

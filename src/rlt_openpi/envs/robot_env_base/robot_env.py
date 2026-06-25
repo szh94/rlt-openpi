@@ -94,6 +94,7 @@ class RobotEnv:
         control_hz: int = 15,
         max_episode_chunks: int = 50,
         dry_run: bool = False,
+        print_actions: bool = False,
     ) -> None:
         self._step_fn = step_fn
         self._reset_fn = reset_fn
@@ -103,6 +104,7 @@ class RobotEnv:
         self._control_period = 1.0 / control_hz
         self._max_episode_chunks = max_episode_chunks
         self._dry_run = dry_run
+        self._print_actions = print_actions
 
         self._chunk_count = 0
         self._feedback = HumanReward()
@@ -158,7 +160,8 @@ class RobotEnv:
         for k in range(C):
             t_start = time.time()
 
-            if self._dry_run:
+            # Print actions (controlled by print_actions, not dry_run)
+            if self._print_actions or self._dry_run:
                 # Print actions in human-readable units:
                 #   dims 0-6 → joints (rad → deg)
                 #   dim  7   → gripper [0, 1000]
@@ -167,11 +170,15 @@ class RobotEnv:
                 joints_deg = ", ".join(f"{np.rad2deg(a[i]):7.2f}" for i in range(7))
                 grip_val = float(np.clip(a[7] * 1000.0, 0.0, 1000.0))
                 extra_str = "  ".join(f"[{i}] {a[i]:.6f}" for i in range(8, len(a)))
-                print(f"[dry_run] step {k:>2d}: J=[{joints_deg}]°  grip={grip_val:.0f}/1000  extra: {extra_str}")
+                tag = "dry_run" if self._dry_run else "action"
+                print(f"[{tag}] step {k:>2d}: J=[{joints_deg}]°  grip={grip_val:.0f}/1000  extra: {extra_str}")
+
+            # Send to hardware (dry_run skips this)
+            if not self._dry_run:
+                self._step_fn(action_chunk[k])
+            else:
                 # Still sleep to simulate control period
                 time.sleep(self._control_period)
-            else:
-                self._step_fn(action_chunk[k])
 
             # Check for human signal between steps
             signal = self._feedback.check()
@@ -200,8 +207,8 @@ class RobotEnv:
         info["steps_executed"] = k + 1
         self._chunk_count += 1
 
-        # Chunk separator (dry_run readability)
-        if self._dry_run:
+        # Chunk separator (printed when action logging is on)
+        if self._print_actions or self._dry_run:
             print(f"{'─' * 60}")
 
         # Timeout: force episode end after max chunks

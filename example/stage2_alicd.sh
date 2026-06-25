@@ -18,7 +18,14 @@ ALICD_PORT=""                        # e.g. "/dev/ttyACM0" (Linux) or "COM3" (Wi
 ALICD_CAM_IDS='{"exterior_image_1_left": 0, "wrist_image_left": 2}'
 ALICD_SPEED_DEG_S=30.0
 ALICD_CONTROL_HZ=15
-DRY_RUN=true                        # true=打印action不驱动机器人, false=真实驱动
+DRY_RUN=false                       # true=打印action不驱动机器人, false=真实驱动
+# 关节安全过滤: {} 表示不过滤, 指定关节索引和弧度值来锁定特定关节
+# 示例: 锁定全部6个关节 (弧度制)
+#   JOINT_OVERRIDE='{"0": 0.0, "1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}'
+# 示例: 仅锁定关节0和2
+#   JOINT_OVERRIDE='{"0": 0.0, "2": -0.5}'
+JOINT_OVERRIDE='{"0": 0.0, "1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}'
+PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 ALICD_IMAGE_SIZE=224
 LIVE_IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/live_image"
 
@@ -34,6 +41,8 @@ echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
 echo "   Port            = ${ALICD_PORT:-auto}"
 echo "   Cameras         = $ALICD_CAM_IDS"
 echo "   Dry run         = $DRY_RUN"
+echo "   Print actions   = $PRINT_ACTIONS"
+echo "   Joint override  = $JOINT_OVERRIDE"
 echo "========================================"
 
 python scripts/train_online_rl.py \
@@ -47,7 +56,7 @@ python scripts/train_online_rl.py \
     --chunk-length 10 \
     --warmup-steps 150 \
     --max-episode-chunks 150 \
-    --env-kwargs "{\"port\": \"${ALICD_PORT}\", \"camera_ids\": ${ALICD_CAM_IDS}, \"control_hz\": ${ALICD_CONTROL_HZ}, \"speed_deg_s\": ${ALICD_SPEED_DEG_S}, \"image_size\": [${ALICD_IMAGE_SIZE}, ${ALICD_IMAGE_SIZE}], \"live_image_dir\": \"${LIVE_IMAGE_DIR}\"}" \
+    --env-kwargs "{\"port\": \"${ALICD_PORT}\", \"camera_ids\": ${ALICD_CAM_IDS}, \"control_hz\": ${ALICD_CONTROL_HZ}, \"speed_deg_s\": ${ALICD_SPEED_DEG_S}, \"image_size\": [${ALICD_IMAGE_SIZE}, ${ALICD_IMAGE_SIZE}], \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"print_actions\": ${PRINT_ACTIONS}, \"joint_override\": ${JOINT_OVERRIDE}}" \
     --dry-run $DRY_RUN \
     $(
     # === 默认参数，必要时取消注释修改 ===
