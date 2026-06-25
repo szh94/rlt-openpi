@@ -91,6 +91,7 @@ def make_franka_env(
         chunk_length=chunk_length,
         control_hz=control_hz,
         max_episode_chunks=max_episode_chunks,
+        **kwargs,
     )
 
     # Expose internals so the VR intervention manager can step the robot

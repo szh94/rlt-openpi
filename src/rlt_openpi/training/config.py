@@ -88,6 +88,8 @@ class OnlineRLTrainConfig:
     intervention_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.intervention.make_vr_intervention"
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
+    env_kwargs: str = "{}"  # JSON string of extra kwargs forwarded to the env factory
+    dry_run: bool = False  # If True, print actions instead of sending to hardware
 
     # MockEnv configuration (only used when env is MockEnv)
     mock_image_size: int = 224  # H=W of generated random camera images (ALOHA default)

@@ -79,6 +79,9 @@ class RobotEnv:
         control_hz: Robot control frequency in Hz.
         max_episode_chunks: Maximum chunks per episode before forced
             termination.
+        dry_run: If True, actions are printed to stdout instead of
+            being sent to the robot hardware.  Useful for inspecting
+            action values before running on a real arm.
     """
 
     def __init__(
@@ -90,6 +93,7 @@ class RobotEnv:
         chunk_length: int = 10,
         control_hz: int = 15,
         max_episode_chunks: int = 50,
+        dry_run: bool = False,
     ) -> None:
         self._step_fn = step_fn
         self._reset_fn = reset_fn
@@ -98,6 +102,7 @@ class RobotEnv:
         self._chunk_length = chunk_length
         self._control_period = 1.0 / control_hz
         self._max_episode_chunks = max_episode_chunks
+        self._dry_run = dry_run
 
         self._chunk_count = 0
         self._feedback = HumanReward()
@@ -153,7 +158,14 @@ class RobotEnv:
         for k in range(C):
             t_start = time.time()
 
-            self._step_fn(action_chunk[k])
+            if self._dry_run:
+                # Print action values without sending to hardware
+                action_str = "  ".join(f"[{i:>2d}] {v:>10.6f}" for i, v in enumerate(action_chunk[k]))
+                print(f"  [dry_run] step {k:>2d}: {action_str}")
+                # Still sleep to simulate control period
+                time.sleep(self._control_period)
+            else:
+                self._step_fn(action_chunk[k])
 
             # Check for human signal between steps
             signal = self._feedback.check()
