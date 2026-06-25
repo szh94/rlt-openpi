@@ -20,6 +20,7 @@ ALICD_SPEED_DEG_S=30.0
 ALICD_CONTROL_HZ=15
 DRY_RUN=true                        # true=打印action不驱动机器人, false=真实驱动
 ALICD_IMAGE_SIZE=224
+LIVE_IMAGE_DIR="D:/work/openpi/rlt-openpi/live_image"
 
 TASK_PROMPT="pick up the cup"
 
@@ -43,7 +44,7 @@ python scripts/train_online_rl.py \
     --chunk-length 10 \
     --warmup-steps 250 \
     --max-episode-chunks 150 \
-    --env-kwargs "{\"port\": \"${ALICD_PORT}\", \"camera_ids\": ${ALICD_CAM_IDS}, \"control_hz\": ${ALICD_CONTROL_HZ}, \"speed_deg_s\": ${ALICD_SPEED_DEG_S}, \"image_size\": [${ALICD_IMAGE_SIZE}, ${ALICD_IMAGE_SIZE}]}" \
+    --env-kwargs "{\"port\": \"${ALICD_PORT}\", \"camera_ids\": ${ALICD_CAM_IDS}, \"control_hz\": ${ALICD_CONTROL_HZ}, \"speed_deg_s\": ${ALICD_SPEED_DEG_S}, \"image_size\": [${ALICD_IMAGE_SIZE}, ${ALICD_IMAGE_SIZE}], \"live_image_dir\": \"${LIVE_IMAGE_DIR}\"}" \
     --dry-run $DRY_RUN \
     $(
     # === 默认参数，必要时取消注释修改 ===

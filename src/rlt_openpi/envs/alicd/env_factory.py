@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -51,6 +53,7 @@ def make_alicd_env(
     speed_deg_s: float = 30.0,
     camera_ids: dict[str, int] | None = None,
     image_size: tuple[int, int] = (224, 224),
+    live_image_dir: str = "",
     **kwargs: Any,
 ):
     """Create an Alicia-D environment for online RL.
@@ -143,6 +146,19 @@ def make_alicd_env(
         # set_home blocks until home is reached, so we're done here
 
     # ------------------------------------------------------------------
+    # Live image output directory (optional)
+    # ------------------------------------------------------------------
+    _live_dir = ""
+    _last_save = [0.0]  # mutable for closure
+    _save_interval = 1.0  # seconds between saves
+    if live_image_dir:
+        _live_dir = os.path.join(
+            live_image_dir, datetime.now().strftime("%Y%m%d_%H%M%S"),
+        )
+        os.makedirs(_live_dir, exist_ok=True)
+        logger.info("Live images will be saved to %s (every %.1fs)", _live_dir, _save_interval)
+
+    # ------------------------------------------------------------------
     # get_obs_fn — read robot state and camera images
     # ------------------------------------------------------------------
     _zero_frame = np.zeros((*image_size, 3), dtype=np.uint8)
@@ -173,6 +189,18 @@ def make_alicd_env(
             else:
                 frame = _zero_frame.copy()
             obs[f"observation/{cam_name}"] = frame
+
+        # Save live images (throttled: every _save_interval seconds)
+        if _live_dir:
+            now = time.time()
+            if now - _last_save[0] >= _save_interval:
+                _last_save[0] = now
+                for cam_name in cameras:
+                    frame = obs.get(f"observation/{cam_name}")
+                    if frame is not None:
+                        safe_name = cam_name.replace("/", "_")
+                        path = os.path.join(_live_dir, f"{safe_name}.png")
+                        cv2.imwrite(path, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
 
         return obs
 
