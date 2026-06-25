@@ -134,12 +134,13 @@ def make_alicd_env(
         joint_targets = np.clip(action[:6].astype(np.float64), -math.pi, math.pi).tolist()
 
         # Apply joint override (safety filter).  None = pass-through.
+        # Values are in DEGREES — converted to radians here.
         if joint_override is not None:
             for idx_str, val in joint_override.items():
                 i = int(idx_str)
                 if 0 <= i < 6:
-                    joint_targets[i] = float(val)
-                    logger.debug("Joint %d overridden to %.4f rad (%.1f°)", i, val, math.degrees(val))
+                    joint_targets[i] = math.radians(float(val))
+                    logger.debug("Joint %d overridden to %.1f° (%.4f rad)", i, float(val), joint_targets[i])
 
         # Gripper: DROID dim 7 is in [0,1], scale to [0, 1000]
         gripper_target = float(np.clip(action[7] * 1000.0, 0.0, 1000.0))

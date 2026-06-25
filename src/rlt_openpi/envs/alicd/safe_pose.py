@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 # Arm folded, low CoG, gripper up — safe to go limp without collision.
 SAFE_JOINTS_RAD: list[float] = [
     0.0,        # J0    0°     基座旋转
-    +1.9635,   # J1  +112.5°  肩俯仰
-    -0.4449,   # J2   -25.5°  肘
+    +1.9548,   # J1  +112°    肩俯仰
+    -0.4363,   # J2   -25°    肘
     0.0,        # J3    0°     腕滚
-    -1.0953,   # J4   -62.8°  腕俯仰
+    -1.0821,   # J4   -62°    腕俯仰
     0.0,        # J5    0°     末端旋转
 ]
 SAFE_GRIPPER = 1000.0  # fully open

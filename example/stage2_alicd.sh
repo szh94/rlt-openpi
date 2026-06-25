@@ -19,12 +19,12 @@ ALICD_CAM_IDS='{"exterior_image_1_left": 0, "wrist_image_left": 2}'
 ALICD_SPEED_DEG_S=30.0
 ALICD_CONTROL_HZ=15
 DRY_RUN=false                       # true=打印action不驱动机器人, false=真实驱动
-# 关节安全过滤: {} 表示不过滤, 指定关节索引和弧度值来锁定特定关节
-# 示例: 锁定全部6个关节 (弧度制)
-#   JOINT_OVERRIDE='{"0": 0.0, "1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}'
+# 关节安全过滤: {} 表示不过滤, 指定关节索引和角度值(°)来锁定特定关节
+# 示例: 锁定全部6个关节 (角度制, 自动转弧度)
+#   JOINT_OVERRIDE='{"0": 0, "1": 110, "2": -15, "3": 0, "4": -20, "5": 0}'
 # 示例: 仅锁定关节0和2
-#   JOINT_OVERRIDE='{"0": 0.0, "2": -0.5}'
-JOINT_OVERRIDE='{"0": 0.0, "1": 0.0, "2": 0.0, "3": 0.0, "4": 0.0, "5": 0.0}'
+#   JOINT_OVERRIDE='{"0": 0, "2": -25}'
+JOINT_OVERRIDE='{"0": 0, "1": 110, "2": -15, "3": 0, "4": -20, "5": 0}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 ALICD_IMAGE_SIZE=224
 LIVE_IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/live_image"
