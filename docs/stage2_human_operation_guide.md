@@ -10,19 +10,44 @@
 |---|------|---------|
 | 1 | 确认 Stage 1 checkpoint 存在 | `--rl-token-checkpoint` 参数 → `load_rl_token_model()` (`utils/checkpoint.py`) |
 | 2 | 确认 VLA 权重已下载 | `--vla-checkpoint-dir` 参数 → `VLAWrapper` (`vla/vla_wrapper.py`) |
-| 3 | 清空机器人工作空间，确保安全 | `RobotEnv` (`envs/robot_base/robot_env.py`) |
-| 4 | 启动训练脚本 | `scripts/train_online_rl.py` |
+| 3 | 配置 `example/keyPara.sh`（checkpoint 路径等） | 所有示例脚本共用 |
+| 4 | 清空机器人工作空间，确保安全 | `RobotEnv` (`envs/robot_base/robot_env.py`) |
+| 5 | 启动训练脚本 | `scripts/train_online_rl.py` |
 
-启动命令示例：
+**推荐方式**：直接使用 `example/` 目录下的 shell 脚本启动，脚本已包含完整的硬件参数配置。例如：
+
+```bash
+bash example/stage2_alicd.sh       # Alicia-D 机械臂
+bash example/stage2_franka.sh      # Franka 机械臂（如有）
+bash example/stage2_aloha.sh       # ALOHA 双臂（如有）
+```
+
+也可以直接调用 Python 脚本。不同机械臂通过 `--env-factory` 切换：
+
+| 机械臂 | `--env-factory` |
+|--------|----------------|
+| Alicia-D | `rlt_openpi.envs.alicd.env_factory.make_alicd_env` |
+| Franka | `rlt_openpi.envs.franka.env_factory.make_franka_env` |
+| ALOHA 双臂 | `rlt_openpi.envs.aloha.env_factory.make_aloha_env` |
+
+通用命令模板：
 
 ```bash
 python scripts/train_online_rl.py \
-    --rl-token-checkpoint checkpoints/rl_token/run_xxx/step_5000.pt \
-    --vla-checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch/model.safetensors \
-    --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
-    --task-prompt "pick up the pen" \
-    --max-env-steps 100000
+    --env-factory <按上表选择> \
+    --vla-config-name pi05_droid_finetune \
+    --vla-checkpoint-dir <VLA 权重目录> \
+    --rl-token-checkpoint <Stage1 checkpoint .pt 路径> \
+    --save-dir <Stage2 输出目录> \
+    --task-prompt "pick up the cup" \
+    --action-dim <机械臂动作维度> \
+    --chunk-length 10 \
+    --warmup-steps 150 \
+    --max-episode-chunks 150 \
+    --env-kwargs '<硬件参数 JSON>'
 ```
+
+其中 `--env-kwargs` 按机械臂类型传递不同的硬件参数（端口、相机 ID、控制频率等），具体写法参考对应的示例脚本。
 
 ---
 
@@ -36,7 +61,6 @@ Stage 2 训练分为两个阶段：Warmup（预热）和 Online RL（在线强�
 |------|:---:|------|---------|------|
 | 摆放场景 + 继续 | **Enter** | 每个 episode 开始 | `RobotEnv.reset()` → `robot_env.py` | **必须做**，程序会阻塞等待 |
 | 标注奖励 | **S / F / P** | 机器人执行动作时 | `HumanReward.check()` → `reward.py` | 非阻塞，按需操作 |
-| VR 手柄接管 | VR 按钮 | Actor 控制期间任意时刻 | `VRInterventionManager` → `franka/intervention.py` | 可选，需配置 `--intervention-factory` |
 
 ---
 
@@ -79,22 +103,6 @@ Stage 2 训练分为两个阶段：Warmup（预热）和 Online RL（在线强�
 
 ---
 
-### 操作 3：VR 手柄接管（可选）
-
-**触发场景**：Actor 正在控制机器人，你观察到动作偏离正确轨迹或不安全时。
-
-**你要做的**：
-- **按下** VR 手柄按钮 → 人类接管机器人控制
-- **松开** VR 手柄按钮 → 恢复 Actor 自动控制
-
-**对应模块**：`intervention.py`（基类 `InterventionManager`）+ `franka/intervention.py`（`VRInterventionManager`）。检测发生在**每个 chunk 边界**（`rollout_worker.py` → `collect_episode()`）。
-
-**前提条件**：启动脚本时必须配置 `--intervention-factory` 参数。
-
-**频率**：按需，初期可能较多，训练后期应该逐渐减少。
-
----
-
 ## 三、完整 Episode 操作流程
 
 ```
@@ -108,7 +116,6 @@ Stage 2 训练分为两个阶段：Warmup（预热）和 Online RL（在线强�
 │                                                              │
 │  每个 chunk:                                                 │
 │    ├─ [自动] VLA 推理 + Actor 推理                           │
-│    ├─ 【你·可选】VR 手柄接管 ────→ intervention.py           │
 │    ├─ [自动] 执行 C=10 步动作                                │
 │    │    └─ 每步: 【你·可选】按 S/F/P ─→ reward.py           │
 │    └─ [自动] 数据存入 ReplayBuffer                           │
@@ -132,7 +139,6 @@ Stage 2 训练分为两个阶段：Warmup（预热）和 Online RL（在线强�
 | 标注成功 | S / Space | `HumanReward.check()` | `reward.py` |
 | 标注失败 | F | `HumanReward.check()` | `reward.py` |
 | 标注进展 | P | `HumanReward.check()` | `reward.py` |
-| 手动接管机器人 | VR 按钮 | `VRInterventionManager` | `franka/intervention.py` |
 
 ### 不需要你做的（全自动）
 
@@ -164,6 +170,5 @@ Stage 2 训练分为两个阶段：Warmup（预热）和 Online RL（在线强�
 
 1. **多用 P 键**：大多数 chunk 没有奖励信号，P 键注入的中间奖励是训练信号最有效的来源
 2. **S/F 按准**：一旦按下无法撤销，务必确认状态再按
-3. **VR 接管不频繁才算训练在进步**：如果每个 chunk 都要接管，说明 Actor 还没学好
-4. **观察终端日志**：关注 `total_reward`（episode 得分）、`success`（是否成功）、`interventions`（接管次数）
-5. **决定停止时机**：连续多个 episode 成功率稳定、Actor 不再需要频繁接管、或达到 `max_env_steps` 时停止
+3. **观察终端日志**：关注 `total_reward`（episode 得分）、`success`（是否成功）
+4. **决定停止时机**：连续多个 episode 成功率稳定、或达到 `max_env_steps` 时停止
