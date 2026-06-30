@@ -160,18 +160,12 @@ class RobotEnv:
         for k in range(C):
             t_start = time.time()
 
-            # Print actions (controlled by print_actions, not dry_run)
+            # Print all action values (generic, works for any action_dim)
             if self._print_actions or self._dry_run:
-                # Print actions in human-readable units:
-                #   dims 0-6 → joints (rad → deg)
-                #   dim  7   → gripper [0, 1000]
-                #   dims 8-9 → raw values
                 a = action_chunk[k]
-                joints_deg = ", ".join(f"{np.rad2deg(a[i]):7.2f}" for i in range(7))
-                grip_val = float(np.clip(a[7] * 1000.0, 0.0, 1000.0))
-                extra_str = "  ".join(f"[{i}] {a[i]:.6f}" for i in range(8, len(a)))
+                vals = " ".join(f"[{i}]{a[i]:+.6f}" for i in range(len(a)))
                 tag = "dry_run" if self._dry_run else "action"
-                print(f"[{tag}] step {k:>2d}: J=[{joints_deg}]°  grip={grip_val:.0f}/1000  extra: {extra_str}")
+                print(f"[{tag}] step {k:>2d}: {vals}")
 
             # Send to hardware (dry_run skips this)
             if not self._dry_run:

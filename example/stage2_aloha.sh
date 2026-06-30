@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stage 2 online RL training for Alicia-D arm.
+# Stage 2 online RL training for ALOHA dual-arm robot.
 # Sources keyPara.sh for shared checkpoint paths.
 #
 # Usage:
-#   bash example/stage2_alicd.sh
+#   bash example/stage2_aloha.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # === 自动保存终端输出到带时间戳的日志文件 ===
-# LOG_FILE="$SCRIPT_DIR/stage2_alicd_$(date +%Y%m%d_%H%M%S).log"
+# LOG_FILE="$SCRIPT_DIR/stage2_aloha_$(date +%Y%m%d_%H%M%S).log"
 # exec > >(tee -a "$LOG_FILE") 2>&1
 # echo "日志文件: $LOG_FILE"
 
@@ -18,22 +18,34 @@ source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
-# --- Alicia-D hardware parameters ---
+# --- ALOHA hardware parameters ---
 # Update these for your machine.
-ALICD_PORT=""                        # e.g. "/dev/ttyACM0" (Linux) or "COM3" (Windows)
-ALICD_CAM_IDS='{"exterior_image_1_left": 0, "wrist_image_left": 2}'
-ALICD_SPEED_DEG_S=30.0
-ALICD_CONTROL_HZ=15
-DRY_RUN=false                       # true=打印action不驱动机器人, false=真实驱动
+ALOHA_CONTROL_HZ=15
+ALOHA_IMAGE_SIZE=224
+ALOHA_CHUNK_LENGTH=10
+ALOHA_MAX_EPISODE_CHUNKS=150
+DRY_RUN=true                       # true=打印action不驱动机器人, false=真实驱动
+
+# 重置位姿 (可选): 6关节角度(rad), 双臂共用同一姿态
+# 默认 ALOHA 使用 [0, -0.96, 1.16, 0, -0.3, 0]
+# ALOHA_RESET_POSITION='[0, -0.96, 1.16, 0, -0.3, 0]'
+ALOHA_RESET_POSITION=""
+
+# 相机列表: 4个相机, 可部分使用
+# 默认: cam_high, cam_low, cam_left_wrist, cam_right_wrist
+# ALOHA_CAMERAS='["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]'
+ALOHA_CAMERAS='["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]'
+
 # 关节安全过滤: {} 表示不过滤, 指定关节索引和角度值(°)来锁定特定关节
-# 示例: 锁定全部6个关节 (角度制, 自动转弧度)
-#   JOINT_OVERRIDE='{"0": 0, "1": 110, "2": -15, "3": 0, "4": -20, "5": 0}'
-# 示例: 仅锁定关节0和2
-#   JOINT_OVERRIDE='{"0": 0, "2": -25}'
-JOINT_OVERRIDE='{"0": 0, "1": 110, "2": -15, "3": 0, "4": -20, "5": 0}'
+# ALOHA 14-DoF: 索引 0-5=左臂关节, 6=左夹爪, 7-12=右臂关节, 13=右夹爪
+# 示例: 锁住左臂关节0和右臂关节7
+#   JOINT_OVERRIDE='{"0": 0, "7": 90}'
+JOINT_OVERRIDE='{}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
-ALICD_IMAGE_SIZE=224
 LIVE_IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/live_image"
+
+# adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
+ADAPT_TO_PI=true
 
 TASK_PROMPT="pick up the cup"
 
@@ -41,32 +53,45 @@ export WANDB_MODE=offline
 # export WANDB_MODE=disabled
 
 echo "========================================"
-echo " Stage 2 Online RL (Alicia-D)"
+echo " Stage 2 Online RL (ALOHA Dual-Arm)"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT"
 echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
-echo "   Port            = ${ALICD_PORT:-auto}"
-echo "   Cameras         = $ALICD_CAM_IDS"
+echo "   Control Hz      = $ALOHA_CONTROL_HZ"
+echo "   Chunk length    = $ALOHA_CHUNK_LENGTH"
+echo "   Max ep chunks   = $ALOHA_MAX_EPISODE_CHUNKS"
+echo "   Cameras         = $ALOHA_CAMERAS"
 echo "   Dry run         = $DRY_RUN"
 echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
+echo "   Adapt to PI     = $ADAPT_TO_PI"
 echo "========================================"
 
+# Build env-kwargs JSON
+ENV_KWARGS="{\"control_hz\": ${ALOHA_CONTROL_HZ}, \"image_size\": [${ALOHA_IMAGE_SIZE}, ${ALOHA_IMAGE_SIZE}], \"camera_names\": ${ALOHA_CAMERAS}, \"dry_run\": ${DRY_RUN}, \"print_actions\": ${PRINT_ACTIONS}, \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"joint_override\": ${JOINT_OVERRIDE}, \"adapt_to_pi\": ${ADAPT_TO_PI}"
+
+# Add reset_position if set
+if [[ -n "$ALOHA_RESET_POSITION" ]]; then
+    ENV_KWARGS="${ENV_KWARGS}, \"reset_position\": ${ALOHA_RESET_POSITION}"
+fi
+
+ENV_KWARGS="${ENV_KWARGS}}"
+
 python scripts/train_online_rl.py \
-    --env-factory rlt_openpi.envs.alicd.env_factory.make_alicd_env \
-    --vla-config-name pi05_droid_finetune \
+    --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
+    --vla-config-name pi05_aloha \
     --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
     --task-prompt "$TASK_PROMPT" \
-    --action-dim 10 \
-    --chunk-length 10 \
+    --action-dim 14 \
+    --chunk-length "$ALOHA_CHUNK_LENGTH" \
     --warmup-steps 150 \
-    --max-episode-chunks 150 \
-    --env-kwargs "{\"port\": \"${ALICD_PORT}\", \"camera_ids\": ${ALICD_CAM_IDS}, \"control_hz\": ${ALICD_CONTROL_HZ}, \"speed_deg_s\": ${ALICD_SPEED_DEG_S}, \"image_size\": [${ALICD_IMAGE_SIZE}, ${ALICD_IMAGE_SIZE}], \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"print_actions\": ${PRINT_ACTIONS}, \"joint_override\": ${JOINT_OVERRIDE}}" \
+    --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
+    --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
     $(
     # === 默认参数，必要时取消注释修改 ===
-    # --intervention-factory rlt_openpi.envs.alicd.intervention.make_alicd_intervention \
+    # --intervention-factory rlt_openpi.envs.aloha.intervention.make_aloha_intervention \
     # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
     # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
     # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)
