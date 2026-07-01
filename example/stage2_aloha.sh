@@ -16,7 +16,7 @@ LOG_FILE="$LOG_DIR/stage2_aloha_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "日志文件: $LOG_FILE"
 
-source "$SCRIPT_DIR/../.venv/bin/activate"
+# source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
@@ -69,7 +69,7 @@ echo "   Adapt to PI     = $ADAPT_TO_PI"
 echo "========================================"
 
 # Build env-kwargs JSON
-ENV_KWARGS="{\"control_hz\": ${ALOHA_CONTROL_HZ}, \"image_size\": [${ALOHA_IMAGE_SIZE}, ${ALOHA_IMAGE_SIZE}], \"camera_names\": ${ALOHA_CAMERAS}, \"dry_run\": ${DRY_RUN}, \"print_actions\": ${PRINT_ACTIONS}, \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"joint_override\": ${JOINT_OVERRIDE}, \"adapt_to_pi\": ${ADAPT_TO_PI}"
+ENV_KWARGS="{\"control_hz\": ${ALOHA_CONTROL_HZ}, \"image_size\": [${ALOHA_IMAGE_SIZE}, ${ALOHA_IMAGE_SIZE}], \"camera_names\": ${ALOHA_CAMERAS}, \"print_actions\": ${PRINT_ACTIONS}, \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"joint_override\": ${JOINT_OVERRIDE}, \"adapt_to_pi\": ${ADAPT_TO_PI}"
 
 # Add reset_position if set
 if [[ -n "$ALOHA_RESET_POSITION" ]]; then
