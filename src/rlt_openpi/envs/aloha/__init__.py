@@ -1,11 +1,12 @@
 """Environment for the ALOHA dual-arm robot.
 
-Provides ``make_aloha_env``, a factory function that wraps OpenPI's
-``RealEnv`` in the :class:`~rlt_openpi.envs.robot_env_base.robot_env.RobotEnv`
-interface for online RL training.
+Provides ``make_aloha_env``, a factory function that wraps the
+``hansrobot`` direct-control interface in the
+:class:`~rlt_openpi.envs.robot_env_base.robot_env.RobotEnv` interface
+for online RL training (no ROS dependency).
 
-ALOHA hardware: two Interbotix ViperX 300s arms (puppet_left, puppet_right)
-with 4 ROS cameras (cam_high, cam_low, cam_left_wrist, cam_right_wrist).
+ALOHA hardware: two arms (left/right) controlled via ``hansrobot``
+with 3 cameras (cam_high, cam_left_wrist, cam_right_wrist).
 Actions are **joint position targets** (absolute, not velocities).
 
 Usage::

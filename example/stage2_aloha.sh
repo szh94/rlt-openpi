@@ -31,10 +31,10 @@ DRY_RUN=true                       # true=打印action不驱动机器人, false=
 # ALOHA_RESET_POSITION='[0, -0.96, 1.16, 0, -0.3, 0]'
 ALOHA_RESET_POSITION=""
 
-# 相机列表: 4个相机, 可部分使用
-# 默认: cam_high, cam_low, cam_left_wrist, cam_right_wrist
-# ALOHA_CAMERAS='["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]'
-ALOHA_CAMERAS='["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]'
+# 相机列表: 3个相机 (不再使用 cam_low)
+# 默认: cam_high, cam_left_wrist, cam_right_wrist
+# ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
+ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 
 # 关节安全过滤: {} 表示不过滤, 指定关节索引和角度值(°)来锁定特定关节
 # ALOHA 14-DoF: 索引 0-5=左臂关节, 6=左夹爪, 7-12=右臂关节, 13=右夹爪
