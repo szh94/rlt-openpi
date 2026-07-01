@@ -10,9 +10,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # === 自动保存终端输出到带时间戳的日志文件 ===
-# LOG_FILE="$SCRIPT_DIR/stage2_aloha_$(date +%Y%m%d_%H%M%S).log"
-# exec > >(tee -a "$LOG_FILE") 2>&1
-# echo "日志文件: $LOG_FILE"
+LOG_DIR="$SCRIPT_DIR/../log_action"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/stage2_aloha_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "日志文件: $LOG_FILE"
 
 source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
