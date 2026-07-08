@@ -42,6 +42,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         config_name=config.vla_config_name,
         device="cuda",
         output_action_dim=config.action_dim,
+        data_transform=aloha_data_transforms(),
     )
 
     # Load frozen RL token model from Stage 1
@@ -65,7 +66,6 @@ def main(config: OnlineRLTrainConfig) -> None:
         vla=vla,
         rl_token_model=rl_token_model,
         device="cuda",
-        data_transform=aloha_data_transforms(),
     )
 
     # Resume from checkpoint if provided

@@ -76,7 +76,7 @@ ENV_KWARGS="${ENV_KWARGS}}"
 
 python scripts/train_online_rl.py \
     --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-    --vla-config-name pi05_aloha \
+    --vla-config-name pi05_droid_finetune \
     --vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
