@@ -17,6 +17,7 @@ import tyro
 
 from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
+from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -64,6 +65,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         vla=vla,
         rl_token_model=rl_token_model,
         device="cuda",
+        data_transform=aloha_data_transforms(),
     )
 
     # Resume from checkpoint if provided

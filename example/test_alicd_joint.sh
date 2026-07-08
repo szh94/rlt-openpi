@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/../.venv/bin/activate"
 # --- Default parameters ---
 J2_STEP_DEG=3
 CONTROL_HZ=15
-IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/image"
+IMAGE_DIR="$SCRIPT_DIR/../live_image"
 SAVE_LOG=false                     # set to true to save log file
 
 echo "========================================"
@@ -21,7 +21,7 @@ echo ""
 
 LOG_DIR_ARG=()
 if [ "$SAVE_LOG" = true ]; then
-    LOG_DIR_ARG=(--log-dir "/home/shenzh/Robot/rlt-openpi/logs")
+    LOG_DIR_ARG=(--log-dir "$SCRIPT_DIR/../log_action")
 fi
 
 python "$SCRIPT_DIR/../scripts/test_alicd_joint.py" \

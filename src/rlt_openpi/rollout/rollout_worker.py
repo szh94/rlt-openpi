@@ -272,6 +272,9 @@ class RolloutWorker:
             # Get VLA reference action (used as both executed and reference)
             action_chunk = self._get_warmup_action(obs)  # [C, action_dim]
 
+            print("Action_ref")
+            
+
             # Build RL state for this observation
             x, a_tilde_flat = self._extract_rl_state(obs)
             a_flat = action_chunk.reshape(-1)  # [C*d]

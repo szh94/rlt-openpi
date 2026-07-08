@@ -61,7 +61,8 @@ def make_aloha_env(
     task_prompt: str = "",
     control_hz: int = 15,
     max_episode_chunks: int = 50,
-    reset_position: list[float] | None = None,
+    reset_position_left: list[float] | None = None,
+    reset_position_right: list[float] | None = None,
     image_size: tuple[int, int] = (224, 224),
     camera_names: list[str] | None = None,
     dry_run: bool = False,
@@ -113,7 +114,7 @@ def make_aloha_env(
     """
     import cv2
     import einops
-    import hansrobot
+    from rlt_openpi.hansrobot.hansrobot_realsense import hansrobot
     from openpi_client import image_tools
 
     from rlt_openpi.envs.robot_env_base.robot_env import RobotEnv
@@ -125,7 +126,7 @@ def make_aloha_env(
     # Create the hansrobot instance
     # ------------------------------------------------------------------
     logger.info("Creating hansrobot connection...")
-    robot = hansrobot.hansrobot(hansrobot.config_class())
+    robot = hansrobot(hansrobot.config_class())
     robot.connect()
     logger.info("hansrobot connected")
 
@@ -149,48 +150,8 @@ def make_aloha_env(
         if dry_run:
             return
 
-        state_len = len(action) // 2
-        left_joints_rad = np.clip(
-            action[:6].astype(np.float64), -math.pi, math.pi,
-        )
-        left_gripper_norm = float(np.clip(action[6], 0.0, 1.0))
-        right_joints_rad = np.clip(
-            action[7:13].astype(np.float64), -math.pi, math.pi,
-        )
-        right_gripper_norm = float(np.clip(action[13], 0.0, 1.0))
-
-        # Convert joints: radians → degrees
-        left_joints_deg = np.degrees(left_joints_rad)
-        right_joints_deg = np.degrees(right_joints_rad)
-
-        # Apply joint override (values are in DEGREES, applied post-conversion)
-        if joint_override is not None:
-            for idx_str, val in joint_override.items():
-                i = int(idx_str)
-                if 0 <= i < 6:
-                    left_joints_deg[i] = float(val)
-                elif 6 <= i < 12:
-                    right_joints_deg[i - 6] = float(val)
-                logger.debug(
-                    "Joint %d overridden to %.1f°", i, float(val),
-                )
-
-        # Clamp to reasonable degree range
-        left_joints_deg = np.clip(left_joints_deg, -180.0, 180.0)
-        right_joints_deg = np.clip(right_joints_deg, -180.0, 180.0)
-
-        # Convert gripper: [0, 1] → raw [0, GRIPPER_MAX]
-        left_gripper_raw = int(left_gripper_norm * _HANSROBOT_GRIPPER_MAX)
-        right_gripper_raw = int(right_gripper_norm * _HANSROBOT_GRIPPER_MAX)
-
-        # Build 14-dim list for hansrobot.send_action()
-        full_action = (
-            [float(v) for v in left_joints_deg]
-            + [left_gripper_raw]
-            + [float(v) for v in right_joints_deg]
-            + [right_gripper_raw]
-        )
-        robot.send_action(full_action)
+        print("Send action", action)
+        # robot.send_action_safe(action)
 
     # ------------------------------------------------------------------
     # reset_fn — reset robot via hansrobot.move() (if reset_position set)
@@ -205,10 +166,10 @@ def make_aloha_env(
             logger.info("[dry-run] reset() called (no robot action)")
             return
 
-        if reset_position is not None:
-            # reset_position is in radians — convert to degrees for move()
-            left_joints_deg = [math.degrees(r) for r in reset_position]
-            right_joints_deg = [math.degrees(r) for r in reset_position]
+        if reset_position_left is not None:
+            # reset_position_left is in degrees
+            left_joints_deg = reset_position_left
+            right_joints_deg = reset_position_right
             logger.info(
                 "Moving to reset position: left=%s, right=%s",
                 [f"{v:.1f}" for v in left_joints_deg],

@@ -26,12 +26,7 @@ ALOHA_CONTROL_HZ=15
 ALOHA_IMAGE_SIZE=224
 ALOHA_CHUNK_LENGTH=10
 ALOHA_MAX_EPISODE_CHUNKS=150
-DRY_RUN=true                       # true=打印action不驱动机器人, false=真实驱动
-
-# 重置位姿 (可选): 6关节角度(rad), 双臂共用同一姿态
-# 默认 ALOHA 使用 [0, -0.96, 1.16, 0, -0.3, 0]
-# ALOHA_RESET_POSITION='[0, -0.96, 1.16, 0, -0.3, 0]'
-ALOHA_RESET_POSITION=""
+DRY_RUN=false                       # true=打印action不驱动机器人, false=真实驱动
 
 # 相机列表: 3个相机 (不再使用 cam_low)
 # 默认: cam_high, cam_left_wrist, cam_right_wrist
@@ -44,7 +39,7 @@ ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 #   JOINT_OVERRIDE='{"0": 0, "7": 90}'
 JOINT_OVERRIDE='{}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
-LIVE_IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/live_image"
+LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true
@@ -72,8 +67,9 @@ echo "========================================"
 ENV_KWARGS="{\"control_hz\": ${ALOHA_CONTROL_HZ}, \"image_size\": [${ALOHA_IMAGE_SIZE}, ${ALOHA_IMAGE_SIZE}], \"camera_names\": ${ALOHA_CAMERAS}, \"print_actions\": ${PRINT_ACTIONS}, \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"joint_override\": ${JOINT_OVERRIDE}, \"adapt_to_pi\": ${ADAPT_TO_PI}"
 
 # Add reset_position if set
-if [[ -n "$ALOHA_RESET_POSITION" ]]; then
-    ENV_KWARGS="${ENV_KWARGS}, \"reset_position\": ${ALOHA_RESET_POSITION}"
+if [[ -n "$ALOHA_RESET_POSITION_LEFT" ]]; then
+    ENV_KWARGS="${ENV_KWARGS}, \"reset_position_left\": ${ALOHA_RESET_POSITION_LEFT}"
+    ENV_KWARGS="${ENV_KWARGS}, \"reset_position_right\": ${ALOHA_RESET_POSITION_RIGHT}"
 fi
 
 ENV_KWARGS="${ENV_KWARGS}}"
@@ -91,6 +87,7 @@ python scripts/train_online_rl.py \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
+    --save-every 40 \
     $(
     # === 默认参数，必要时取消注释修改 ===
     # --intervention-factory rlt_openpi.envs.aloha.intervention.make_aloha_intervention \

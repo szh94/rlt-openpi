@@ -33,7 +33,7 @@ DRY_RUN=false                       # true=打印action不驱动机器人, false
 JOINT_OVERRIDE='{"0": 0, "1": 110, "2": -15, "3": 0, "4": -20, "5": 0}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 ALICD_IMAGE_SIZE=224
-LIVE_IMAGE_DIR="/home/shenzh/Robot/rlt-openpi/live_image"
+LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
 TASK_PROMPT="pick up the cup"
 

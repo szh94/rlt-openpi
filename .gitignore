@@ -44,10 +44,6 @@ assets/
 # Local docs
 docs_rlt/
 
-# Test artifacts
-image/
-logs/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -56,4 +52,7 @@ Thumbs.db
 .vscode
 checkpoints
 /example/keyPara.sh
-live_image/
+/log_action
+/live_image
+
+/saved_images
