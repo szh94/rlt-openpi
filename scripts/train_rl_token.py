@@ -26,7 +26,7 @@ Usage::
         --train.vla-checkpoint-dir /path/to/model.safetensors \\
         --train.vla-finetune-alpha 1.0 \\
         --repo-id local/stack_the_blocks \\
-        --data-transforms-fn rlt_openpi.policies.franka.config.three_camera_droid
+        --data-transforms-fn rlt_openpi.policies.aloha.config.aloha_data_transforms
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class TrainConfig:
     data_transforms_fn: str | None = None
     """Dotted import path to a ``(ModelConfig) -> transforms.Group``
     factory that overrides the OpenPI config's default data transforms.
-    Example: ``rlt_openpi.policies.franka.config.three_camera_droid``."""
+    Example: ``rlt_openpi.policies.aloha.config.aloha_data_transforms``."""
 
     num_workers: int = 4
     """DataLoader worker processes."""

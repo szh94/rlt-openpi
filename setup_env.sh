@@ -6,9 +6,8 @@
 #   bash setup_env.sh myenvname  # creates env with custom name
 #
 # By default only the core dependencies (Stage 1 training, evaluation) are
-# installed. Pass --robot to also install the DROID teleop stack, Oculus
-# reader, ZED bindings, and related fixups needed for Stage 2 on a real
-# Franka rig. Set DROID_DIR to point to your local DROID clone:
+# installed. Pass --robot to also install the robot teleop stack and
+# hardware drivers needed for Stage 2 on a real robot rig.
 #
 #   DROID_DIR=/path/to/droid bash setup_env.sh --robot
 #   DROID_DIR=/path/to/droid bash setup_env.sh myenvname --robot

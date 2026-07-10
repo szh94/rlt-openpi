@@ -5,7 +5,7 @@ chunking, and camera layout exactly match the pretrained VLA config.
 
 Custom hardware setups can override the default data transforms by
 passing a ``data_transforms`` :class:`~openpi.transforms.Group`.  See
-``rlt_openpi/policies/franka/`` for a concrete example.
+``rlt_openpi/policies/aloha/`` for a concrete example.
 """
 
 from __future__ import annotations
