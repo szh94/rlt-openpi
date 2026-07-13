@@ -1,4 +1,4 @@
-"""Run inference with a trained model on an environment.
+"""Run inference with a trained model on an environment (JAX).
 
 Supports two modes:
   - **stage1**: VLA-only inference (fine-tuned VLA from Stage 1, no actor).
@@ -9,20 +9,20 @@ stage2 inference; otherwise runs stage1 VLA-only inference.
 
 Usage:
     # Stage 1: VLA-only inference
-    uv run python scripts/inference.py \
-        --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-        --stage1-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-        --task-prompt "pick up the cup" \
+    uv run python scripts/inference.py \\
+        --vla-checkpoint-dir checkpoints/pi05_droid/params \\
+        --stage1-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000 \\
+        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
+        --task-prompt "pick up the cup" \\
         --num-episodes 50
 
     # Stage 2: full pipeline inference
-    uv run python scripts/inference.py \
-        --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100.pt \
-        --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
-        --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-        --task-prompt "pick up the cup" \
+    uv run python scripts/inference.py \\
+        --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100 \\
+        --vla-checkpoint-dir checkpoints/pi05_droid/params \\
+        --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000 \\
+        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
+        --task-prompt "pick up the cup" \\
         --num-episodes 50
 """
 
@@ -34,14 +34,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-import torch
+import numpy as np
+from flax import nnx
 import tyro
 
-from rlt_openpi.models.actor import Actor
 from rlt_openpi.envs.factory import make_env
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
-from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
@@ -56,8 +55,7 @@ class EvalConfig:
 
     # Stage 2 checkpoint (if provided, runs full pipeline eval)
     checkpoint: str = ""
-    # Stage 1 checkpoint with fine-tuned VLA weights (if provided without
-    # --checkpoint, runs VLA-only eval)
+    # Stage 1 checkpoint with fine-tuned VLA weights
     stage1_checkpoint: str = ""
 
     vla_config_name: str = "pi05_droid_finetune"
@@ -69,54 +67,82 @@ class EvalConfig:
     chunk_length: int = 10
     num_episodes: int = 50
     save_dir: str = ""
-    device: str = "cuda"
 
 
-def _run(config: EvalConfig) -> None:
+def _run(config: EvalConfig):
     """Evaluate full pipeline: VLA + RL token + actor."""
-    ckpt = torch.load(config.checkpoint, map_location=config.device, weights_only=False)
-    train_config: OnlineRLTrainConfig = ckpt["config"]
+    import orbax.checkpoint as ocp
+
+    ckpt_path = Path(config.checkpoint)
+    params_dir = ckpt_path / "params" if (ckpt_path / "params").exists() else ckpt_path
+
+    checkpointer = ocp.PyTreeCheckpointer()
+    ckpt = checkpointer.restore(str(params_dir))
+
+    total_episodes = int(ckpt.get("total_episodes", 0))
+    total_env_steps = int(ckpt.get("total_env_steps", 0))
 
     vla = VLAWrapper(
         checkpoint_path=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
-        device=config.device,
     )
 
-    rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device=config.device)
-    rl_token_model.eval()
+    rl_token_model = load_rl_token_model(config.rl_token_checkpoint)
+
+    # Create actor and load from checkpoint
+    from rlt_openpi.models.actor import Actor
+
+    actor_state = ckpt["actor"]
+
+    # Infer architecture from saved params
+    mlp = actor_state["mlp"]
+    fc_keys = sorted([k for k in mlp if k.startswith("fc")], key=lambda x: int(x[2:]))
+    num_hidden = len(fc_keys) - 1
+    input_dim = int(mlp["fc0"]["kernel"].shape[0])  # state_dim + action_chunk_dim
+    action_chunk_dim = int(mlp[fc_keys[-1]]["kernel"].shape[1])  # output dim
+    hidden_dim = int(mlp["fc0"]["kernel"].shape[1])
+    state_dim = input_dim - action_chunk_dim
 
     actor = Actor(
-        state_dim=train_config.state_dim,
-        action_chunk_dim=train_config.action_chunk_dim,
-        hidden_dim=train_config.mlp_hidden_dim,
-        num_hidden_layers=train_config.mlp_num_hidden_layers,
-        sigma=train_config.actor_noise_sigma,
-        ref_dropout=0.0,
-    ).to(config.device)
-    actor.load_state_dict(ckpt["actor"])
-    actor.eval()
+        state_dim=state_dim,
+        action_chunk_dim=action_chunk_dim,
+        hidden_dim=hidden_dim,
+        num_hidden_layers=num_hidden,
+        sigma=0.0,  # eval: no noise
+        ref_dropout=0.0,  # eval: no dropout
+        rngs=nnx.Rngs(0),
+    )
+
+    # Load actor weights
+    actor_graphdef, _ = nnx.split(actor)
+    nnx.update(actor, nnx.State.from_pure_dict(actor_graphdef, actor_state))
 
     log.info(
         "Actor loaded from %s (episode %d, %d env steps)",
         config.checkpoint,
-        ckpt["total_episodes"],
-        ckpt["total_env_steps"],
+        total_episodes,
+        total_env_steps,
     )
+
+    action_dim = action_chunk_dim // config.chunk_length
 
     env = make_env(
         config.env_factory,
-        action_dim=train_config.action_dim,
-        chunk_length=train_config.chunk_length,
+        action_dim=action_dim,
+        chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
     )
-    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+    log.info(
+        "Environment created: action_dim=%d, chunk_length=%d",
+        env.action_dim,
+        env.chunk_length,
+    )
 
-    buf = ReplayBuffer(1, train_config.state_dim, train_config.action_chunk_dim, train_config.chunk_length)
+    buf = ReplayBuffer(1, state_dim, action_chunk_dim, config.chunk_length)
     worker = RolloutWorker(
         env, vla, rl_token_model, actor, buf,
-        InterventionManager(), train_config.chunk_length,
-        train_config.action_dim, config.device,
+        InterventionManager(), config.chunk_length,
+        action_dim,
     )
 
     episodes = []
@@ -130,32 +156,46 @@ def _run(config: EvalConfig) -> None:
             "num_chunks": stats.num_chunks,
             "num_steps": stats.num_steps,
         })
-        log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, success)
+        log.info(
+            "Episode %d: reward=%.3f, success=%s",
+            ep, stats.total_reward, success,
+        )
 
     return episodes, {
         "mode": "stage2",
         "checkpoint": config.checkpoint,
-        "train_episodes": ckpt["total_episodes"],
-        "train_env_steps": ckpt["total_env_steps"],
+        "train_episodes": total_episodes,
+        "train_env_steps": total_env_steps,
     }
 
 
-def _run_vla(config: EvalConfig) -> None:
+def _run_vla(config: EvalConfig):
     """Evaluate VLA-only (with optional Stage 1 fine-tuned weights)."""
     vla = VLAWrapper(
         checkpoint_path=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
-        device=config.device,
     )
 
+    # Load fine-tuned VLA weights from Stage 1 checkpoint if available
     if config.stage1_checkpoint:
-        ckpt = torch.load(config.stage1_checkpoint, map_location="cpu", weights_only=False)
-        if "vla_model" in ckpt:
-            vla.extractor.pi0.load_state_dict(ckpt["vla_model"])
-            log.info("Loaded fine-tuned VLA weights from %s", config.stage1_checkpoint)
-        else:
-            log.warning("No vla_model key in %s; using base VLA weights", config.stage1_checkpoint)
-        del ckpt
+        import orbax.checkpoint as ocp
+
+        stage1_path = Path(config.stage1_checkpoint)
+        stage1_params = stage1_path / "params" if (stage1_path / "params").exists() else stage1_path
+        try:
+            checkpointer = ocp.PyTreeCheckpointer()
+            ckpt = checkpointer.restore(str(stage1_params))
+            if "vla_model" in ckpt and vla._jax_model is not None:
+                vla_graphdef, _ = nnx.split(vla._jax_model)
+                nnx.update(
+                    vla._jax_model,
+                    nnx.State.from_pure_dict(vla_graphdef, ckpt["vla_model"]),
+                )
+                log.info("Loaded fine-tuned VLA weights from %s", config.stage1_checkpoint)
+            else:
+                log.warning("No vla_model key in %s; using base VLA weights", config.stage1_checkpoint)
+        except Exception as e:
+            log.warning("Could not load VLA weights from checkpoint: %s", e)
 
     env = make_env(
         config.env_factory,
@@ -163,7 +203,11 @@ def _run_vla(config: EvalConfig) -> None:
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
     )
-    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+    log.info(
+        "Environment created: action_dim=%d, chunk_length=%d",
+        env.action_dim,
+        env.chunk_length,
+    )
 
     episodes = []
     for ep in range(config.num_episodes):
@@ -172,10 +216,9 @@ def _run_vla(config: EvalConfig) -> None:
         episode_chunks = 0
 
         while True:
-            with torch.no_grad():
-                vla_input = vla.preprocess_obs(obs)
-                action_chunk = vla.get_rl_chunk_reference(vla_input, config.chunk_length)
-                action_chunk = action_chunk.squeeze(0).cpu().numpy()
+            vla_input = vla.preprocess_obs(obs)
+            action_chunk = vla.get_rl_chunk_reference(vla_input, config.chunk_length)
+            action_chunk = np.array(action_chunk[0])  # [C, action_dim]
 
             next_obs, chunk_rewards, done, info = env.step(action_chunk)
             episode_reward += float(chunk_rewards.sum())
@@ -188,11 +231,17 @@ def _run_vla(config: EvalConfig) -> None:
                     "reward": episode_reward,
                     "success": success,
                     "num_chunks": episode_chunks,
-                    "num_steps": info.get("steps_executed", episode_chunks * config.chunk_length),
+                    "num_steps": info.get(
+                        "steps_executed", episode_chunks * config.chunk_length
+                    ),
                 })
                 log.info(
                     "Episode %d/%d: chunks=%d, reward=%.3f, success=%s",
-                    ep + 1, config.num_episodes, episode_chunks, episode_reward, success,
+                    ep + 1,
+                    config.num_episodes,
+                    episode_chunks,
+                    episode_reward,
+                    success,
                 )
                 break
 
@@ -223,7 +272,9 @@ def main(config: EvalConfig) -> None:
     success_rate = num_success / len(episodes) if episodes else 0.0
     mean_reward = sum(e["reward"] for e in episodes) / len(episodes) if episodes else 0.0
 
-    log.info("Success rate: %.1f%% (%d/%d)", 100 * success_rate, num_success, len(episodes))
+    log.info(
+        "Success rate: %.1f%% (%d/%d)", 100 * success_rate, num_success, len(episodes)
+    )
     log.info("Mean reward: %.3f", mean_reward)
 
     results = {
@@ -245,7 +296,10 @@ def main(config: EvalConfig) -> None:
         save_dir = Path("results") / meta["mode"]
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    results_path = save_dir / f"eval_{meta['mode']}_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    results_path = (
+        save_dir
+        / f"eval_{meta['mode']}_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
     results_path.write_text(json.dumps(results, indent=2))
     log.info("Results saved to %s", results_path)
 

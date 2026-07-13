@@ -104,6 +104,8 @@ EOF
 fi
 
 # ── Patch transformers ────────────────────────────────────────────────
+# NOTE: After the JAX migration, rlt-openpi no longer uses PI0Pytorch,
+# but openpi itself may still need these patches internally.
 echo "==> Patching transformers with openpi's transformers_replace files..."
 OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import openpi, pathlib; print(pathlib.Path(openpi.__file__).parent)")
@@ -144,8 +146,8 @@ if [ "$INSTALL_ROBOT" = true ]; then
     conda run -n "${ENV_NAME}" uv pip uninstall opencv-python || true
     conda run -n "${ENV_NAME}" uv pip install "opencv-contrib-python==4.6.0.66"
 
-    echo "==> Fixing numpy (pin <2.0 for compiled extension compatibility)..."
-    conda run -n "${ENV_NAME}" uv pip install "numpy>=1.22.4,<2.0"
+    echo "==> Fixing numpy (JAX requires >=2.1; robot drivers may need recompilation)..."
+    conda run -n "${ENV_NAME}" uv pip install "numpy>=2.1.0"
 
     echo "==> Fixing protobuf/wandb conflict..."
     conda run -n "${ENV_NAME}" uv pip install "protobuf>=4.21" --upgrade

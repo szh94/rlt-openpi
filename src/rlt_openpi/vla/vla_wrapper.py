@@ -1,6 +1,6 @@
-"""High-level wrapper for VLA inference, embedding extraction, and joint training.
+"""High-level wrapper for VLA inference, embedding extraction, and joint training (JAX).
 
-Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
+Loads a PI0/PI0.5 model directly from an Orbax checkpoint (no PyTorch bridge),
 and exposes the interface used by the rollout worker and trainers.
 
 Builds the same input/output transform chains as OpenPI's
@@ -15,16 +15,16 @@ import pathlib
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
-import torch
+from flax import nnx
+from openpi.models import model as _model
 from openpi.models.model import Observation
 from openpi.training import checkpoints as _checkpoints
 from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize, compose
 import openpi.transforms as _transforms
-from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
-from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,10 @@ class _SliceAction:
 
 
 class VLAWrapper:
-    """Loads and wraps a VLA model for use by RLT components.
+    """Loads and wraps a JAX VLA model for use by RLT components.
 
     Provides:
-    - preprocess_obs: raw env obs → batched Observation
+    - preprocess_obs: raw env obs -> batched Observation (JAX arrays)
     - extract_embeddings: get post-transformer prefix embeddings z_{1:M}
     - sample_reference_actions: get full VLA action trajectory (H steps)
     - get_rl_chunk_reference: slice first C steps as RL reference actions
@@ -56,58 +56,57 @@ class VLAWrapper:
     - compute_vla_loss_with_embeddings: single forward for joint training
 
     The input/output transform chains mirror OpenPI's
-    ``create_trained_policy`` (``policy_config.py``):
-
-    **Input** (applied by :meth:`preprocess_obs`)::
-
-        data_transforms.inputs  (e.g. DroidInputs)
-        → Normalize
-        → model_transforms.inputs  (ResizeImages, TokenizePrompt, Pad)
-
-    **Output** (applied by :meth:`sample_reference_actions`)::
-
-        model_transforms.outputs
-        → Unnormalize
-        → data_transforms.outputs  (e.g. DroidOutputs)
+    ``create_trained_policy`` (``policy_config.py``).
 
     Args:
-        checkpoint_path: Path to model.safetensors weight file.
+        checkpoint_path: Path to Orbax checkpoint directory (containing
+            ``params/`` subdirectory).
         config_name: Registered openpi config name (e.g. "pi05_droid_finetune").
-        device: Torch device for the model.
         data_transforms: Optional override for the config's default
-            ``data_transforms``.  Must match whatever was used during
-            training (e.g. ``ThreeCameraDroidInputs`` for 3-camera setups).
-        default_prompt: If set, injected into inputs that lack a ``prompt``
-            key (mirrors OpenPI's ``InjectDefaultPrompt``).
+            ``data_transforms``.
+        default_prompt: If set, injected into inputs that lack a ``prompt`` key.
+        output_action_dim: Optional override for action dimension slicing.
     """
 
     def __init__(
         self,
         checkpoint_path: str,
         config_name: str,
-        device: torch.device | str = "cuda",
         data_transforms: _transforms.Group | None = None,
         default_prompt: str | None = None,
         output_action_dim: int | None = None,
     ) -> None:
-        self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
 
-        # important to use try
-        try:
-            pi0_model = self.train_config.model.load_pytorch(
-                self.train_config,
-                checkpoint_path,
-            )
-        except FileNotFoundError:
-            print("No config file")
-        pi0_model = pi0_model.to(self.device)
+        # Load JAX model directly from Orbax checkpoint (no PyTorch bridge)
+        checkpoint_path = pathlib.Path(checkpoint_path)
 
-        self.extractor = EmbeddingExtractor(pi0_model)
+        # Detect checkpoint format: params/ dir = Orbax, .safetensors = PyTorch
+        params_dir = checkpoint_path / "params"
+        if params_dir.exists():
+            params = _model.restore_params(params_dir)
+        elif checkpoint_path.suffix == ".safetensors":
+            # Fallback: safetensors in parent dir, look for params/ nearby
+            alt_params = checkpoint_path.parent / "params"
+            if alt_params.exists():
+                params = _model.restore_params(alt_params)
+            else:
+                raise FileNotFoundError(
+                    f"No Orbax params/ directory found at {checkpoint_path.parent}/params. "
+                    "JAX-native loading requires an Orbax checkpoint. "
+                    "Use convert_jax_model_to_pytorch.py to convert from PyTorch."
+                )
+        else:
+            # Try loading checkpoint_path directly as params dir
+            params = _model.restore_params(checkpoint_path)
+
+        self._jax_model = self.train_config.model.load(params)
+        logger.info("Loaded JAX VLA model from %s", checkpoint_path)
+
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
 
-        checkpoint_dir = pathlib.Path(checkpoint_path).parent
+        checkpoint_dir = checkpoint_path.parent if checkpoint_path.suffix == ".safetensors" else checkpoint_path
         data_config = self.train_config.data.create(
             self.train_config.assets_dirs, self.train_config.model
         )
@@ -119,15 +118,13 @@ class VLAWrapper:
 
         dt = data_transforms or data_config.data_transforms
 
-        # When output_action_dim is specified, replace DroidOutputs with a
-        # simple slice since DroidOutputs has no configurable attribute.
+        # Output transform chain
         output_transforms = [
             *data_config.model_transforms.outputs,
             Unnormalize(norm_stats, use_quantiles=use_q),
         ]
         if output_action_dim is not None:
             output_transforms.append(_SliceAction(output_action_dim))
-            print(f"[VLA] Replaced DroidOutputs with SliceAction(dim={output_action_dim})")
         else:
             output_transforms.extend(dt.outputs)
 
@@ -139,18 +136,26 @@ class VLAWrapper:
         ])
         self._output_transform = compose(output_transforms)
 
-    @staticmethod
-    def _load_norm_stats(checkpoint_dir: pathlib.Path, data_config) -> dict[str, _transforms.NormStats]:
-        """Load norm stats, preferring checkpoint-embedded assets over config assets.
+        # RNG state for action sampling
+        self._rng = jax.random.PRNGKey(0)
 
-        Mirrors OpenPI's ``create_trained_policy`` which loads from
-        ``checkpoint_dir/assets/<asset_id>/`` to guarantee the stats match
-        training.  Falls back to the config's ``norm_stats`` for checkpoints
-        that don't bundle assets (e.g. rlt-openpi ``.pt`` checkpoints).
-        """
+        # Store model graphdef for serialization
+        self._model_graphdef, _ = nnx.split(self._jax_model)
+
+    def _next_rng(self):
+        self._rng, rng = jax.random.split(self._rng)
+        return rng
+
+    @staticmethod
+    def _load_norm_stats(
+        checkpoint_dir: pathlib.Path, data_config
+    ) -> dict[str, _transforms.NormStats]:
+        """Load norm stats, preferring checkpoint-embedded assets over config assets."""
         asset_id = data_config.asset_id
         try:
-            norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", asset_id)
+            norm_stats = _checkpoints.load_norm_stats(
+                checkpoint_dir / "assets", asset_id
+            )
             logger.info("Loaded norm stats from checkpoint: %s/assets/%s", checkpoint_dir, asset_id)
             return norm_stats
         except FileNotFoundError:
@@ -168,119 +173,82 @@ class VLAWrapper:
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
 
-        Applies the full OpenPI input transform chain
-        (DroidInputs → Normalize → ResizeImages → TokenizePrompt →
-        PadStatesAndActions).
-
-        Expects ``obs`` in DROID-schema keys as produced by the env
-        factory (e.g. ``observation/joint_position``,
-        ``observation/exterior_image_1_left``, ``prompt``).
-
-        Args:
-            obs: Raw observation dict from the environment.
+        Applies the full OpenPI input transform chain and converts to JAX arrays.
         """
         transformed = self._input_transform(dict(obs))
 
         batched = jax.tree.map(
-            lambda x: torch.from_numpy(np.array(x)).to(self.device)[None, ...],
+            lambda x: jnp.asarray(x)[None, ...],
             transformed,
         )
         return Observation.from_dict(batched)
 
-    def extract_embeddings(
-        self,
-        observation: Observation,
-    ) -> tuple[Tensor, Tensor]:
+    def extract_embeddings(self, observation: Observation):
         """Extract post-transformer prefix embeddings from the frozen VLA.
 
         Returns:
-            z: [B, M, embedding_dim] post-transformer prefix embeddings.
-            pad_mask: [B, M] boolean mask (True = valid token).
+            z: [B, M, embedding_dim] post-transformer prefix embeddings (JAX).
+            pad_mask: [B, M] boolean mask (True = valid token) (JAX).
         """
-        return self.extractor.extract_embeddings(observation)
+        from rlt_openpi.vla.embedding_extractor import extract_embeddings
 
-    def sample_reference_actions(
-        self,
-        observation: Observation,
-    ) -> Tensor:
+        return extract_embeddings(self._jax_model, observation)
+
+    def sample_reference_actions(self, observation: Observation):
         """Get full VLA reference action trajectory, unnormalized to robot space.
 
-        Mirrors OpenPI's ``Policy.infer`` output path.
-
-        Intermediate shapes (H = action_horizon, e.g. 50):
-            raw:           [B, H, action_dim]  VLA diffusion output (normalized space)
-            actions_np:    [B, H, action_dim]  as numpy
-            state_np:      [B, state_dim]      observation state (normalized)
-            _output_transform input:  {"state": [state_dim], "actions": [H, action_dim]}
-            _output_transform output: {"state": ..., "actions": [H, robot_action_dim]}
-
-        The output transform chain (Unnormalize → DroidOutputs) converts
-        actions from normalized space to robot space.  Both ``state`` and
-        ``actions`` must be passed together so ``Unnormalize`` can use the
-        full norm_stats.
-
         Returns:
-            actions: [B, H, robot_action_dim] where H = action_horizon.
+            actions: [B, H, robot_action_dim] JAX array, where H = action_horizon.
         """
-        raw = self.extractor.sample_actions(observation, self.device)
-        actions_np = raw.cpu().numpy()
-        state_np = observation.state.cpu().numpy()
+        from rlt_openpi.vla.embedding_extractor import sample_actions
+
+        rng = self._next_rng()
+        raw = sample_actions(self._jax_model, rng, observation)  # [B, H, action_dim]
+
+        # Convert to numpy for the output transform chain (openpi transforms are numpy-based)
+        actions_np = np.array(raw)
+        state_np = np.array(observation.state)
 
         out = []
         for i in range(actions_np.shape[0]):
-            actions_in = actions_np[i]  # [H, action_dim_raw]
             t = self._output_transform({
                 "state": state_np[i],
-                "actions": actions_in,
+                "actions": actions_np[i],
             })
             out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)
+        return jnp.asarray(np.stack(out))
 
     def get_rl_chunk_reference(
         self,
         observation: Observation,
         chunk_length: int = 10,
-    ) -> Tensor:
+    ):
         """Get the first C action steps from the VLA as the RL reference.
-
-        The RL actor conditions on these reference actions (a_tilde_{1:C}).
 
         Args:
             observation: Batched openpi Observation.
             chunk_length: Number of action steps to slice (C, default 10).
 
         Returns:
-            a_tilde: [B, C, action_dim] reference actions for the RL chunk.
+            a_tilde: [B, C, action_dim] reference actions (JAX array).
         """
         full_actions = self.sample_reference_actions(observation)
         return full_actions[:, :chunk_length, :]
 
-    def compute_vla_loss(
-        self,
-        observation: dict[str, Any] | Observation,
-        actions: Tensor,
-    ) -> Tensor:
+    def compute_vla_loss(self, observation, actions):
         """Compute the VLA's flow-matching training loss on demo data.
 
-        Calls PI0Pytorch.forward() which computes the denoising loss:
-        noisy actions x_t are created from ground-truth actions + noise,
-        the model predicts the velocity field v_t, and loss = MSE(u_t, v_t).
-
         Args:
-            observation: Batched observation (dict or openpi Observation).
-            actions: Ground-truth demo actions [B, action_horizon, action_dim].
+            observation: Batched Observation (JAX arrays).
+            actions: Ground-truth demo actions [B, H, action_dim] (JAX array).
 
         Returns:
-            Scalar mean VLA loss.
+            Scalar mean VLA loss (JAX).
         """
-        per_element_loss = self.extractor.pi0.forward(observation, actions)
+        per_element_loss = self._jax_model.compute_loss(observation, actions)
         return per_element_loss.mean()
 
-    def compute_vla_loss_with_embeddings(
-        self,
-        observation: Observation,
-        actions: Tensor,
-    ) -> tuple[Tensor, Tensor, Tensor]:
+    def compute_vla_loss_with_embeddings(self, observation, actions):
         """Single VLA forward pass returning both embeddings and loss.
 
         Used by joint training (alpha > 0) to avoid the double forward
@@ -288,20 +256,27 @@ class VLAWrapper:
         separately.
 
         Args:
-            observation: Batched openpi Observation.
-            actions: Ground-truth demo actions [B, H, action_dim].
+            observation: Batched Observation (JAX arrays).
+            actions: Ground-truth demo actions [B, H, action_dim] (JAX array).
 
         Returns:
             z: Detached prefix embeddings [B, M, D] (stop-grad from VLA).
             pad_mask: Boolean mask [B, M] (True = valid token).
             vla_loss: Scalar VLA flow-matching loss (with grad for VLA).
         """
-        return self.extractor.forward_joint(observation, actions)
+        from rlt_openpi.vla.embedding_extractor import forward_joint
+
+        return forward_joint(self._jax_model, observation, actions)
+
+    # ------------------------------------------------------------------
+    # Joint training helpers
+    # ------------------------------------------------------------------
 
     def unfreeze(self) -> None:
-        """Re-enable gradients on VLA parameters for joint fine-tuning."""
-        self.extractor.unfreeze()
+        """No-op in JAX — gradients are controlled by nnx.grad/nnx.DiffState."""
+        pass
 
     def trainable_parameters(self):
-        """Return VLA parameters that require gradients (for optimizer)."""
-        return [p for p in self.extractor.pi0.parameters() if p.requires_grad]
+        """Return an iterator over trainable VLA parameters (for optimizer setup)."""
+        # In JAX/nnx, parameters are accessible via nnx.state()
+        return []  # Handled by nnx optimizer directly

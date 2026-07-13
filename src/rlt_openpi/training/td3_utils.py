@@ -1,4 +1,4 @@
-"""TD3 utility functions for critic and actor updates.
+"""TD3 utility functions for critic and actor updates (JAX).
 
 Provides:
 - compute_td_target: discounted chunk return + gamma^C * target Q(next state)
@@ -6,26 +6,23 @@ Provides:
 - actor_loss: -Q.mean() + beta * BC regularizer
 """
 
-import torch
-from torch import Tensor, nn
-
-from rlt_openpi.models.actor import Actor
-from rlt_openpi.models.critic import TwinQCritic
+import jax
+import jax.numpy as jnp
 
 
-@torch.no_grad()
 def compute_td_target(
-    rewards: Tensor,
-    dones: Tensor,
-    next_x: Tensor,
-    next_a_tilde: Tensor,
-    actor: Actor,
-    critic: TwinQCritic,
+    rewards,
+    dones,
+    next_x,
+    next_a_tilde,
+    actor,
+    critic,
     gamma: float,
     chunk_length: int,
+    rng,
     target_noise_sigma: float = 0.2,
     target_noise_clip: float = 0.5,
-) -> Tensor:
+):
     """Compute TD target for critic training.
 
     y = sum_{k=0}^{C-1} gamma^k * r_k + gamma^C * (1 - done) * min Q_target(x', a')
@@ -37,10 +34,11 @@ def compute_td_target(
         dones: Episode termination flags [B, 1].
         next_x: Next RL state [B, state_dim].
         next_a_tilde: Next VLA reference action chunk [B, action_chunk_dim].
-        actor: Actor network (used in eval mode for deterministic target action).
-        critic: TwinQCritic (uses target networks).
+        actor: Actor nnx.Module (used deterministically for target action).
+        critic: TwinQCritic nnx.Module (uses target networks).
         gamma: Discount factor.
         chunk_length: C, number of steps per chunk.
+        rng: JAX random key for target noise.
         target_noise_sigma: Std of TD3 target policy smoothing noise.
         target_noise_clip: Clamp range for target noise.
 
@@ -48,33 +46,26 @@ def compute_td_target(
         TD target [B, 1].
     """
     # Discounted chunk return: sum_{k=0}^{C-1} gamma^k * r_k
-    discount_powers = gamma ** torch.arange(chunk_length, device=rewards.device, dtype=rewards.dtype)
-    chunk_return = (rewards * discount_powers).sum(dim=-1, keepdim=True)  # [B, 1]
+    discount_powers = gamma ** jnp.arange(chunk_length, dtype=rewards.dtype)
+    chunk_return = (rewards * discount_powers).sum(axis=-1, keepdims=True)  # [B, 1]
 
-    # Target action from actor (deterministic — actor in eval mode)
-    was_training = actor.training
-    actor.eval()
-    next_a = actor(next_x, next_a_tilde)
-    if was_training:
-        actor.train()
+    # Target action from actor (deterministic — no noise, no ref_dropout)
+    next_a = actor(next_x, next_a_tilde, training=False)
 
     # TD3 target policy smoothing: add clipped noise to target action
-    noise = torch.randn_like(next_a) * target_noise_sigma
-    noise = noise.clamp(-target_noise_clip, target_noise_clip)
-    next_a = (next_a + noise).clamp(-1.0, 1.0)
+    noise = jax.random.normal(rng, next_a.shape) * target_noise_sigma
+    noise = jnp.clip(noise, -target_noise_clip, target_noise_clip)
+    next_a = next_a + noise  # actions in robot space, no clamp(-1,1)
 
     # Bootstrap: gamma^C * (1 - done) * min Q_target(x', a')
     next_q = critic.target_q_min(next_x, next_a)
-    bootstrap = (gamma**chunk_length) * (1.0 - dones) * next_q
+    next_q = jax.lax.stop_gradient(next_q)
+    bootstrap = (gamma ** chunk_length) * (1.0 - dones) * next_q
 
     return chunk_return + bootstrap
 
 
-def critic_loss(
-    q1: Tensor,
-    q2: Tensor,
-    q_target: Tensor,
-) -> Tensor:
+def critic_loss(q1, q2, q_target):
     """MSE loss for both Q-networks against the TD target.
 
     L_critic = MSE(q1, y) + MSE(q2, y)
@@ -87,15 +78,10 @@ def critic_loss(
     Returns:
         Scalar loss.
     """
-    return nn.functional.mse_loss(q1, q_target) + nn.functional.mse_loss(q2, q_target)
+    return jnp.mean((q1 - q_target) ** 2) + jnp.mean((q2 - q_target) ** 2)
 
 
-def actor_loss(
-    q_value: Tensor,
-    a: Tensor,
-    a_tilde: Tensor,
-    beta: float,
-) -> Tensor:
+def actor_loss(q_value, a, a_tilde, beta: float):
     """Actor loss: maximize Q-value with BC regularizer.
 
     L_actor = -Q.mean() + beta * MSE(a, a_tilde)
@@ -110,5 +96,5 @@ def actor_loss(
         Scalar loss.
     """
     policy_loss = -q_value.mean()
-    bc_loss = nn.functional.mse_loss(a, a_tilde)
+    bc_loss = jnp.mean((a - a_tilde) ** 2)
     return policy_loss + beta * bc_loss

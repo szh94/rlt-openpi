@@ -18,12 +18,12 @@ Usage::
 
     # Default (2-camera, frozen VLA):
     uv run python scripts/train_rl_token.py \\
-        --train.vla-checkpoint-dir /path/to/model.safetensors \\
+        --train.vla-checkpoint-dir /path/to/params \\
         --repo-id local/stack_the_blocks
 
     # Joint training with 3-camera override:
     uv run python scripts/train_rl_token.py \\
-        --train.vla-checkpoint-dir /path/to/model.safetensors \\
+        --train.vla-checkpoint-dir /path/to/params \\
         --train.vla-finetune-alpha 1.0 \\
         --repo-id local/stack_the_blocks \\
         --data-transforms-fn rlt_openpi.policies.aloha.config.aloha_data_transforms
@@ -49,12 +49,7 @@ log = logging.getLogger(__name__)
 
 @dataclasses.dataclass
 class TrainConfig:
-    """Top-level config for Stage 1 training.
-
-    Wraps :class:`RLTokenTrainConfig` (architecture + training hypers)
-    and adds dataset / data-transform settings that live outside the
-    trainer.
-    """
+    """Top-level config for Stage 1 training."""
 
     train: RLTokenTrainConfig = dataclasses.field(default_factory=RLTokenTrainConfig)
     """RL token trainer hyperparameters."""
@@ -95,7 +90,7 @@ def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
 
 def main(config: TrainConfig) -> None:
     print("=" * 60)
-    print("Stage 1: RL Token Encoder-Decoder Training")
+    print("Stage 1: RL Token Encoder-Decoder Training (JAX)")
     print("=" * 60)
     print(f"  VLA config:      {config.train.vla_config_name}")
     print(f"  VLA checkpoint:  {config.train.vla_checkpoint_dir}")
@@ -113,7 +108,7 @@ def main(config: TrainConfig) -> None:
         config.data_transforms_fn, config.train.vla_config_name
     )
 
-    print("[1/4] Loading VLA model...")
+    print("[1/4] Loading VLA model (JAX-native)...")
     log.info(
         "Loading VLA: config=%s, checkpoint=%s",
         config.train.vla_config_name,
@@ -122,13 +117,12 @@ def main(config: TrainConfig) -> None:
     vla = VLAWrapper(
         checkpoint_path=config.train.vla_checkpoint_dir,
         config_name=config.train.vla_config_name,
-        device="cuda",
         data_transforms=data_transforms,
     )
     print("  VLA model loaded successfully.")
 
     print("[2/4] Creating RL token trainer...")
-    trainer = RLTokenTrainer(config.train, device="cuda")
+    trainer = RLTokenTrainer(config.train)
     rl_logger = Logger.from_train_config(config.train)
     print("  Trainer created (RLTokenModel + optimizer).")
 
@@ -153,6 +147,7 @@ def main(config: TrainConfig) -> None:
     print("Training complete.")
     print("=" * 60)
     rl_logger.finish()
+
 
 if __name__ == "__main__":
     main(tyro.cli(TrainConfig))
