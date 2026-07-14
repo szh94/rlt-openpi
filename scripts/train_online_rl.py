@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 
@@ -17,7 +18,6 @@ import tyro
 
 from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
-from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -28,12 +28,35 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message
 log = logging.getLogger(__name__)
 
 
+def _resolve_data_transforms(dotted_path: str, openpi_config_name: str):
+    """Dynamically import and call a data-transforms factory.
+
+    Returns a ``transforms.Group``, or ``None`` if *dotted_path* is empty.
+    """
+    if not dotted_path:
+        return None
+
+    from openpi.training.config import get_config
+
+    module_path, func_name = dotted_path.rsplit(".", 1)
+    factory_fn = getattr(importlib.import_module(module_path), func_name)
+    return factory_fn(get_config(openpi_config_name).model)
+
+
 def main(config: OnlineRLTrainConfig) -> None:
     """Run online RL training (Stage 2, Algorithm 1)."""
     log.info("Stage 2 config: %s", config)
 
     # Set up logger
     rl_logger = Logger.from_train_config(config)
+
+    # Resolve data transforms (defaults to aloha if --data-transforms-fn not set).
+    data_transforms = _resolve_data_transforms(config.data_transforms_fn, config.vla_config_name)
+    if data_transforms is None:
+        from rlt_openpi.policies.aloha.config import aloha_data_transforms
+
+        data_transforms = aloha_data_transforms()
+        log.info("Using default ALOHA data transforms (--data-transforms-fn not set)")
 
     # Load frozen VLA
     log.info("Loading VLA: config=%s, checkpoint=%s", config.vla_config_name, config.vla_checkpoint_dir)
@@ -42,7 +65,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         config_name=config.vla_config_name,
         device="cuda",
         output_action_dim=config.action_dim,
-        data_transforms=aloha_data_transforms(),
+        data_transforms=data_transforms,
     )
 
     # Load frozen RL token model from Stage 1
@@ -75,8 +98,7 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Create environment via pluggable factory.
     # Pass --env-factory to specify a Python import path, e.g.:
-    #   --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env
-    #   --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
+    #   --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env
     if not config.env_factory:
         log.error("--env-factory is required. Provide a Python import path to an env factory function.")
         raise SystemExit(1)
@@ -89,6 +111,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         task_prompt=config.task_prompt,
         max_episode_chunks=config.max_episode_chunks,
         dry_run=config.dry_run,
+        live_image_dir=config.live_image_dir,
         **env_extra_kwargs,
     )
     log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)

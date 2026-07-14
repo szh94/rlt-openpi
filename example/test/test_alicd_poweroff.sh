@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../.venv/bin/activate"
+source "$SCRIPT_DIR/../../.venv/bin/activate"
 
 echo "========================================"
 echo " Alicia-D Power-Off Safe Pose"
@@ -17,4 +17,4 @@ if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-python "$SCRIPT_DIR/../scripts/test_alicd_poweroff.py" "$@"
+python "$SCRIPT_DIR/../../scripts/test_alicd_poweroff.py" "$@"
