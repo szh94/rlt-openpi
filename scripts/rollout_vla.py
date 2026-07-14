@@ -7,7 +7,7 @@ fine-tuned VLA before or without Stage 2 RL training.
 Usage:
     python scripts/rollout_vla.py --help
     python scripts/rollout_vla.py \
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
         --vla-config-name pi05_droid_finetune \
         --vla-checkpoint-dir /path/to/model.safetensors \
         --task-prompt "stack the three blocks on the tray" \

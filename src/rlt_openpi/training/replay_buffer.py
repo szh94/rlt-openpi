@@ -2,12 +2,10 @@
 
 Stores transitions (x, a, a_tilde, rewards, next_x, dones) where each
 transition corresponds to one action chunk of length C.
-
-Internal storage uses numpy arrays.  ``sample()`` returns JAX arrays.
 """
 
-import jax.numpy as jnp
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 
@@ -87,21 +85,31 @@ class ReplayBuffer:
         """Add transitions from an episode with stride-based subsampling.
 
         The paper uses stride=2 to get ~25 samples/second from 50 Hz control.
-        Every ``stride``-th transition is stored.
+        Every `stride`-th transition is stored.
+
+        Args:
+            xs: RL states [N, state_dim].
+            actions: Executed action chunks [N, action_chunk_dim].
+            a_tildes: VLA reference action chunks [N, action_chunk_dim].
+            rewards: Per-step rewards [N, chunk_length].
+            next_xs: Next RL states [N, state_dim].
+            dones: Termination flags [N, 1].
+            stride: Subsampling stride (default 2).
 
         Returns:
             Number of transitions actually stored.
         """
         indices = range(0, len(xs), stride)
         for i in indices:
-            self.add(
-                xs[i], actions[i], a_tildes[i],
-                rewards[i], next_xs[i], dones[i].item(),
-            )
+            self.add(xs[i], actions[i], a_tildes[i], rewards[i], next_xs[i], dones[i].item())
         return len(list(indices))
 
     def state_dict(self) -> dict[str, object]:
-        """Return buffer state for checkpointing (numpy arrays)."""
+        """Return buffer state for checkpointing.
+
+        Only saves the filled portion (up to ``self._size``) to keep
+        checkpoint files small when the buffer is not full.
+        """
         n = self._size
         return {
             "ptr": self._ptr,
@@ -126,22 +134,23 @@ class ReplayBuffer:
         self._next_x[:n] = state["next_x"]
         self._dones[:n] = state["dones"]
 
-    def sample(self, batch_size: int) -> dict[str, jnp.ndarray]:
+    def sample(self, batch_size: int, device: str = "cpu") -> dict[str, torch.Tensor]:
         """Sample a random batch of transitions.
 
         Args:
             batch_size: Number of transitions to sample.
+            device: Torch device for output tensors.
 
         Returns:
             Dict with keys: x, a, a_tilde, rewards, next_x, dones.
-            Each value is a JAX array.
+            Each value is a torch.Tensor on the specified device.
         """
         indices = np.random.randint(0, self._size, size=batch_size)
         return {
-            "x": jnp.asarray(self._x[indices]),
-            "a": jnp.asarray(self._a[indices]),
-            "a_tilde": jnp.asarray(self._a_tilde[indices]),
-            "rewards": jnp.asarray(self._rewards[indices]),
-            "next_x": jnp.asarray(self._next_x[indices]),
-            "dones": jnp.asarray(self._dones[indices]),
+            "x": torch.as_tensor(self._x[indices], device=device),
+            "a": torch.as_tensor(self._a[indices], device=device),
+            "a_tilde": torch.as_tensor(self._a_tilde[indices], device=device),
+            "rewards": torch.as_tensor(self._rewards[indices], device=device),
+            "next_x": torch.as_tensor(self._next_x[indices], device=device),
+            "dones": torch.as_tensor(self._dones[indices], device=device),
         }

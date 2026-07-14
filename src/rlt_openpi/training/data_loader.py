@@ -1,10 +1,11 @@
-"""Data loader for RLT training, delegating to OpenPI's pipeline (JAX).
+"""Data loader for RLT training, delegating to OpenPI's pipeline.
 
 Reuses OpenPI's full transform chain so that normalization, action
 chunking, and camera layout exactly match the pretrained VLA config.
 
-Uses PyTorch DataLoader for efficient data loading, then converts
-outputs to JAX arrays for downstream JAX components.
+Custom hardware setups can override the default data transforms by
+passing a ``data_transforms`` :class:`~openpi.transforms.Group`.  See
+``rlt_openpi/policies/franka/`` for a concrete example.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ import multiprocessing
 import typing
 
 import jax
-import jax.numpy as jnp
 import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
@@ -37,7 +37,7 @@ def _collate_fn(items):
 
 
 def _patch_repack_action_key(data_config, action_key: str):
-    """Rewrite the repack transform so ``"actions"`` reads from *action_key*."""
+    """Rewrite the repack transform so `"actions"` reads from *action_key*."""
     new_inputs = []
     for t in data_config.repack_transforms.inputs:
         if isinstance(t, _transforms.RepackTransform) and "actions" in t.structure:
@@ -62,7 +62,8 @@ def build_data_loader(
 
     Works for any robot/model registered in OpenPI (DROID, ALOHA, Libero,
     etc.).  Returns an infinite iterator yielding
-    ``(Observation, actions)`` tuples with JAX arrays.
+    ``(Observation, actions)`` tuples with correctly normalised,
+    tokenised, and padded tensors.
 
     Args:
         openpi_config_name: Registered OpenPI config name
@@ -72,12 +73,15 @@ def build_data_loader(
         num_workers: DataLoader workers.
         shuffle: Whether to shuffle.
         data_transforms: Optional override for the config's default
-            ``data_transforms``.
+            ``data_transforms``.  If ``None``, the transforms from the
+            OpenPI config are used as-is.  Provide a custom
+            :class:`~openpi.transforms.Group` to change observation /
+            action processing (e.g. different camera layouts).
 
     Yields:
-        ``(observation, actions)`` -
-        ``observation`` is an :class:`Observation` with JAX arrays;
-        ``actions`` is ``[B, action_horizon, action_dim]`` JAX array.
+        ``(observation, actions)`` –
+        ``observation`` is an :class:`Observation` with torch tensors;
+        ``actions`` is ``[B, action_horizon, action_dim]`` float32.
     """
     config = get_config(openpi_config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
@@ -85,6 +89,10 @@ def build_data_loader(
     data_config = dataclasses.replace(data_config, repo_id=repo_id)
 
     # Auto-detect the action column name in the LeRobot dataset.
+    # Standard LeRobot datasets use "action" (singular), while OpenPI's
+    # DROID conversion produces "actions" (plural).  Patch both
+    # action_sequence_keys and the repack transform so users don't have
+    # to rename anything.
     meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
     if "action" in meta.features and "actions" not in meta.features:
         data_config = dataclasses.replace(
@@ -118,25 +126,20 @@ def build_data_loader(
 
 
 class _InfiniteLoader:
-    """Wraps a torch DataLoader as an infinite iterator.
-
-    Yields ``(Observation, actions)`` with JAX arrays.
-    """
+    """Wraps a torch DataLoader as an infinite iterator of ``(Observation, actions)``."""
 
     def __init__(self, loader):
         self._loader = loader
 
     @staticmethod
-    def _to_jax(x):
-        """Convert torch tensor or numpy array to JAX array."""
-        if hasattr(x, "numpy"):  # torch tensor
-            return jnp.asarray(x.numpy())
-        if isinstance(x, np.ndarray):
-            return jnp.asarray(x)
-        return x
+    def _to_float32(x):
+        t = torch.as_tensor(x)
+        if t.is_floating_point():
+            t = t.float()
+        return t
 
     def __iter__(self):
         while True:
             for batch in self._loader:
-                batch = jax.tree.map(self._to_jax, batch)
+                batch = jax.tree.map(self._to_float32, batch)
                 yield Observation.from_dict(batch), batch["actions"]

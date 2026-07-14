@@ -1,11 +1,9 @@
-"""Rollout worker for online RL data collection (JAX).
+"""Rollout worker for online RL data collection.
 
 Orchestrates environment interaction, VLA embedding extraction, RL token
 encoding, actor inference, and replay buffer storage.  Supports both
 VLA-only warmup rollouts and full RL episode collection with optional
 human intervention.
-
-All model inference runs in JAX.  The env boundary uses numpy arrays.
 """
 
 from __future__ import annotations
@@ -14,8 +12,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax.numpy as jnp
 import numpy as np
+import torch
 from numpy.typing import NDArray
 
 from rlt_openpi.models.actor import Actor
@@ -40,7 +38,7 @@ class EpisodeStats:
 
 
 class RolloutWorker:
-    """Collects environment rollouts for online RL training (JAX).
+    """Collects environment rollouts for online RL training.
 
     During warmup, runs the VLA-only policy and stores transitions.
     During RL training, uses the actor conditioned on z_rl and VLA
@@ -50,13 +48,12 @@ class RolloutWorker:
         env: Chunk-level environment wrapper.
         vla: Frozen VLA wrapper for embeddings and reference actions.
         rl_token_model: Frozen RL token encoder (Stage 1 output).
-        actor: RL actor network (Flax nnx.Module).
+        actor: RL actor network.
         replay_buffer: Buffer to store transitions.
         intervention_mgr: Human intervention manager.
         chunk_length: C, number of steps per action chunk.
         action_dim: Dimension of a single-step action.
-        max_deviation: Safety cap: max |a - a_tilde| per action element.
-        deviation_abort_threshold: Abort if raw |a - a_tilde| exceeds this.
+        device: Torch device for model inference.
     """
 
     def __init__(
@@ -69,6 +66,7 @@ class RolloutWorker:
         intervention_mgr: InterventionManager,
         chunk_length: int,
         action_dim: int,
+        device: torch.device | str = "cuda",
         max_deviation: float = 0.3,
         deviation_abort_threshold: float = 0.8,
     ) -> None:
@@ -80,6 +78,7 @@ class RolloutWorker:
         self.intervention_mgr = intervention_mgr
         self.chunk_length = chunk_length
         self.action_dim = action_dim
+        self.device = torch.device(device)
         self.max_deviation = max_deviation
         self.deviation_abort_threshold = deviation_abort_threshold
 
@@ -90,8 +89,8 @@ class RolloutWorker:
 
         Uses ``VLAWrapper.preprocess_obs`` if available (real VLA), which
         applies the full OpenPI transform chain and returns an
-        ``Observation`` with JAX arrays.  Falls back to simple
-        batch-wrapping for tests with a mock VLA.
+        ``Observation``.  Falls back to simple batch-wrapping for tests
+        with a mock VLA.
         """
         if hasattr(self.vla, "preprocess_obs"):
             return self.vla.preprocess_obs(obs)
@@ -103,6 +102,7 @@ class RolloutWorker:
             batched[key] = arr[np.newaxis]  # add batch dim
         return batched
 
+    @torch.no_grad()
     def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray]:
         """Extract RL state x = cat(z_rl, s^p) and VLA reference chunk.
 
@@ -121,16 +121,20 @@ class RolloutWorker:
         a_tilde_flat = a_tilde.reshape(1, -1)  # [1, C*d]
 
         # Proprioceptive state s^p from the preprocessed VLA observation.
-        s_p = vla_input.state[:, :self.action_dim].astype(jnp.float32)  # [1, d]
+        # DroidInputs merges joint_pos + gripper into state, then
+        # PadStatesAndActions zero-pads to the VLA's internal width.
+        # Slice to action_dim to drop the padding.
+        s_p = vla_input.state[:, :self.action_dim].to(dtype=torch.float32, device=self.device)  # [1, d]
 
         # RL state: x = cat(z_rl, s^p)
-        x = jnp.concatenate([z_rl, s_p], axis=-1)  # [1, state_dim]
+        x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
 
         return (
-            np.array(x[0]),
-            np.array(a_tilde_flat[0]),
+            x.squeeze(0).cpu().numpy(),
+            a_tilde_flat.squeeze(0).cpu().numpy(),
         )
 
+    @torch.no_grad()
     def _get_warmup_action(self, obs: dict[str, Any]) -> NDArray:
         """Get action from VLA-only policy for warmup.
 
@@ -139,93 +143,124 @@ class RolloutWorker:
         """
         vla_input = self._obs_to_vla_input(obs)
         a_tilde = self.vla.get_rl_chunk_reference(vla_input, self.chunk_length)  # [1, C, action_dim]
-        return np.array(a_tilde[0])  # [C, action_dim]
+        return a_tilde.squeeze(0).cpu().numpy()  # [C, action_dim]
 
+    @torch.no_grad()
     def _get_actor_action(self, x: NDArray, a_tilde_flat: NDArray) -> NDArray:
         """Get action from the RL actor.
 
         Args:
-            x: RL state [state_dim] (numpy).
-            a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] (numpy).
+            x: RL state [state_dim].
+            a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim].
 
         Returns:
             action_chunk: [C, action_dim] numpy array.
         """
-        x_j = jnp.asarray(x, dtype=jnp.float32)[None, :]  # [1, state_dim]
-        a_tilde_j = jnp.asarray(a_tilde_flat, dtype=jnp.float32)[None, :]  # [1, C*d]
+        x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+        a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
 
-        a_flat = self.actor(x_j, a_tilde_j, training=False)  # [1, C*d]
+        a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
 
-        # Debug: print first action of chunk
-        a_tilde_first = a_tilde_j.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
+        # Debug: print first action of chunk before and after actor
+        a_tilde_first = a_tilde_t.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
         a_raw_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
         logger.info(
             "Actor action[0]: a_tilde=%s",
             np.array2string(
-                np.array(a_tilde_first),
+                a_tilde_first.cpu().numpy(),
                 precision=4, suppress_small=True, max_line_width=200,
             ),
         )
         logger.info(
             "Actor action[0]: raw_out=%s",
             np.array2string(
-                np.array(a_raw_first),
+                a_raw_first.cpu().numpy(),
                 precision=4, suppress_small=True, max_line_width=200,
             ),
         )
 
         # Safety: abort if raw deviation is abnormally large
-        raw_dev = jnp.abs(a_flat - a_tilde_j)
-        raw_max_dev = float(raw_dev.max())
+        raw_dev = (a_flat - a_tilde_t).abs()
+        raw_max_dev = raw_dev.max().item()
         if raw_max_dev > self.deviation_abort_threshold:
-            max_idx = int(jnp.argmax(raw_dev))
-            a_tilde_val = float(a_tilde_j[0, max_idx])
-            a_actor_val = float(a_flat[0, max_idx])
+            max_idx = raw_dev.argmax().item()
             logger.error(
                 "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
                 "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
-                "Stats - a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
+                "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
                 "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
-                "The model is producing extreme outputs - check training.",
+                "The model is producing extreme outputs — check training.",
                 raw_max_dev,
                 self.deviation_abort_threshold,
                 max_idx,
-                a_tilde_val,
-                a_actor_val,
-                float(a_tilde_j.mean()), float(a_tilde_j.std()),
-                float(a_tilde_j.min()), float(a_tilde_j.max()),
-                float(a_flat.mean()), float(a_flat.std()),
-                float(a_flat.min()), float(a_flat.max()),
+                a_tilde_t[0, max_idx].item(),
+                a_flat[0, max_idx].item(),
+                a_tilde_t.mean().item(), a_tilde_t.std().item(),
+                a_tilde_t.min().item(), a_tilde_t.max().item(),
+                a_flat.mean().item(), a_flat.std().item(),
+                a_flat.min().item(), a_flat.max().item(),
             )
             raise RuntimeError(
                 f"Actor raw max deviation {raw_max_dev:.4f} > "
                 f"abort threshold {self.deviation_abort_threshold:.4f} "
-                f"(idx={max_idx}, a_tilde={a_tilde_val:.4f}, "
-                f"a_actor={a_actor_val:.4f})"
+                f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
+                f"a_actor={a_flat[0, max_idx].item():.4f})"
             )
 
         # Safety: cap deviation from VLA reference
-        deviation = a_flat - a_tilde_j
-        deviation = jnp.clip(deviation, -self.max_deviation, self.max_deviation)
-        a_flat = a_tilde_j + deviation
+        deviation = a_flat - a_tilde_t
+        deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
+        a_flat = a_tilde_t + deviation
 
         # Debug: print first action after deviation cap
         a_capped_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
         logger.info(
             "Actor action[0]: capped  =%s",
             np.array2string(
-                np.array(a_capped_first),
+                a_capped_first.cpu().numpy(),
                 precision=4, suppress_small=True, max_line_width=200,
             ),
         )
+        # a_flat = a_flat.clamp(-1.0, 1.0)
 
-        return np.array(a_flat[0]).reshape(self.chunk_length, self.action_dim)
+        # Safety: abort if raw deviation is abnormally large
+        # raw_dev = (a_flat - a_tilde_t).abs()
+        # raw_max_dev = raw_dev.max().item()
+        # if raw_max_dev > self.deviation_abort_threshold:
+        #     max_idx = raw_dev.argmax().item()
+        #     logger.error(
+        #         "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
+        #         "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
+        #         "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
+        #         "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
+        #         "The model is producing extreme outputs — check training.",
+        #         raw_max_dev,
+        #         self.deviation_abort_threshold,
+        #         max_idx,
+        #         a_tilde_t[0, max_idx].item(),
+        #         a_flat[0, max_idx].item(),
+        #         a_tilde_t.mean().item(), a_tilde_t.std().item(),
+        #         a_tilde_t.min().item(), a_tilde_t.max().item(),
+        #         a_flat.mean().item(), a_flat.std().item(),
+        #         a_flat.min().item(), a_flat.max().item(),
+        #     )
+        #     raise RuntimeError(
+        #         f"Actor raw max deviation {raw_max_dev:.4f} > "
+        #         f"abort threshold {self.deviation_abort_threshold:.4f} "
+        #         f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
+        #         f"a_actor={a_flat[0, max_idx].item():.4f})"
+        #     )
+
+        return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
     def collect_warmup(self, num_chunks: int) -> int:
         """Run VLA-only policy and store transitions in the replay buffer.
 
         Collects ``num_chunks`` chunk-level transitions across potentially
         multiple episodes (auto-resets on termination).
+
+        Args:
+            num_chunks: Number of chunk-level transitions to collect.
 
         Returns:
             Total number of transitions stored.
@@ -234,7 +269,11 @@ class RolloutWorker:
         obs = self.env.reset()
 
         for _ in range(num_chunks):
+            # Get VLA reference action (used as both executed and reference)
             action_chunk = self._get_warmup_action(obs)  # [C, action_dim]
+
+            print("Action_ref")
+            
 
             # Build RL state for this observation
             x, a_tilde_flat = self._extract_rl_state(obs)
@@ -277,7 +316,8 @@ class RolloutWorker:
 
         Args:
             store_transitions: Whether to add transitions to the replay
-                buffer.  Set to ``False`` during evaluation.
+                buffer.  Set to ``False`` during evaluation to avoid
+                unnecessary buffer writes.
 
         Returns:
             Episode statistics.
@@ -289,7 +329,10 @@ class RolloutWorker:
             # Extract RL state and VLA reference
             x, a_tilde_flat = self._extract_rl_state(obs)
 
-            # Check for human intervention
+            # Check for human intervention.
+            # If the intervention manager stepped the robot internally
+            # (InterventionResult), we use its outputs directly and skip
+            # env.step().  Otherwise fall through to the actor.
             intervention: InterventionResult | None = None
             if self.intervention_mgr.check_intervention():
                 intervention = self.intervention_mgr.get_human_action(
@@ -325,6 +368,7 @@ class RolloutWorker:
             # Update stats
             stats.total_reward += float(rewards.sum())
             stats.num_chunks += 1
+            # Use env-reported steps if available, else fall back to chunk_length
             stats.num_steps += info.get("steps_executed", self.chunk_length)
 
             if done:

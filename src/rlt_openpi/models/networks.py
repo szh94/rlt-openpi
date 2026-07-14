@@ -1,14 +1,15 @@
-"""Shared neural network building blocks (JAX/Flax nnx)."""
+"""Shared neural network building blocks."""
 
-from flax import nnx
+import torch.nn as nn
+from torch import Tensor
 
 
-class MLP(nnx.Module):
+class MLP(nn.Module):
     """Multi-layer perceptron with input LayerNorm.
 
-    Architecture: LayerNorm -> [Linear -> ReLU] x num_hidden_layers -> Linear
+    Architecture: LayerNorm → [Linear → ReLU] × num_hidden_layers → Linear
 
-    Used by the actor and critic networks.
+    Used by the actor and critic networks (Steps 6+).
     """
 
     def __init__(
@@ -17,33 +18,16 @@ class MLP(nnx.Module):
         output_dim: int,
         hidden_dim: int,
         num_hidden_layers: int,
-        *,
-        rngs: nnx.Rngs,
-        final_kernel_init=None,
-        final_bias_init=None,
     ) -> None:
-        self.norm = nnx.LayerNorm(input_dim, rngs=rngs)
-        self._num_hidden = num_hidden_layers
-
+        super().__init__()
+        layers: list[nn.Module] = [nn.LayerNorm(input_dim)]
         prev_dim = input_dim
-        for i in range(num_hidden_layers):
-            setattr(self, f"fc{i}", nnx.Linear(prev_dim, hidden_dim, rngs=rngs))
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(prev_dim, hidden_dim))
+            layers.append(nn.ReLU())
             prev_dim = hidden_dim
-        setattr(
-            self,
-            f"fc{num_hidden_layers}",
-            nnx.Linear(
-                prev_dim, output_dim,
-                kernel_init=final_kernel_init or nnx.initializers.lecun_normal(),
-                bias_init=final_bias_init or nnx.initializers.zeros,
-                rngs=rngs,
-            ),
-        )
+        layers.append(nn.Linear(prev_dim, output_dim))
+        self.net = nn.Sequential(*layers)
 
-    def __call__(self, x):
-        x = self.norm(x)
-        for i in range(self._num_hidden):
-            x = getattr(self, f"fc{i}")(x)
-            x = nnx.relu(x)
-        x = getattr(self, f"fc{self._num_hidden}")(x)
-        return x
+    def forward(self, x: Tensor) -> Tensor:
+        return self.net(x)

@@ -5,22 +5,16 @@ description = "RL Token: Bootstrapping Online RL with Vision-Language-Action Mod
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = [
-    # JAX runtime (core)
-    "jax>=0.4.35",
-    "jaxlib>=0.4.35",
-    "flax>=0.10.0",            # nnx module system (used by openpi-main)
-    "optax>=0.2.0",             # optimizers (adam, adamw, schedules)
-    "orbax-checkpoint>=0.7.0",  # checkpoint save/load
-    # PyTorch (kept for DataLoader throughput in Stage 1)
     "torch==2.8.0",
     "transformers==4.53.2",
+    "safetensors",
     "wandb>=0.19",
     "tyro>=0.9",
     "tqdm",
     "pyyaml",
-    "numpy>=2.1.0",             # JAX requires numpy >= 2.x
+    "numpy>=1.22.4,<2.0",
     "openpi",
-    # Transitive deps
+    # Transitive deps pinned to match openpi's tested versions
     "chex",
     "datasets>=3.0,<4.0",
     "torchcodec<0.11",
@@ -43,7 +37,7 @@ override-dependencies = [
 ]
 
 [tool.uv.sources]
-openpi = { path = "../openpi-main" }
+openpi = { path = "/home/shenzh/Robot/openpi" }
 
 [build-system]
 requires = ["hatchling"]

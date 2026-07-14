@@ -59,7 +59,7 @@ class RobotEnv:
     """Chunk-level environment for real robot online RL.
 
     Robot-agnostic: connects to any robot through three callables.
-    Provides the standard env interface (``reset``, ``step``,
+    Provides the same interface as ``SimEnv`` (``reset``, ``step``,
     ``action_dim``, ``chunk_length``) so it works with ``RolloutWorker``
     and ``OnlineRLTrainer``.
 

@@ -6,8 +6,9 @@
 #   bash setup_env.sh myenvname  # creates env with custom name
 #
 # By default only the core dependencies (Stage 1 training, evaluation) are
-# installed. Pass --robot to also install the robot teleop stack and
-# hardware drivers needed for Stage 2 on a real robot rig.
+# installed. Pass --robot to also install the DROID teleop stack, Oculus
+# reader, ZED bindings, and related fixups needed for Stage 2 on a real
+# Franka rig. Set DROID_DIR to point to your local DROID clone:
 #
 #   DROID_DIR=/path/to/droid bash setup_env.sh --robot
 #   DROID_DIR=/path/to/droid bash setup_env.sh myenvname --robot
@@ -104,8 +105,6 @@ EOF
 fi
 
 # ── Patch transformers ────────────────────────────────────────────────
-# NOTE: After the JAX migration, rlt-openpi no longer uses PI0Pytorch,
-# but openpi itself may still need these patches internally.
 echo "==> Patching transformers with openpi's transformers_replace files..."
 OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import openpi, pathlib; print(pathlib.Path(openpi.__file__).parent)")
@@ -146,8 +145,8 @@ if [ "$INSTALL_ROBOT" = true ]; then
     conda run -n "${ENV_NAME}" uv pip uninstall opencv-python || true
     conda run -n "${ENV_NAME}" uv pip install "opencv-contrib-python==4.6.0.66"
 
-    echo "==> Fixing numpy (JAX requires >=2.1; robot drivers may need recompilation)..."
-    conda run -n "${ENV_NAME}" uv pip install "numpy>=2.1.0"
+    echo "==> Fixing numpy (pin <2.0 for compiled extension compatibility)..."
+    conda run -n "${ENV_NAME}" uv pip install "numpy>=1.22.4,<2.0"
 
     echo "==> Fixing protobuf/wandb conflict..."
     conda run -n "${ENV_NAME}" uv pip install "protobuf>=4.21" --upgrade
