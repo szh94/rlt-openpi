@@ -150,7 +150,7 @@ def make_aloha_env(
         if dry_run:
             return
 
-        print("Send action", action)
+        print("=========\nSend action", action)
         # robot.send_action_safe(action)
 
     # ------------------------------------------------------------------

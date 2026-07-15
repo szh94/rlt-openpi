@@ -253,6 +253,7 @@ class VLAWrapper:
             a_tilde: [B, C, action_dim] reference actions for the RL chunk.
         """
         full_actions = self.sample_reference_actions(observation)
+        
         return full_actions[:, :chunk_length, :]
 
     def compute_vla_loss(

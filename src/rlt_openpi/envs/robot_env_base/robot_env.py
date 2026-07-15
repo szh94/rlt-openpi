@@ -164,8 +164,8 @@ class RobotEnv:
             if self._print_actions or self._dry_run:
                 a = action_chunk[k]
                 vals = " ".join(f"[{i}]{a[i]:+.6f}" for i in range(len(a)))
-                tag = "dry_run" if self._dry_run else "action"
-                print(f"[{tag}] step {k:>2d}: {vals}")
+                tag = "dry_run" if self._dry_run else "Action chunk"
+                print(f"[{tag}: step {k:>2d}]: {vals}")
 
             # Send to hardware (dry_run skips this)
             if not self._dry_run:
@@ -201,9 +201,9 @@ class RobotEnv:
         info["steps_executed"] = k + 1
         self._chunk_count += 1
 
-        # Chunk separator (printed when action logging is on)
-        if self._print_actions or self._dry_run:
-            print(f"{'─' * 60}")
+        # # Chunk separator (printed when action logging is on)
+        # if self._print_actions or self._dry_run:
+        #     print(f"{'─' * 60}")
 
         # Timeout: force episode end after max chunks
         if not done and self._chunk_count >= self._max_episode_chunks:

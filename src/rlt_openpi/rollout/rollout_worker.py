@@ -110,6 +110,10 @@ class RolloutWorker:
             x: RL state [state_dim] as numpy array.
             a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
         """
+        raw_joint = obs.get("state", None)
+        if raw_joint is not None:
+            print(f"\n[VLA input] raw state: {np.array(raw_joint)}")
+
         vla_input = self._obs_to_vla_input(obs)
 
         # Extract VLA embeddings and encode into z_rl
@@ -272,17 +276,20 @@ class RolloutWorker:
             # Get VLA reference action (used as both executed and reference)
             action_chunk = self._get_warmup_action(obs)  # [C, action_dim]
 
-            print("Action_ref")
-            
-
             # Build RL state for this observation
+            print(f"{'─' * 60}")
+            print("Warmup: Get rl_state\n")
             x, a_tilde_flat = self._extract_rl_state(obs)
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
             # Step environment
+            print(f"{'─' * 60}")
+            print("Warmup: Step action chunk\n")
             next_obs, rewards, done, _info = self.env.step(action_chunk)
 
             # Build next RL state
+            print(f"{'─' * 60}")
+            print("Warmup: Get next rl_state\n")
             next_x, _ = self._extract_rl_state(next_obs)
 
             # Store transition
