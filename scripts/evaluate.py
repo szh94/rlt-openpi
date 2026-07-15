@@ -1,28 +1,28 @@
-"""Run inference with a trained model on an environment.
+"""Evaluate a trained model on an environment.
 
 Supports two modes:
-  - **stage1**: VLA-only inference (fine-tuned VLA from Stage 1, no actor).
+  - **stage1**: VLA-only evaluation (fine-tuned VLA from Stage 1, no actor).
   - **stage2**: Full pipeline (VLA + RL token + actor from Stage 2).
 
 The mode is auto-detected: if --checkpoint (Stage 2) is provided, runs
-stage2 inference; otherwise runs stage1 VLA-only inference.
+stage2 eval; otherwise runs stage1 VLA-only eval.
 
 Usage:
-    # Stage 1: VLA-only inference
-    uv run python scripts/inference.py \
+    # Stage 1: evaluate fine-tuned VLA
+    uv run python scripts/evaluate.py \
         --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
         --stage1-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-        --task-prompt "pick up the cup" \
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
+        --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50
 
-    # Stage 2: full pipeline inference
-    uv run python scripts/inference.py \
+    # Stage 2: evaluate full trained model
+    uv run python scripts/evaluate.py \
         --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100.pt \
         --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
         --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-        --task-prompt "pick up the cup" \
+        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
+        --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50
 """
 

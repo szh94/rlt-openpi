@@ -12,7 +12,7 @@ set -euo pipefail
 #   bash example/stage1_jax.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../.venv/bin/activate"
+# source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 

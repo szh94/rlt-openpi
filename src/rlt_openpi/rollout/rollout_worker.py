@@ -110,11 +110,6 @@ class RolloutWorker:
             x: RL state [state_dim] as numpy array.
             a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
         """
-        # Print raw joint positions (before normalization)
-        raw_joints = obs.get("observation/joint_position", None)
-        if raw_joints is not None:
-            print(f"[VLA input] raw joint positions: {np.array(raw_joints)}")
-
         vla_input = self._obs_to_vla_input(obs)
 
         # Extract VLA embeddings and encode into z_rl
@@ -124,9 +119,6 @@ class RolloutWorker:
         # Get VLA reference action chunk (first C steps)
         a_tilde = self.vla.get_rl_chunk_reference(vla_input, self.chunk_length)  # [1, C, action_dim]
         a_tilde_flat = a_tilde.reshape(1, -1)  # [1, C*d]
-
-        # Print VLA reference action chunk (robot space, unnormalized)
-        print(f"[VLA output] ref actions (a_tilde): {a_tilde.squeeze(0).cpu().numpy()}")
 
         # Proprioceptive state s^p from the preprocessed VLA observation.
         # DroidInputs merges joint_pos + gripper into state, then
@@ -279,6 +271,9 @@ class RolloutWorker:
         for _ in range(num_chunks):
             # Get VLA reference action (used as both executed and reference)
             action_chunk = self._get_warmup_action(obs)  # [C, action_dim]
+
+            print("Action_ref")
+            
 
             # Build RL state for this observation
             x, a_tilde_flat = self._extract_rl_state(obs)

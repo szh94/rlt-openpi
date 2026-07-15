@@ -29,7 +29,7 @@ Usage::
         --rl-token-checkpoint /path/to/rl_token.pt
 
     # Evaluation
-    python scripts/inference.py \\
+    python scripts/evaluate.py \\
         --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
         --task-prompt "pick up the cup" \\
         --checkpoint /path/to/online_rl.pt \\
