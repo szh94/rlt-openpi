@@ -29,7 +29,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -45,10 +44,6 @@ from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
-
 
 @dataclass
 class EvalConfig:
@@ -97,11 +92,9 @@ def _run(config: EvalConfig) -> None:
     actor.load_state_dict(ckpt["actor"])
     actor.eval()
 
-    log.info(
-        "Actor loaded from %s (episode %d, %d env steps)",
-        config.checkpoint,
-        ckpt["total_episodes"],
-        ckpt["total_env_steps"],
+    print(
+        f"Actor loaded from {config.checkpoint} "
+        f"(episode {ckpt['total_episodes']}, {ckpt['total_env_steps']} env steps)"
     )
 
     env = make_env(
@@ -110,7 +103,7 @@ def _run(config: EvalConfig) -> None:
         chunk_length=train_config.chunk_length,
         task_prompt=config.task_prompt,
     )
-    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+    print(f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}")
 
     buf = ReplayBuffer(1, train_config.state_dim, train_config.action_chunk_dim, train_config.chunk_length)
     worker = RolloutWorker(
@@ -130,7 +123,7 @@ def _run(config: EvalConfig) -> None:
             "num_chunks": stats.num_chunks,
             "num_steps": stats.num_steps,
         })
-        log.info("Episode %d: reward=%.3f, success=%s", ep, stats.total_reward, success)
+        print(f"Episode {ep}: reward={stats.total_reward:.3f}, success={success}")
 
     return episodes, {
         "mode": "stage2",
@@ -152,9 +145,9 @@ def _run_vla(config: EvalConfig) -> None:
         ckpt = torch.load(config.stage1_checkpoint, map_location="cpu", weights_only=False)
         if "vla_model" in ckpt:
             vla.extractor.pi0.load_state_dict(ckpt["vla_model"])
-            log.info("Loaded fine-tuned VLA weights from %s", config.stage1_checkpoint)
+            print(f"Loaded fine-tuned VLA weights from {config.stage1_checkpoint}")
         else:
-            log.warning("No vla_model key in %s; using base VLA weights", config.stage1_checkpoint)
+            print(f"[WARNING] No vla_model key in {config.stage1_checkpoint}; using base VLA weights")
         del ckpt
 
     env = make_env(
@@ -163,7 +156,7 @@ def _run_vla(config: EvalConfig) -> None:
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
     )
-    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+    print(f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}")
 
     episodes = []
     for ep in range(config.num_episodes):
@@ -190,9 +183,9 @@ def _run_vla(config: EvalConfig) -> None:
                     "num_chunks": episode_chunks,
                     "num_steps": info.get("steps_executed", episode_chunks * config.chunk_length),
                 })
-                log.info(
-                    "Episode %d/%d: chunks=%d, reward=%.3f, success=%s",
-                    ep + 1, config.num_episodes, episode_chunks, episode_reward, success,
+                print(
+                    f"Episode {ep + 1}/{config.num_episodes}: "
+                    f"chunks={episode_chunks}, reward={episode_reward:.3f}, success={success}"
                 )
                 break
 
@@ -206,25 +199,25 @@ def _run_vla(config: EvalConfig) -> None:
 
 def main(config: EvalConfig) -> None:
     """Run evaluation (auto-detects stage1 vs stage2)."""
-    log.info("Eval config: %s", config)
+    print(f"Eval config: {config}")
 
     if not config.env_factory:
-        log.error("--env-factory is required.")
+        print("[ERROR] --env-factory is required.")
         raise SystemExit(1)
 
     if config.checkpoint:
-        log.info("Full eval: VLA + RL token + actor")
+        print("Full eval: VLA + RL token + actor")
         episodes, meta = _run(config)
     else:
-        log.info("VLA-only eval")
+        print("VLA-only eval")
         episodes, meta = _run_vla(config)
 
     num_success = sum(e["success"] for e in episodes)
     success_rate = num_success / len(episodes) if episodes else 0.0
     mean_reward = sum(e["reward"] for e in episodes) / len(episodes) if episodes else 0.0
 
-    log.info("Success rate: %.1f%% (%d/%d)", 100 * success_rate, num_success, len(episodes))
-    log.info("Mean reward: %.3f", mean_reward)
+    print(f"Success rate: {100 * success_rate:.1f}% ({num_success}/{len(episodes)})")
+    print(f"Mean reward: {mean_reward:.3f}")
 
     results = {
         **meta,
@@ -247,7 +240,7 @@ def main(config: EvalConfig) -> None:
 
     results_path = save_dir / f"eval_{meta['mode']}_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     results_path.write_text(json.dumps(results, indent=2))
-    log.info("Results saved to %s", results_path)
+    print(f"Results saved to {results_path}")
 
 
 if __name__ == "__main__":

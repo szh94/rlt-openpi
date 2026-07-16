@@ -17,7 +17,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -27,10 +26,6 @@ import tyro
 
 from rlt_openpi.envs.factory import make_env
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
-
 
 @dataclass
 class RolloutConfig:
@@ -50,17 +45,17 @@ class RolloutConfig:
 
 def main(config: RolloutConfig) -> None:
     """Run VLA-only rollout episodes."""
-    log.info("Rollout config: %s", config)
+    print(f"Rollout config: {config}")
 
     if not config.vla_checkpoint_dir:
-        log.error("--vla-checkpoint-dir is required.")
+        print("[ERROR] --vla-checkpoint-dir is required.")
         raise SystemExit(1)
     if not config.env_factory:
-        log.error("--env-factory is required.")
+        print("[ERROR] --env-factory is required.")
         raise SystemExit(1)
 
     # Load VLA
-    log.info("Loading VLA: config=%s, checkpoint=%s", config.vla_config_name, config.vla_checkpoint_dir)
+    print(f"Loading VLA: config={config.vla_config_name}, checkpoint={config.vla_checkpoint_dir}")
     vla = VLAWrapper(
         checkpoint_path=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
@@ -71,9 +66,9 @@ def main(config: RolloutConfig) -> None:
         ckpt = torch.load(config.stage1_checkpoint, map_location=config.device, weights_only=False)
         if "vla_model" in ckpt:
             vla.extractor.pi0.load_state_dict(ckpt["vla_model"])
-            log.info("Loaded fine-tuned VLA weights from %s", config.stage1_checkpoint)
+            print(f"Loaded fine-tuned VLA weights from {config.stage1_checkpoint}")
         else:
-            log.warning("No vla_model key in %s; using base VLA weights", config.stage1_checkpoint)
+            print(f"[WARNING] No vla_model key in {config.stage1_checkpoint}; using base VLA weights")
         del ckpt
 
     # Create environment
@@ -83,7 +78,7 @@ def main(config: RolloutConfig) -> None:
         chunk_length=config.chunk_length,
         task_prompt=config.task_prompt,
     )
-    log.info("Environment created: action_dim=%d, chunk_length=%d", env.action_dim, env.chunk_length)
+    print(f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}")
 
     episodes = []
 
@@ -111,9 +106,9 @@ def main(config: RolloutConfig) -> None:
                     "num_chunks": episode_chunks,
                     "num_steps": info.get("steps_executed", episode_chunks * config.chunk_length),
                 })
-                log.info(
-                    "Episode %d/%d: chunks=%d, reward=%.3f, success=%s",
-                    ep + 1, config.num_episodes, episode_chunks, episode_reward, success,
+                print(
+                    f"Episode {ep + 1}/{config.num_episodes}: "
+                    f"chunks={episode_chunks}, reward={episode_reward:.3f}, success={success}"
                 )
                 break
 
@@ -123,9 +118,9 @@ def main(config: RolloutConfig) -> None:
     success_rate = num_success / len(episodes) if episodes else 0.0
     mean_reward = sum(e["reward"] for e in episodes) / len(episodes) if episodes else 0.0
 
-    log.info(
-        "Done. Success rate: %.1f%% (%d/%d), mean reward: %.3f",
-        100 * success_rate, num_success, len(episodes), mean_reward,
+    print(
+        f"Done. Success rate: {100 * success_rate:.1f}% ({num_success}/{len(episodes)}), "
+        f"mean reward: {mean_reward:.3f}"
     )
 
     results = {
@@ -141,7 +136,7 @@ def main(config: RolloutConfig) -> None:
     save_dir.mkdir(parents=True, exist_ok=True)
     results_path = save_dir / f"eval_vla_{len(episodes)}ep_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     results_path.write_text(json.dumps(results, indent=2))
-    log.info("Results saved to %s", results_path)
+    print(f"Results saved to {results_path}")
 
 
 if __name__ == "__main__":

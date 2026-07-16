@@ -17,7 +17,6 @@ Differences from the PyTorch :class:`VLAWrapper`:
 
 from __future__ import annotations
 
-import logging
 import pathlib
 from typing import Any
 
@@ -34,8 +33,6 @@ import openpi.transforms as _transforms
 from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -219,10 +216,10 @@ class JaxVLAWrapper:
 
         # Load the JAX model from an Orbax checkpoint.
         checkpoint_dir_path = pathlib.Path(checkpoint_dir)
-        logger.info("Loading JAX VLA from Orbax checkpoint: %s", checkpoint_dir_path)
+        print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_dir_path}")
         params = _model.restore_params(checkpoint_dir_path, restore_type=np.ndarray)
         self._pi0_model = self.train_config.model.load(params)
-        logger.info("JAX Pi0 model loaded successfully.")
+        print("JAX Pi0 model loaded successfully.")
 
         self.extractor = JaxEmbeddingExtractor(self._pi0_model)
         self.action_dim = self.train_config.model.action_dim
@@ -246,8 +243,8 @@ class JaxVLAWrapper:
         ]
         if output_action_dim is not None:
             output_transforms.append(_SliceAction(output_action_dim))
-            logger.info(
-                "[JaxVLA] Replaced DroidOutputs with SliceAction(dim=%d)", output_action_dim
+            print(
+                f"[JaxVLA] Replaced DroidOutputs with SliceAction(dim={output_action_dim})"
             )
         else:
             output_transforms.extend(dt.outputs)
@@ -349,18 +346,14 @@ class JaxVLAWrapper:
             norm_stats = _checkpoints.load_norm_stats(
                 checkpoint_dir / "assets", asset_id
             )
-            logger.info(
-                "Loaded norm stats from checkpoint: %s/assets/%s",
-                checkpoint_dir, asset_id,
+            print(
+                f"Loaded norm stats from checkpoint: {checkpoint_dir}/assets/{asset_id}"
             )
             return norm_stats
         except FileNotFoundError:
             pass
 
         if data_config.norm_stats is not None:
-            logger.info(
-                "Checkpoint has no embedded assets; using norm stats from config assets dir"
-            )
             return data_config.norm_stats
 
         raise FileNotFoundError(

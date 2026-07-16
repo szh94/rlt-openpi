@@ -13,14 +13,10 @@ Falls back gracefully when no TTY is available (e.g. headless runs).
 
 from __future__ import annotations
 
-import logging
 import select
 import sys
 import termios
 import tty
-
-logger = logging.getLogger(__name__)
-
 
 class HumanReward:
     """Non-blocking keyboard listener for success/failure/progress signals."""
@@ -40,7 +36,7 @@ class HumanReward:
             self._raw_mode = True
         except (termios.error, OSError):
             self._raw_mode = False
-            logger.warning("Raw terminal mode unavailable, falling back to line input (type + Enter)")
+            print("[WARNING] Raw terminal mode unavailable, falling back to line input (type + Enter)")
 
     def stop(self) -> None:
         """Restore original terminal settings."""

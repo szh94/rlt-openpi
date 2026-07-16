@@ -20,15 +20,12 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any
 
 import numpy as np
 
 from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
-
-logger = logging.getLogger(__name__)
 
 
 class VRInterventionManager(InterventionManager):
@@ -64,7 +61,7 @@ class VRInterventionManager(InterventionManager):
         from droid.controllers.oculus_controller import VRPolicy
 
         self.vr = VRPolicy()
-        logger.info("VRInterventionManager initialized (control_hz=%d)", control_hz)
+        print(f"VRInterventionManager initialized (control_hz={control_hz})")
 
     def check_intervention(self) -> bool:
         """Return True when the VR grip button is held."""
@@ -155,17 +152,17 @@ class VRInterventionManager(InterventionManager):
                 rewards[k] = 1.0
                 done = True
                 result_info["success"] = True
-                logger.info("VR intervention: SUCCESS (A button)")
+                print("VR intervention: SUCCESS (A button)")
                 break
             if vr_info["failure"]:
                 done = True
                 result_info["success"] = False
-                logger.info("VR intervention: FAILURE (B button)")
+                print("VR intervention: FAILURE (B button)")
                 break
 
             # Stop if operator released the grip mid-chunk
             if not vr_info["movement_enabled"]:
-                logger.info("VR intervention: grip released after %d/%d steps", k + 1, chunk_length)
+                print(f"VR intervention: grip released after {k + 1}/{chunk_length} steps")
                 break
 
             # Enforce control frequency

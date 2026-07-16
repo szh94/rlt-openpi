@@ -10,7 +10,6 @@ action slicing are fully config-driven.
 
 from __future__ import annotations
 
-import logging
 import pathlib
 from typing import Any
 
@@ -25,8 +24,6 @@ from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 from rlt_openpi.vla.embedding_extractor import EmbeddingExtractor
-
-logger = logging.getLogger(__name__)
 
 
 class _SliceAction:
@@ -150,13 +147,12 @@ class VLAWrapper:
         asset_id = data_config.asset_id
         try:
             norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", asset_id)
-            logger.info("Loaded norm stats from checkpoint: %s/assets/%s", checkpoint_dir, asset_id)
+            print(f"Loaded norm stats from checkpoint: {checkpoint_dir}/assets/{asset_id}")
             return norm_stats
         except FileNotFoundError:
             pass
 
         if data_config.norm_stats is not None:
-            logger.info("Checkpoint has no embedded assets; using norm stats from config assets dir")
             return data_config.norm_stats
 
         raise FileNotFoundError(

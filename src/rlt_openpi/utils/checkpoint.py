@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import logging
-
 import torch
 
 from rlt_openpi.models.rl_token import RLTokenModel
-
-log = logging.getLogger(__name__)
 
 
 def load_rl_token_model(
@@ -40,5 +36,5 @@ def load_rl_token_model(
     step = ckpt["step"]
     del ckpt
     model = model.to(device)
-    log.info("Loaded RL token model from %s (step %d)", ckpt_path, step)
+    print(f"Loaded RL token model from {ckpt_path} (step {step})")
     return model

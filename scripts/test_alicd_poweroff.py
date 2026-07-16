@@ -12,7 +12,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import sys
 from pathlib import Path
@@ -25,12 +24,6 @@ if str(_REPO_ROOT / "src") not in sys.path:
 
 from rlt_openpi.envs.alicd.safe_pose import move_to_safe_pose
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
-)
-logger = logging.getLogger("alicd_poweroff")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Move robot to safe pose for power-off")
@@ -39,18 +32,18 @@ def main() -> None:
     parser.add_argument("--no-torque-off", action="store_true", help="Keep torque on")
     args = parser.parse_args()
 
-    logger.info("Connecting to Alicia-D (port=%s)...", args.port or "<auto>")
+    print(f"Connecting to Alicia-D (port={args.port or '<auto>'})...")
     robot = alicia_d_sdk.create_robot(port=args.port or "")
     state = robot.get_robot_state("version")
-    logger.info("Connected. SN=%s", state.get("serial_number", "?"))
+    print(f"Connected. SN={state.get('serial_number', '?')}")
 
     try:
         move_to_safe_pose(robot, speed=args.speed, torque_off=not args.no_torque_off)
     finally:
         robot.disconnect()
-        logger.info("Disconnected.")
+        print("Disconnected.")
 
-    logger.info("Exiting.")
+    print("Exiting.")
     os._exit(0)
 
 

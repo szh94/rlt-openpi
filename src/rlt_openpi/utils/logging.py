@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import asdict, dataclass
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,9 +45,9 @@ class Logger:
                     name=run_name,
                     config=run_config or {},
                 )
-                logger.info("wandb run initialized: %s", self._wandb_run.url)
+                print(f"wandb run initialized: {self._wandb_run.url}")
             except Exception:
-                logger.warning("wandb init failed, falling back to stdout only", exc_info=True)
+                print("[WARNING] wandb init failed, falling back to stdout only")
 
     def log(self, metrics: dict[str, Any], step: int | None = None) -> None:
         """Log a dict of metrics.

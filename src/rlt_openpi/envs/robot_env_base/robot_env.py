@@ -42,7 +42,6 @@ Usage (with DROID)::
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import Any, Callable
 
@@ -52,7 +51,6 @@ from numpy.typing import NDArray
 from rlt_openpi.envs.robot_env_base.reward import HumanReward
 from rlt_openpi.utils import display
 
-logger = logging.getLogger(__name__)
 
 
 class RobotEnv:
@@ -181,14 +179,14 @@ class RobotEnv:
                     rewards[k] = 1.0
                     done = True
                     info["success"] = True
-                    logger.info("Human signal: SUCCESS")
+                    print("Human signal: SUCCESS")
                 elif signal == "f":
                     done = True
                     info["success"] = False
-                    logger.info("Human signal: FAILURE")
+                    print("Human signal: FAILURE")
                 elif signal == "p":
                     rewards[k] = self._feedback.progress_reward
-                    logger.info("Human signal: PROGRESS (+%.2f)", self._feedback.progress_reward)
+                    print(f"Human signal: PROGRESS (+{self._feedback.progress_reward:.2f})")
                 if done:
                     break
 
@@ -210,7 +208,7 @@ class RobotEnv:
             done = True
             info["success"] = False
             info["timeout"] = True
-            logger.info("Episode timed out after %d chunks", self._chunk_count)
+            print(f"Episode timed out after {self._chunk_count} chunks")
 
         # Restore terminal when episode ends
         if done:

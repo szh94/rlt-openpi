@@ -22,10 +22,7 @@ Import usage::
 
 from __future__ import annotations
 
-import logging
 import math
-
-logger = logging.getLogger(__name__)
 
 # ── Verified safe pose (2026-06-24, read_joint_state.py) ──────────────────
 # Arm folded, low CoG, gripper up — safe to go limp without collision.
@@ -63,18 +60,17 @@ def move_to_safe_pose(
         torque_off: If True, disable torque at the end.
     """
     # ── Step 1: Enable torque ────────────────────────────────────────
-    logger.info("Enabling torque...")
+    print("Enabling torque...")
     robot.servo_driver.acquire_info("torque_on", wait=True, timeout=2.0)
 
     # ── Step 2: Home (all zeros) ─────────────────────────────────────
-    logger.info("Waypoint: moving to home (all joints = 0 rad)...")
+    print("Waypoint: moving to home (all joints = 0 rad)...")
     robot.set_home(speed_deg_s=speed)
 
     # ── Step 3: J1 only — shoulder pitch ─────────────────────────────
     j1_only = [0.0] * 6
     j1_only[1] = SAFE_JOINTS_RAD[1]
-    logger.info("Seq 1/3: J1 → %+.4f rad (%+.1f°), others at 0",
-                SAFE_JOINTS_RAD[1], SAFE_JOINTS_RAD[1] * math.degrees(1))
+    print(f"Seq 1/3: J1 → {SAFE_JOINTS_RAD[1]:+.4f} rad ({SAFE_JOINTS_RAD[1] * math.degrees(1):+.1f}°), others at 0")
     robot.set_robot_state(
         target_joints=j1_only,
         gripper_value=int(SAFE_GRIPPER),
@@ -86,8 +82,7 @@ def move_to_safe_pose(
     j1_j2 = [0.0] * 6
     j1_j2[1] = SAFE_JOINTS_RAD[1]
     j1_j2[2] = SAFE_JOINTS_RAD[2]
-    logger.info("Seq 2/3: J2 → %+.4f rad (%+.1f°), J1 held",
-                SAFE_JOINTS_RAD[2], SAFE_JOINTS_RAD[2] * math.degrees(1))
+    print(f"Seq 2/3: J2 → {SAFE_JOINTS_RAD[2]:+.4f} rad ({SAFE_JOINTS_RAD[2] * math.degrees(1):+.1f}°), J1 held")
     robot.set_robot_state(
         target_joints=j1_j2,
         gripper_value=int(SAFE_GRIPPER),
@@ -96,8 +91,7 @@ def move_to_safe_pose(
     )
 
     # ── Step 5: J4 only — wrist pitch ────────────────────────────────
-    logger.info("Seq 3/3: J4 → %+.4f rad (%+.1f°), J1,J2 held",
-                SAFE_JOINTS_RAD[4], SAFE_JOINTS_RAD[4] * math.degrees(1))
+    print(f"Seq 3/3: J4 → {SAFE_JOINTS_RAD[4]:+.4f} rad ({SAFE_JOINTS_RAD[4] * math.degrees(1):+.1f}°), J1,J2 held")
     robot.set_robot_state(
         target_joints=SAFE_JOINTS_RAD,
         gripper_value=int(SAFE_GRIPPER),
@@ -107,9 +101,9 @@ def move_to_safe_pose(
 
     # ── Step 6: Torque off ───────────────────────────────────────────
     if torque_off:
-        logger.info("Disabling torque — arm will go limp.  Safe to power off now.")
+        print("Disabling torque — arm will go limp.  Safe to power off now.")
         robot.servo_driver.acquire_info("torque_off", wait=True, timeout=2.0)
     else:
-        logger.info("Torque kept ON.  Arm is actively holding position.")
+        print("Torque kept ON.  Arm is actively holding position.")
 
-    logger.info("Safe pose reached.  可以直接断电。")
+    print("Safe pose reached.  可以直接断电。")

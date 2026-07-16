@@ -20,8 +20,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
-
 import torch
 import tyro
 
@@ -34,20 +32,15 @@ from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
-
-
 def main(config: OnlineRLTrainConfig) -> None:
     """Run offline Stage 2 test — same pipeline, fake env."""
-    log.info("=== Stage 2 Offline Test (MockEnv) ===")
+    print("=== Stage 2 Offline Test (MockEnv) ===")
 
     # Set up logger
     rl_logger = Logger.from_train_config(config)
 
     # ── 1. Load frozen VLA (same as train_online_rl.py) ────────────
-    log.info("Loading VLA: config=%s, checkpoint=%s",
-             config.vla_config_name, config.vla_checkpoint_dir)
+    print(f"Loading VLA: config={config.vla_config_name}, checkpoint={config.vla_checkpoint_dir}")
     vla = VLAWrapper(
         checkpoint_path=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
@@ -57,16 +50,16 @@ def main(config: OnlineRLTrainConfig) -> None:
     )
 
     # ── 2. Load frozen RL token model (same as train_online_rl.py) ─
-    log.info("Loading RL token model from %s", config.rl_token_checkpoint)
+    print(f"Loading RL token model from {config.rl_token_checkpoint}")
     rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device="cuda")
 
     # Restore fine-tuned VLA weights from Stage 1 checkpoint (same as train_online_rl.py)
     stage1_ckpt = torch.load(config.rl_token_checkpoint, map_location="cpu", weights_only=False)
     if "vla_model" in stage1_ckpt:
         vla.extractor.pi0.load_state_dict(stage1_ckpt["vla_model"])
-        log.info("Restored fine-tuned VLA weights from Stage 1 checkpoint")
+        print("Restored fine-tuned VLA weights from Stage 1 checkpoint")
     else:
-        log.info("No fine-tuned VLA weights in checkpoint; using base VLA")
+        print("No fine-tuned VLA weights in checkpoint; using base VLA")
     del stage1_ckpt
     torch.cuda.empty_cache()
 
@@ -79,12 +72,12 @@ def main(config: OnlineRLTrainConfig) -> None:
     )
 
     if config.resume_checkpoint:
-        log.info("Resuming from checkpoint: %s", config.resume_checkpoint)
+        print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
 
     # ── 4. Create MockEnv instead of real robot ─────────────────────
     # THIS is the ONLY line that differs from train_online_rl.py
-    log.info("Creating MockEnv (fake observations, no robot)")
+    print("Creating MockEnv (fake observations, no robot)")
     env = MockEnv(
         action_dim=config.action_dim,
         chunk_length=config.chunk_length,

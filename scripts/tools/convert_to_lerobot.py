@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import dataclasses
 import glob
-import logging
 import shutil
 from pathlib import Path
 
@@ -28,9 +27,6 @@ import tyro
 from lerobot.common.datasets.lerobot_dataset import HF_LEROBOT_HOME, LeRobotDataset
 from PIL import Image
 from tqdm import tqdm
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
 
 # Camera ID -> LeRobot feature name
 CAMERA_MAP = {
@@ -69,12 +65,12 @@ def main(config: ConvertConfig) -> None:
     demo_files = sorted(glob.glob(str(data_dir / "demo*.hdf")))
     if not demo_files:
         raise FileNotFoundError(f"No demo*.hdf files found in {data_dir}")
-    log.info("Found %d demo files in %s", len(demo_files), data_dir)
+    print(f"Found {len(demo_files)} demo files in {data_dir}")
 
     output_path = HF_LEROBOT_HOME / config.repo_name
     if output_path.exists():
         if config.overwrite:
-            log.info("Removing existing dataset at %s", output_path)
+            print(f"Removing existing dataset at {output_path}")
             shutil.rmtree(output_path)
         else:
             raise FileExistsError(f"Dataset already exists at {output_path}. Use --overwrite to replace.")
@@ -125,7 +121,7 @@ def main(config: ConvertConfig) -> None:
         try:
             f = h5py.File(demo_path, "r")
         except OSError as e:
-            log.warning("Skipping corrupted file %s: %s", demo_path, e)
+            print(f"Skipping corrupted file {demo_path}: {e}")
             skipped.append(demo_path)
             continue
         with f:
@@ -181,9 +177,9 @@ def main(config: ConvertConfig) -> None:
             dataset.save_episode()
             total_frames += n_steps
 
-    log.info("Done. %d episodes, %d total frames saved to %s", len(demo_files) - len(skipped), total_frames, output_path)
+    print(f"Done. {len(demo_files) - len(skipped)} episodes, {total_frames} total frames saved to {output_path}")
     if skipped:
-        log.warning("Skipped %d corrupted files: %s", len(skipped), skipped)
+        print(f"Skipped {len(skipped)} corrupted files: {skipped}")
 
 
 if __name__ == "__main__":

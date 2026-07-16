@@ -19,7 +19,6 @@ Usage::
 from __future__ import annotations
 
 import json
-import logging
 
 import tyro
 
@@ -32,23 +31,12 @@ from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
-
-
 def main(config: OnlineRLTrainConfig) -> None:
     """Run online RL training with JAX VLA (Stage 2, Algorithm 1)."""
-    log.info("Stage 2 (JAX) config: %s", config)
-
     # Set up logger
     rl_logger = Logger.from_train_config(config)
 
     # Load frozen JAX VLA
-    log.info(
-        "Loading JAX VLA: config=%s, checkpoint=%s",
-        config.vla_config_name,
-        config.vla_checkpoint_dir,
-    )
     vla = JaxVLAWrapper(
         checkpoint_dir=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
@@ -58,7 +46,6 @@ def main(config: OnlineRLTrainConfig) -> None:
     )
 
     # Load frozen RL token model from Stage 1
-    log.info("Loading RL token model from %s", config.rl_token_checkpoint)
     rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device="cuda")
 
     # NOTE: VLA weight restoration from Stage 1 checkpoint is SKIPPED.
@@ -76,13 +63,13 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Resume from checkpoint if provided
     if config.resume_checkpoint:
-        log.info("Resuming from checkpoint: %s", config.resume_checkpoint)
+        print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
 
     # Create environment via pluggable factory.
     if not config.env_factory:
-        log.error(
-            "--env-factory is required. Provide a Python import path to an env factory function."
+        print(
+            "[ERROR] --env-factory is required. Provide a Python import path to an env factory function."
         )
         raise SystemExit(1)
 
@@ -96,17 +83,15 @@ def main(config: OnlineRLTrainConfig) -> None:
         dry_run=config.dry_run,
         **env_extra_kwargs,
     )
-    log.info(
-        "Environment created: action_dim=%d, chunk_length=%d",
-        env.action_dim,
-        env.chunk_length,
+    print(
+        f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}"
     )
 
     # Create intervention manager (VR teleoperation, etc.) if specified.
     intervention_mgr: InterventionManager | None = None
     if config.intervention_factory:
         intervention_mgr = make_intervention(config.intervention_factory, env=env)
-        log.info("Intervention manager created via %s", config.intervention_factory)
+        print(f"Intervention manager created via {config.intervention_factory}")
 
     trainer.train(env=env, intervention_mgr=intervention_mgr, log_fn=rl_logger.log)
 

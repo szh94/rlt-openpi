@@ -8,7 +8,6 @@ Implements the full online RL loop from the paper:
 
 from __future__ import annotations
 
-import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -25,9 +24,6 @@ from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.training.td3_utils import actor_loss, compute_td_target, critic_loss
 from rlt_openpi.utils import display
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logger = logging.getLogger(__name__)
-
 
 class OnlineRLTrainer:
     """Stage 2: Online RL training with Algorithm 1.
@@ -214,10 +210,7 @@ class OnlineRLTrainer:
 
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
         if self.replay_buffer.size > 0:
-            logger.info(
-                "Skipping warmup — replay buffer already has %d transitions (resumed from checkpoint)",
-                self.replay_buffer.size,
-            )
+            print(f"[Stage 2] Skipping warmup — replay buffer already has {self.replay_buffer.size} transitions (resumed)")
         elif cfg.warmup_buffer:
             self._load_warmup_buffer(cfg.warmup_buffer)
         else:
@@ -322,14 +315,14 @@ class OnlineRLTrainer:
         save_dir.mkdir(parents=True, exist_ok=True)
         buf_path = save_dir / "warmup_buffer.pt"
         torch.save(self.replay_buffer.state_dict(), buf_path)
-        logger.info("Saved warmup buffer (%d transitions) to %s", self.replay_buffer.size, buf_path)
+        print(f"[Stage 2] Saved warmup buffer ({self.replay_buffer.size} transitions) to {buf_path}")
         return buf_path
 
     def _load_warmup_buffer(self, path: str) -> None:
         """Load a standalone warmup buffer file into the replay buffer."""
         buf_state = torch.load(path, map_location="cpu", weights_only=False)
         self.replay_buffer.load_state_dict(buf_state)
-        logger.info("Loaded warmup buffer (%d transitions) from %s", self.replay_buffer.size, path)
+        print(f"[Stage 2] Loaded warmup buffer ({self.replay_buffer.size} transitions) from {path}")
 
     def save(self, path: str | None = None, save_buffer: bool = True) -> Path:
         """Save actor, critic, optimizer, and replay buffer states.
@@ -358,7 +351,7 @@ class OnlineRLTrainer:
         if save_buffer:
             payload["replay_buffer"] = self.replay_buffer.state_dict()
         torch.save(payload, ckpt_path)
-        logger.info("Saved checkpoint to %s (buffer=%s)", ckpt_path, save_buffer)
+        print(f"[Stage 2] Saved checkpoint to {ckpt_path} (buffer={save_buffer})")
         return ckpt_path
 
     def load(self, ckpt_path: str) -> None:
@@ -378,13 +371,6 @@ class OnlineRLTrainer:
 
         if "replay_buffer" in ckpt:
             self.replay_buffer.load_state_dict(ckpt["replay_buffer"])
-            logger.info(
-                "Restored replay buffer (%d transitions)", self.replay_buffer.size
-            )
+            print(f"[Stage 2] Restored replay buffer ({self.replay_buffer.size} transitions)")
 
-        logger.info(
-            "Loaded checkpoint from %s (episode %d, step %d)",
-            ckpt_path,
-            self._total_episodes,
-            self._total_env_steps,
-        )
+        print(f"[Stage 2] Loaded checkpoint from {ckpt_path} (episode {self._total_episodes}, step {self._total_env_steps})")

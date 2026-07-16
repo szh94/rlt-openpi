@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
-import logging
 
 import tyro
 
@@ -37,10 +36,6 @@ from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.rl_token_trainer import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
-
 
 @dataclasses.dataclass
 class TrainConfig:
@@ -102,19 +97,11 @@ def main(config: TrainConfig) -> None:
     # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha}")
     print("-" * 60)
 
-    log.info("Stage 1 config: %s", config)
-    log.info("Save dir: %s", config.train.save_dir)
-
     data_transforms = _resolve_data_transforms(
         config.data_transforms_fn, config.train.vla_config_name
     )
 
     print("[1/4] Loading VLA model...")
-    log.info(
-        "Loading VLA: config=%s, checkpoint=%s",
-        config.train.vla_config_name,
-        config.train.vla_checkpoint_dir,
-    )
     vla = VLAWrapper(
         checkpoint_path=config.train.vla_checkpoint_dir,
         config_name=config.train.vla_config_name,
@@ -129,8 +116,6 @@ def main(config: TrainConfig) -> None:
     print("  Trainer created (RLTokenModel + optimizer).")
 
     print("[3/4] Loading demonstration dataset...")
-    log.info("Loading demo dataset: %s", config.repo_id)
-
     data_loader = build_data_loader(
         openpi_config_name=config.train.vla_config_name,
         repo_id=config.repo_id,

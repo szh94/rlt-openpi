@@ -8,7 +8,6 @@ human intervention.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,9 +20,6 @@ from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logger = logging.getLogger(__name__)
-
 
 @dataclass
 class EpisodeStats:
@@ -168,19 +164,11 @@ class RolloutWorker:
         # Debug: print first action of chunk before and after actor
         a_tilde_first = a_tilde_t.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
         a_raw_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
-        logger.info(
-            "Actor action[0]: a_tilde=%s",
-            np.array2string(
-                a_tilde_first.cpu().numpy(),
-                precision=4, suppress_small=True, max_line_width=200,
-            ),
+        print(
+            f"Actor action[0]: a_tilde={np.array2string(a_tilde_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
         )
-        logger.info(
-            "Actor action[0]: raw_out=%s",
-            np.array2string(
-                a_raw_first.cpu().numpy(),
-                precision=4, suppress_small=True, max_line_width=200,
-            ),
+        print(
+            f"Actor action[0]: raw_out={np.array2string(a_raw_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
         )
 
         # Safety: abort if raw deviation is abnormally large
@@ -188,21 +176,12 @@ class RolloutWorker:
         raw_max_dev = raw_dev.max().item()
         if raw_max_dev > self.deviation_abort_threshold:
             max_idx = raw_dev.argmax().item()
-            logger.error(
-                "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
-                "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
-                "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
-                "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
-                "The model is producing extreme outputs — check training.",
-                raw_max_dev,
-                self.deviation_abort_threshold,
-                max_idx,
-                a_tilde_t[0, max_idx].item(),
-                a_flat[0, max_idx].item(),
-                a_tilde_t.mean().item(), a_tilde_t.std().item(),
-                a_tilde_t.min().item(), a_tilde_t.max().item(),
-                a_flat.mean().item(), a_flat.std().item(),
-                a_flat.min().item(), a_flat.max().item(),
+            print(
+                f"[ERROR] ABORT: Actor raw deviation {raw_max_dev:.4f} exceeds threshold {self.deviation_abort_threshold:.4f} "
+                f"(idx={max_idx}: a_tilde={a_tilde_t[0, max_idx].item():.4f}, a_actor={a_flat[0, max_idx].item():.4f}). "
+                f"Stats — a_tilde: mean={a_tilde_t.mean().item():.4f} std={a_tilde_t.std().item():.4f} min={a_tilde_t.min().item():.4f} max={a_tilde_t.max().item():.4f}; "
+                f"a_actor: mean={a_flat.mean().item():.4f} std={a_flat.std().item():.4f} min={a_flat.min().item():.4f} max={a_flat.max().item():.4f}. "
+                f"The model is producing extreme outputs — check training."
             )
             raise RuntimeError(
                 f"Actor raw max deviation {raw_max_dev:.4f} > "
@@ -218,12 +197,8 @@ class RolloutWorker:
 
         # Debug: print first action after deviation cap
         a_capped_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
-        logger.info(
-            "Actor action[0]: capped  =%s",
-            np.array2string(
-                a_capped_first.cpu().numpy(),
-                precision=4, suppress_small=True, max_line_width=200,
-            ),
+        print(
+            f"Actor action[0]: capped  ={np.array2string(a_capped_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
         )
         # a_flat = a_flat.clamp(-1.0, 1.0)
 

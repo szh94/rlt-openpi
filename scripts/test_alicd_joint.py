@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import argparse
 import atexit
-import logging
 import math
 import os
 import sys
 import termios
 import threading
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -41,12 +41,6 @@ if str(_REPO_ROOT / "src") not in sys.path:
 
 from rlt_openpi.envs.alicd.env_factory import make_alicd_env
 from rlt_openpi.envs.alicd.safe_pose import move_to_safe_pose
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(message)s",
-)
-log = logging.getLogger("test_alicd_joint")
 
 DEG_TO_RAD = math.pi / 180.0
 RAD_TO_DEG = 180.0 / math.pi
@@ -65,7 +59,7 @@ def _save_obs_images(obs: dict, image_dir: Path, prefix: str) -> None:
             cam_name = key.split("/", 1)[1]
             out_path = image_dir / f"{prefix}_{cam_name}.png"
             cv2.imwrite(str(out_path), cv2.cvtColor(val, cv2.COLOR_RGB2BGR))
-            log.info("Saved image: %s", out_path)
+            print(f"Saved image: {out_path}")
 
 
 def _safe_close(env, timeout: float = 3.0) -> None:
@@ -87,7 +81,7 @@ def _safe_close(env, timeout: float = 3.0) -> None:
     t = threading.Thread(target=_close, daemon=True)
     t.start()
     if not done.wait(timeout=timeout):
-        log.warning("env.close() did not finish within %.1f s — forcing exit anyway", timeout)
+        print(f"env.close() did not finish within {timeout:.1f} s — forcing exit anyway")
 
 
 # ── main ───────────────────────────────────────────────────────────────────
@@ -115,10 +109,6 @@ def main() -> None:
         log_dir = Path(args.log_dir) / datetime.now().strftime("%Y%m%d_%H%M%S")
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "test_alicd_joint.log"
-        fh = logging.FileHandler(str(log_path))
-        fh.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(message)s"))
-        logging.getLogger().addHandler(fh)
-        # Print to stderr so the shell banner still shows even if log goes to file
         print(f"Log saved to: {log_path}", file=sys.stderr)
 
     # Build camera_ids dict
@@ -132,14 +122,12 @@ def main() -> None:
     image_dir = Path(args.image_dir) / datetime.now().strftime("%Y%m%d_%H%M%S")
 
     j2_step_rad = args.j2_step_deg * DEG_TO_RAD
-    log.info("Joint-2 step: %.2f° = %.4f rad per chunk step", args.j2_step_deg, j2_step_rad)
+    print(f"Joint-2 step: {args.j2_step_deg:.2f}° = {j2_step_rad:.4f} rad per chunk step")
 
     # ------------------------------------------------------------------
     # Create environment
     # ------------------------------------------------------------------
-    log.info("Creating Alicia-D env (port=%s, speed=%.1f deg/s, chunk_length=%d, cameras=%s)...",
-             args.port or "<auto>", args.speed, args.chunk_length,
-             list(camera_ids.keys()) if camera_ids else "none")
+    print(f"Creating Alicia-D env (port={args.port or '<auto>'}, speed={args.speed:.1f} deg/s, chunk_length={args.chunk_length}, cameras={list(camera_ids.keys()) if camera_ids else 'none'})...")
 
     env = make_alicd_env(
         port=args.port,
@@ -177,9 +165,9 @@ def main() -> None:
         # ------------------------------------------------------------------
         # Reset → home position
         # ------------------------------------------------------------------
-        log.info("Resetting robot to home position...")
+        print("Resetting robot to home position...")
         obs = env.reset()
-        log.info("Reset complete.")
+        print("Reset complete.")
 
         # Save post-reset images
         if camera_ids:
@@ -190,11 +178,9 @@ def main() -> None:
         # ------------------------------------------------------------------
         joint_positions = obs["observation/joint_position"]  # [6] radians
         gripper_pos = obs["observation/gripper_position"]     # [1]
-        log.info("Initial joint positions (deg): %s",
-                 [f"{a * RAD_TO_DEG:.2f}" for a in joint_positions])
-        log.info("Initial joint positions (rad): %s",
-                 [f"{a:.4f}" for a in joint_positions])
-        log.info("Initial gripper: %.1f", gripper_pos[0])
+        print(f"Initial joint positions (deg): {[f'{a * RAD_TO_DEG:.2f}' for a in joint_positions]}")
+        print(f"Initial joint positions (rad): {[f'{a:.4f}' for a in joint_positions]}")
+        print(f"Initial gripper: {gripper_pos[0]:.1f}")
 
         # ------------------------------------------------------------------
         # Build action_chunk: j2 increases by j2_step_deg each step
@@ -211,19 +197,17 @@ def main() -> None:
         # Last step: close gripper halfway (0 = closed, 997 ≈ open)
         action_chunk[-1, 6] = 500.0
 
-        log.info("Action chunk shape: %s", action_chunk.shape)
-        log.info("Joint-2 target per step (deg): %s",
-                 [f"{a[1] * RAD_TO_DEG:.1f}" for a in action_chunk])
-        log.info("Joint-2 delta per step (deg): %s",
-                 [f"{(action_chunk[i, 1] - base_joints[1]) * RAD_TO_DEG:+.1f}" for i in range(args.chunk_length)])
+        print(f"Action chunk shape: {action_chunk.shape}")
+        print(f"Joint-2 target per step (deg): {[f'{a[1] * RAD_TO_DEG:.1f}' for a in action_chunk]}")
+        print(f"Joint-2 delta per step (deg): {[f'{(action_chunk[i, 1] - base_joints[1]) * RAD_TO_DEG:+.1f}' for i in range(args.chunk_length)]}")
 
         # ------------------------------------------------------------------
         # Execute action chunk
         # ------------------------------------------------------------------
         input("\nPress Enter to execute the action chunk...")
-        log.info("Executing action_chunk (%d steps)...", args.chunk_length)
+        print(f"Executing action_chunk ({args.chunk_length} steps)...")
         next_obs, rewards, done, info = env.step(action_chunk)
-        log.info("Step complete. rewards=%s, done=%s, info=%s", rewards, done, info)
+        print(f"Step complete. rewards={rewards}, done={done}, info={info}")
 
         # Save post-step images
         if camera_ids:
@@ -235,11 +219,9 @@ def main() -> None:
         new_joint_positions = next_obs["observation/joint_position"]
         new_gripper_pos = next_obs["observation/gripper_position"]
 
-        log.info("Final joint positions (deg): %s",
-                 [f"{a * RAD_TO_DEG:.2f}" for a in new_joint_positions])
-        log.info("Joint deltas (deg): %s",
-                 [f"{(n - o) * RAD_TO_DEG:+.2f}" for n, o in zip(new_joint_positions, joint_positions)])
-        log.info("  → joint-2 moved by: %+.2f°", (new_joint_positions[1] - joint_positions[1]) * RAD_TO_DEG)
+        print(f"Final joint positions (deg): {[f'{a * RAD_TO_DEG:.2f}' for a in new_joint_positions]}")
+        print(f"Joint deltas (deg): {[f'{(n - o) * RAD_TO_DEG:+.2f}' for n, o in zip(new_joint_positions, joint_positions)]}")
+        print(f"  → joint-2 moved by: {(new_joint_positions[1] - joint_positions[1]) * RAD_TO_DEG:+.2f}°")
 
     finally:
         _restore_terminal()  # undo HumanReward's cbreak mode
@@ -247,12 +229,13 @@ def main() -> None:
         try:
             move_to_safe_pose(env.alicd_robot, speed=args.speed, torque_off=True)
         except Exception:
-            log.exception("Failed to move to safe pose")
+            traceback.print_exc()
+            print("Failed to move to safe pose")
         _safe_close(env, timeout=3.0)
-        log.info("Env closed (or timed out).")
+        print("Env closed (or timed out).")
 
     # os._exit: work around pyserial's non-daemon internal thread.
-    log.info("Exiting.")
+    print("Exiting.")
     os._exit(0)
 
 

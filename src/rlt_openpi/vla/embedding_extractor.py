@@ -5,14 +5,10 @@ to obtain post-transformer embeddings z_{1:M} without running the
 diffusion denoising loop.
 """
 
-import logging
-
 import torch
 from openpi.models.model import Observation
 from openpi.models_pytorch.pi0_pytorch import PI0Pytorch, make_att_2d_masks
 from torch import Tensor, nn
-
-logger = logging.getLogger(__name__)
 
 
 class EmbeddingExtractor(nn.Module):

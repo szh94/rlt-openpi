@@ -31,7 +31,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import math
 import os
 import time
@@ -39,8 +38,6 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
-
-logger = logging.getLogger(__name__)
 
 
 def make_alicd_env(
@@ -89,9 +86,9 @@ def make_alicd_env(
     # ------------------------------------------------------------------
     # Connect to robot
     # ------------------------------------------------------------------
-    logger.info("Connecting to Alicia-D (port=%s)...", port or "<auto>")
+    print(f"Connecting to Alicia-D (port={port or '<auto>'})...")
     robot = alicia_d_sdk.create_robot(port=port or "")
-    logger.info("Connected. SN=%s", robot.get_robot_state("version").get("serial_number", "?"))
+    print(f"Connected. SN={robot.get_robot_state('version').get('serial_number', '?')}")
 
     # ------------------------------------------------------------------
     # Camera setup
@@ -103,10 +100,7 @@ def make_alicd_env(
         for cam_name, dev_id in camera_ids.items():
             cap = cv2.VideoCapture(dev_id)
             if not cap.isOpened():
-                logger.warning(
-                    "Camera '%s' (device %d) could not be opened — will use zero images",
-                    cam_name, dev_id,
-                )
+                print(f"[WARNING] Camera '{cam_name}' (device {dev_id}) could not be opened — will use zero images")
                 cap.release()
                 cameras[cam_name] = None
             else:
@@ -116,7 +110,7 @@ def make_alicd_env(
                 for _ in range(5):
                     cap.read()
                 cameras[cam_name] = cap
-                logger.info("Camera '%s' (device %d) ready (%dx%d)", cam_name, dev_id, *image_size)
+                print(f"Camera '{cam_name}' (device {dev_id}) ready ({image_size[0]}x{image_size[1]})")
 
     # ------------------------------------------------------------------
     # step_fn — execute a single action on the robot
@@ -140,7 +134,6 @@ def make_alicd_env(
                 i = int(idx_str)
                 if 0 <= i < 6:
                     joint_targets[i] = math.radians(float(val))
-                    logger.debug("Joint %d overridden to %.1f° (%.4f rad)", i, float(val), joint_targets[i])
 
         # Gripper: DROID dim 7 is in [0,1], scale to [0, 1000]
         gripper_target = float(np.clip(action[7] * 1000.0, 0.0, 1000.0))
@@ -171,7 +164,7 @@ def make_alicd_env(
             live_image_dir, datetime.now().strftime("%Y%m%d_%H%M%S"),
         )
         os.makedirs(_live_dir, exist_ok=True)
-        logger.info("Live images will be saved to %s (every %.1fs)", _live_dir, _save_interval)
+        print(f"Live images will be saved to {_live_dir} (every {_save_interval:.1f}s)")
 
     # ------------------------------------------------------------------
     # get_obs_fn — read robot state and camera images
@@ -201,11 +194,9 @@ def make_alicd_env(
             if ret and frame is not None:
                 _frame_stats[0] += 1
                 if _frame_stats[0] == 1:  # only on first successful read
-                    logger.info(
-                        "Camera '%s' first frame: shape=%s, dtype=%s, "
-                        "min=%.1f max=%.1f mean=%.1f",
-                        cam_name, frame.shape, frame.dtype,
-                        frame.min(), frame.max(), frame.mean(),
+                    print(
+                        f"Camera '{cam_name}' first frame: shape={frame.shape}, dtype={frame.dtype}, "
+                        f"min={frame.min():.1f} max={frame.max():.1f} mean={frame.mean():.1f}",
                     )
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 if frame.shape[:2] != image_size:
@@ -213,10 +204,7 @@ def make_alicd_env(
             else:
                 _frame_stats[1] += 1
                 if _frame_stats[1] <= 3 or _frame_stats[1] % 50 == 0:
-                    logger.warning(
-                        "Camera '%s' read failed (ret=%s, frame is None=%s) [ok=%d fail=%d]",
-                        cam_name, ret, frame is None, _frame_stats[0], _frame_stats[1],
-                    )
+                    print(f"[WARNING] Camera '{cam_name}' read failed (ret={ret}, frame is None={frame is None}) [ok={_frame_stats[0]} fail={_frame_stats[1]}]")
                 frame = _zero_frame.copy()
             obs[f"observation/{cam_name}"] = frame
 
@@ -263,12 +251,12 @@ def make_alicd_env(
             if cap is not None:
                 cap.release()
         robot.disconnect()
-        logger.info("Alicia-D env closed (robot disconnected, cameras released)")
+        print("Alicia-D env closed (robot disconnected, cameras released)")
 
     env.close = _close  # type: ignore[attr-defined]
 
-    logger.info(
-        "Alicia-D env ready: action_dim=%d, chunk_length=%d, control_hz=%d, cameras=%s",
-        action_dim, chunk_length, control_hz, list(cameras.keys()) if cameras else "none",
+    print(
+        f"Alicia-D env ready: action_dim={action_dim}, chunk_length={chunk_length}, control_hz={control_hz}, "
+        f"cameras={list(cameras.keys()) if cameras else 'none'}",
     )
     return env

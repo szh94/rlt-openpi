@@ -11,7 +11,6 @@ passing a ``data_transforms`` :class:`~openpi.transforms.Group`.  See
 from __future__ import annotations
 
 import dataclasses
-import logging
 import multiprocessing
 import typing
 
@@ -27,7 +26,6 @@ from openpi.training.data_loader import (
 )
 import openpi.transforms as _transforms
 
-logger = logging.getLogger(__name__)
 
 
 def _collate_fn(items):
@@ -101,7 +99,7 @@ def build_data_loader(
         data_config = _patch_repack_action_key(data_config, "action")
 
     if data_transforms is not None:
-        logger.info("Overriding data_transforms with custom Group")
+        print("Overriding data_transforms with custom Group")
         data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
 
     dataset = create_torch_dataset(data_config, config.model.action_horizon, config.model)

@@ -8,7 +8,6 @@ Only frozen-VLA mode is supported (VLA joint training has been disabled).
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -19,9 +18,6 @@ from tqdm import tqdm
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.training.config import RLTokenTrainConfig
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
-
-logger = logging.getLogger(__name__)
-
 
 class RLTokenTrainer:
     """Stage 1 trainer for the RL token encoder-decoder.
@@ -115,21 +111,18 @@ class RLTokenTrainer:
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
         """
         # VLA joint training disabled — always frozen-VLA mode.
-        logger.info(
-            "Starting Stage 1 frozen-VLA training for %d steps",
-            self.config.num_train_steps,
-        )
+        print(f"[Stage 1] Starting frozen-VLA training for {self.config.num_train_steps} steps")
 
         if self.config.resume_checkpoint:
             self.load(self.config.resume_checkpoint)
-            logger.info("Resumed from step %d", self._global_step)
+            print(f"[Stage 1] Resumed from step {self._global_step}")
 
         pbar = tqdm(range(1, self.config.num_train_steps + 1), desc="Stage 1")
         for step_idx in pbar:
             try:
                 observations, actions = next(dataloader)
             except StopIteration:
-                logger.warning("Dataloader exhausted at step %d", step_idx)
+                print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
 
             metrics = self.step(vla, observations, actions)
@@ -146,7 +139,7 @@ class RLTokenTrainer:
 
         if self._global_step % self.config.save_every != 0:
             self.save()
-        logger.info("Stage 1 training complete (%d steps)", self._global_step)
+        print(f"[Stage 1] Training complete ({self._global_step} steps)")
 
     # ------------------------------------------------------------------
     # Checkpointing
@@ -179,7 +172,7 @@ class RLTokenTrainer:
         # if self.vla_scheduler is not None:
         #     state["vla_scheduler"] = self.vla_scheduler.state_dict()
         torch.save(state, ckpt_path)
-        logger.info("Saved checkpoint to %s", ckpt_path)
+        print(f"[Stage 1] Saved checkpoint to {ckpt_path}")
         return ckpt_path
 
     def load(self, ckpt_path: str) -> None:
@@ -202,7 +195,7 @@ class RLTokenTrainer:
         #     self.vla_optimizer.load_state_dict(ckpt["vla_optimizer"])
         # if "vla_scheduler" in ckpt and self.vla_scheduler is not None:
         #     self.vla_scheduler.load_state_dict(ckpt["vla_scheduler"])
-        logger.info("Loaded checkpoint from %s (step %d)", ckpt_path, self._global_step)
+        print(f"[Stage 1] Loaded checkpoint from {ckpt_path} (step {self._global_step})")
 
     # ------------------------------------------------------------------
     # Private: mode-specific steps

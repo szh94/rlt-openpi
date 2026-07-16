@@ -40,7 +40,6 @@ Usage::
 
 from __future__ import annotations
 
-import logging
 import math
 import os
 import time
@@ -48,8 +47,6 @@ from datetime import datetime
 from typing import Any
 
 import numpy as np
-
-logger = logging.getLogger(__name__)
 
 # hansrobot gripper range (raw units): 0 = closed, ~1100 = open
 _HANSROBOT_GRIPPER_MAX = 1000.0
@@ -125,10 +122,10 @@ def make_aloha_env(
     # ------------------------------------------------------------------
     # Create the hansrobot instance
     # ------------------------------------------------------------------
-    logger.info("Creating hansrobot connection...")
+    print("Creating hansrobot connection...")
     robot = hansrobot(hansrobot.config_class())
     robot.connect()
-    logger.info("hansrobot connected")
+    print("hansrobot connected")
 
     # ------------------------------------------------------------------
     # step_fn — send one action to both arms via hansrobot
@@ -163,21 +160,20 @@ def make_aloha_env(
         otherwise logs a message (hansrobot has no built-in reset).
         """
         if dry_run:
-            logger.info("[dry-run] reset() called (no robot action)")
+            print("[dry-run] reset() called (no robot action)")
             return
 
         if reset_position_left is not None:
             # reset_position_left is in degrees
             left_joints_deg = reset_position_left
             right_joints_deg = reset_position_right
-            logger.info(
-                "Moving to reset position: left=%s, right=%s",
-                [f"{v:.1f}" for v in left_joints_deg],
-                [f"{v:.1f}" for v in right_joints_deg],
+            print(
+                f"Moving to reset position: left={[f'{v:.1f}' for v in left_joints_deg]}, "
+                f"right={[f'{v:.1f}' for v in right_joints_deg]}",
             )
             robot.move(left_joints_deg, right_joints_deg)
         else:
-            logger.info("No reset_position set — skipping hardware reset")
+            print("No reset_position set — skipping hardware reset")
 
     # ------------------------------------------------------------------
     # Live image output directory (optional)
@@ -190,7 +186,7 @@ def make_aloha_env(
             live_image_dir, datetime.now().strftime("%Y%m%d_%H%M%S"),
         )
         os.makedirs(_live_dir, exist_ok=True)
-        logger.info("Live images will be saved to %s (every %.1fs)", _live_dir, _save_interval)
+        print(f"Live images will be saved to {_live_dir} (every {_save_interval:.1f}s)")
 
     # ------------------------------------------------------------------
     # Camera name mapping: hansrobot keys → ALOHA standard names
@@ -270,10 +266,7 @@ def make_aloha_env(
                     break
 
             if hr_key is None or hr_key not in obs:
-                logger.warning(
-                    "Camera '%s' missing from hansrobot observation — using zero image",
-                    cam_name,
-                )
+                print(f"[WARNING] Camera '{cam_name}' missing from hansrobot observation — using zero image")
                 images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
                 continue
 
@@ -285,11 +278,9 @@ def make_aloha_env(
 
             _frame_stats[0] += 1
             if _frame_stats[0] == 1:  # only on first successful read
-                logger.info(
-                    "Camera '%s' first frame: shape=%s, dtype=%s, "
-                    "min=%.1f max=%.1f mean=%.1f",
-                    cam_name, img.shape, img.dtype,
-                    img.min(), img.max(), img.mean(),
+                print(
+                    f"Camera '{cam_name}' first frame: shape={img.shape}, dtype={img.dtype}, "
+                    f"min={img.min():.1f} max={img.max():.1f} mean={img.mean():.1f}",
                 )
 
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -329,10 +320,9 @@ def make_aloha_env(
             return
         left = ", ".join(f"{action[i]:+.4f}" for i in range(6))
         right = ", ".join(f"{action[i]:+.4f}" for i in range(7, 13))
-        logger.info(
-            "action | L:[%s] Lg:%.3f | R:[%s] Rg:%.3f%s",
-            left, action[6], right, action[13],
-            " [DRY-RUN]" if dry_run else "",
+        print(
+            f"action | L:[{left}] Lg:{action[6]:.3f} | R:[{right}] Rg:{action[13]:.3f}"
+            f"{' [DRY-RUN]' if dry_run else ''}",
         )
 
     # ------------------------------------------------------------------
@@ -364,19 +354,16 @@ def make_aloha_env(
     # close — disconnect hansrobot
     # ------------------------------------------------------------------
     def _close() -> None:
-        logger.info(
-            "Closing ALOHA env (cameras: ok=%d fail=%d)",
-            _frame_stats[0], _frame_stats[1],
+        print(
+            f"Closing ALOHA env (cameras: ok={_frame_stats[0]} fail={_frame_stats[1]})",
         )
         robot.disconnect()
-        logger.info("ALOHA env closed")
+        print("ALOHA env closed")
 
     env.close = _close  # type: ignore[attr-defined]
 
-    logger.info(
-        "ALOHA env ready: action_dim=%d, chunk_length=%d, control_hz=%d, "
-        "cameras=%s, dry_run=%s, adapt_to_pi=%s",
-        action_dim, chunk_length, control_hz,
-        camera_names, dry_run, adapt_to_pi,
+    print(
+        f"ALOHA env ready: action_dim={action_dim}, chunk_length={chunk_length}, control_hz={control_hz}, "
+        f"cameras={camera_names}, dry_run={dry_run}, adapt_to_pi={adapt_to_pi}",
     )
     return env

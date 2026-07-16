@@ -21,14 +21,11 @@ Example usage::
 from __future__ import annotations
 
 import importlib
-import logging
 import sys
 from pathlib import Path
 from typing import Any
 
 from rlt_openpi.envs.intervention import InterventionManager
-
-logger = logging.getLogger(__name__)
 
 
 def _ensure_project_root_on_path() -> None:
@@ -59,7 +56,7 @@ def make_env(env_factory: str, **kwargs: Any) -> Any:
         ``action_dim``, and ``chunk_length``.
     """
     factory_fn = _import_factory(env_factory)
-    logger.info("Creating env via %s", env_factory)
+    print(f"Creating env via {env_factory}")
     return factory_fn(**kwargs)
 
 
@@ -79,5 +76,5 @@ def make_intervention(
         An ``InterventionManager`` instance.
     """
     factory_fn = _import_factory(intervention_factory)
-    logger.info("Creating intervention manager via %s", intervention_factory)
+    print(f"Creating intervention manager via {intervention_factory}")
     return factory_fn(env=env, **kwargs)

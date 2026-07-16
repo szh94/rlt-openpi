@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import logging
 import shutil
 from pathlib import Path
 
@@ -34,9 +33,6 @@ import pandas as pd
 import tyro
 from lerobot.common.datasets.lerobot_dataset import HF_LEROBOT_HOME, LeRobotDataset
 from tqdm import tqdm
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
-log = logging.getLogger(__name__)
 
 # LeRobot video key -> flat DROID feature name
 CAMERA_MAP = {
@@ -88,7 +84,7 @@ def main(config: ConvertConfig) -> None:
     # Determine camera keys and image shape
     video_keys = [k for k, v in src_features.items() if v.get("dtype") == "video"]
     if not video_keys:
-        log.info("Source dataset has no video keys — nothing to convert.")
+        print("Source dataset has no video keys — nothing to convert.")
         return
 
     sample_shape = tuple(src_features[video_keys[0]]["shape"])  # (H, W, 3)
@@ -102,7 +98,7 @@ def main(config: ConvertConfig) -> None:
     dst_root = HF_LEROBOT_HOME / dst_repo_id
     if dst_root.exists():
         if config.overwrite:
-            log.info("Removing existing dataset at %s", dst_root)
+            print(f"Removing existing dataset at {dst_root}")
             shutil.rmtree(dst_root)
         else:
             raise FileExistsError(f"Dataset already exists at {dst_root}. Use --overwrite.")
@@ -113,10 +109,8 @@ def main(config: ConvertConfig) -> None:
         state_dim = src_features["observation.state"]["shape"][0]
         # Convention: first 7 dims = joint_position, last dim = gripper_position
         joint_dim = 7
-        log.info(
-            "observation.state (%d-dim) -> joint_position (%d) + gripper_position (1)",
-            state_dim,
-            joint_dim,
+        print(
+            f"observation.state ({state_dim}-dim) -> joint_position ({joint_dim}) + gripper_position (1)",
         )
 
     # Determine action key
@@ -190,9 +184,8 @@ def main(config: ConvertConfig) -> None:
             video_path = src_root / f"videos/chunk-{chunk_idx:03d}/{vk}/episode_{ep_idx:06d}.mp4"
             frames = decode_episode_video(video_path)
             if len(frames) != n_frames:
-                log.warning(
-                    "Episode %d: video %s has %d frames but parquet has %d rows. Using min.",
-                    ep_idx, vk, len(frames), n_frames,
+                print(
+                    f"Episode {ep_idx}: video {vk} has {len(frames)} frames but parquet has {n_frames} rows. Using min."
                 )
                 n_frames = min(n_frames, len(frames))
             camera_frames[dst_name] = frames
@@ -241,11 +234,8 @@ def main(config: ConvertConfig) -> None:
         dataset.save_episode()
         total_frames += n_frames
 
-    log.info(
-        "Done. %d episodes, %d total frames saved to %s",
-        total_episodes,
-        total_frames,
-        dst_root,
+    print(
+        f"Done. {total_episodes} episodes, {total_frames} total frames saved to {dst_root}"
     )
 
 
