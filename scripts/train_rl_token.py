@@ -4,11 +4,7 @@ Trains the information-bottleneck encoder-decoder that compresses
 variable-length VLA prefix embeddings z_{1:M} into a single RL token
 z_rl via masked-MSE reconstruction loss.
 
-Two modes (selected by ``--train.vla-finetune-alpha``):
-
-- **Frozen VLA** (alpha=0): Only trains the encoder-decoder (phi).
-- **Joint training** (alpha>0): Also fine-tunes the VLA (theta) with
-  flow-matching loss.  L = L_ro(phi) + alpha * L_vla(theta).
+Only frozen-VLA mode is supported. VLA joint training has been disabled.
 
 The data pipeline delegates entirely to OpenPI's transform chain so
 that normalisation, camera layout, and action chunking exactly match
@@ -21,10 +17,9 @@ Usage::
         --train.vla-checkpoint-dir /path/to/model.safetensors \\
         --repo-id local/stack_the_blocks
 
-    # Joint training with 3-camera override:
+    # With 3-camera override:
     uv run python scripts/train_rl_token.py \\
         --train.vla-checkpoint-dir /path/to/model.safetensors \\
-        --train.vla-finetune-alpha 1.0 \\
         --repo-id local/stack_the_blocks \\
         --data-transforms-fn rlt_openpi.policies.franka.config.three_camera_droid
 """
@@ -103,7 +98,8 @@ def main(config: TrainConfig) -> None:
     print(f"  Batch size:      {config.train.batch_size}")
     print(f"  Train steps:     {config.train.num_train_steps}")
     print(f"  Save dir:        {config.train.save_dir}")
-    print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha}")
+    # VLA joint training disabled — VLA is always frozen.
+    # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha}")
     print("-" * 60)
 
     log.info("Stage 1 config: %s", config)

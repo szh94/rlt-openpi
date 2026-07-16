@@ -96,7 +96,8 @@ def main(config: TrainConfig) -> None:
     print(f"  Batch size:      {config.train.batch_size}")
     print(f"  Train steps:     {config.train.num_train_steps}")
     print(f"  Save dir:        {config.train.save_dir}")
-    print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha} (frozen)")
+    # VLA joint training disabled — VLA is always frozen.
+    # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha} (frozen)")
     print("-" * 60)
 
     log.info("Stage 1 (JAX) config: %s", config)

@@ -1,4 +1,4 @@
-"""High-level wrapper for VLA inference, embedding extraction, and joint training.
+"""High-level wrapper for VLA inference and embedding extraction.
 
 Loads a PI0/PI0.5 model from checkpoint, wraps it with EmbeddingExtractor,
 and exposes the interface used by the rollout worker and trainers.
@@ -52,8 +52,7 @@ class VLAWrapper:
     - extract_embeddings: get post-transformer prefix embeddings z_{1:M}
     - sample_reference_actions: get full VLA action trajectory (H steps)
     - get_rl_chunk_reference: slice first C steps as RL reference actions
-    - compute_vla_loss: VLA flow-matching loss (standalone)
-    - compute_vla_loss_with_embeddings: single forward for joint training
+    # VLA joint training methods (compute_vla_loss, etc.) are disabled.
 
     The input/output transform chains mirror OpenPI's
     ``create_trained_policy`` (``policy_config.py``):
@@ -256,53 +255,28 @@ class VLAWrapper:
         
         return full_actions[:, :chunk_length, :]
 
-    def compute_vla_loss(
-        self,
-        observation: dict[str, Any] | Observation,
-        actions: Tensor,
-    ) -> Tensor:
-        """Compute the VLA's flow-matching training loss on demo data.
-
-        Calls PI0Pytorch.forward() which computes the denoising loss:
-        noisy actions x_t are created from ground-truth actions + noise,
-        the model predicts the velocity field v_t, and loss = MSE(u_t, v_t).
-
-        Args:
-            observation: Batched observation (dict or openpi Observation).
-            actions: Ground-truth demo actions [B, action_horizon, action_dim].
-
-        Returns:
-            Scalar mean VLA loss.
-        """
-        per_element_loss = self.extractor.pi0.forward(observation, actions)
-        return per_element_loss.mean()
-
-    def compute_vla_loss_with_embeddings(
-        self,
-        observation: Observation,
-        actions: Tensor,
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        """Single VLA forward pass returning both embeddings and loss.
-
-        Used by joint training (alpha > 0) to avoid the double forward
-        pass of calling extract_embeddings() + compute_vla_loss()
-        separately.
-
-        Args:
-            observation: Batched openpi Observation.
-            actions: Ground-truth demo actions [B, H, action_dim].
-
-        Returns:
-            z: Detached prefix embeddings [B, M, D] (stop-grad from VLA).
-            pad_mask: Boolean mask [B, M] (True = valid token).
-            vla_loss: Scalar VLA flow-matching loss (with grad for VLA).
-        """
-        return self.extractor.forward_joint(observation, actions)
-
-    def unfreeze(self) -> None:
-        """Re-enable gradients on VLA parameters for joint fine-tuning."""
-        self.extractor.unfreeze()
-
-    def trainable_parameters(self):
-        """Return VLA parameters that require gradients (for optimizer)."""
-        return [p for p in self.extractor.pi0.parameters() if p.requires_grad]
+    # --- VLA joint training methods (disabled) ---
+    # def compute_vla_loss(
+    #     self,
+    #     observation: dict[str, Any] | Observation,
+    #     actions: Tensor,
+    # ) -> Tensor:
+    #     """Compute the VLA's flow-matching training loss on demo data."""
+    #     per_element_loss = self.extractor.pi0.forward(observation, actions)
+    #     return per_element_loss.mean()
+    #
+    # def compute_vla_loss_with_embeddings(
+    #     self,
+    #     observation: Observation,
+    #     actions: Tensor,
+    # ) -> tuple[Tensor, Tensor, Tensor]:
+    #     """Single VLA forward pass returning both embeddings and loss."""
+    #     return self.extractor.forward_joint(observation, actions)
+    #
+    # def unfreeze(self) -> None:
+    #     """Re-enable gradients on VLA parameters for joint fine-tuning."""
+    #     self.extractor.unfreeze()
+    #
+    # def trainable_parameters(self):
+    #     """Return VLA parameters that require gradients (for optimizer)."""
+    #     return [p for p in self.extractor.pi0.parameters() if p.requires_grad]

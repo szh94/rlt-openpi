@@ -187,7 +187,7 @@ class JaxVLAWrapper:
     * ``sample_reference_actions`` — full VLA action trajectory
     * ``get_rl_chunk_reference`` — first C steps as RL reference
 
-    **Unsupported** (raise ``NotImplementedError``):
+    **Unsupported** (VLA joint training disabled — no stubs remain):
     * ``compute_vla_loss``
     * ``compute_vla_loss_with_embeddings``
     * ``unfreeze``
@@ -333,49 +333,12 @@ class JaxVLAWrapper:
         full_actions = self.sample_reference_actions(observation)
         return full_actions[:, :chunk_length, :]
 
-    # ------------------------------------------------------------------
-    # Unsupported operations
-    # ------------------------------------------------------------------
-
-    def compute_vla_loss(self, observation, actions) -> Tensor:
-        """Not supported: JAX NNX model cannot be trained by PyTorch."""
-        raise NotImplementedError(
-            "compute_vla_loss is not supported for JAX VLA. "
-            "Joint training requires the PyTorch VLAWrapper."
-        )
-
-    def compute_vla_loss_with_embeddings(self, observation, actions) -> tuple[Tensor, Tensor, Tensor]:
-        """Not supported: JAX NNX model cannot be trained by PyTorch."""
-        raise NotImplementedError(
-            "compute_vla_loss_with_embeddings is not supported for JAX VLA. "
-            "Joint training requires the PyTorch VLAWrapper."
-        )
-
-    def unfreeze(self) -> None:
-        """Not supported: JAX NNX model cannot be trained by PyTorch."""
-        raise NotImplementedError(
-            "unfreeze is not supported for JAX VLA. "
-            "Joint training requires the PyTorch VLAWrapper."
-        )
-
-    def trainable_parameters(self):
-        """Not supported: JAX NNX model cannot be trained by PyTorch."""
-        raise NotImplementedError(
-            "trainable_parameters is not supported for JAX VLA. "
-            "Joint training requires the PyTorch VLAWrapper."
-        )
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _load_norm_stats(
         checkpoint_dir: pathlib.Path,
         data_config,
     ) -> dict[str, _transforms.NormStats]:
         """Load norm stats, preferring checkpoint-embedded assets over config assets.
-
         Mirrors OpenPI's ``create_trained_policy`` which loads from
         ``checkpoint_dir/assets/<asset_id>/`` to guarantee the stats
         match training.  Falls back to the config's ``norm_stats`` for
