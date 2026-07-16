@@ -1,19 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stage 1 RL Token training with JAX VLA model.
-# Uses JaxVLAWrapper instead of VLAWrapper to load the native JAX Pi0
-# model from an Orbax checkpoint.
-#
-# Joint training (--train.vla-finetune-alpha > 0) is NOT supported —
-# a JAX NNX model cannot be optimised by a PyTorch optimizer.
-#
-# Usage:
-#   bash example/stage1_jax.sh
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # source "$SCRIPT_DIR/../.venv/bin/activate"
-# shellcheck source=./keyPara.sh
 source "$SCRIPT_DIR/keyPara.sh"
 
 export WANDB_MODE=offline
@@ -56,5 +45,3 @@ python scripts/train_rl_token_jax.py \
     # --num-workers 4                         # DataLoader 进程数
     )
 
-# 注意: JAX VLA 不支持联合训练 (vla_finetune_alpha > 0)。
-# 如需联合训练，请使用 example/stage1.sh。
