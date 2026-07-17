@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterator
 
+import jax
 import torch
 from torch import Tensor
 from tqdm import tqdm
@@ -319,16 +320,18 @@ def _obs_to_device(obs: Any, device: torch.device) -> Any:
 
     if isinstance(obs, Observation):
         return Observation(
-            images={k: v.to(device) for k, v in obs.images.items()},
-            image_masks={k: v.to(device) for k, v in obs.image_masks.items()},
-            state=obs.state.to(device),
-            tokenized_prompt=obs.tokenized_prompt.to(device) if obs.tokenized_prompt is not None else None,
-            tokenized_prompt_mask=obs.tokenized_prompt_mask.to(device) if obs.tokenized_prompt_mask is not None else None,
-            token_ar_mask=obs.token_ar_mask.to(device) if obs.token_ar_mask is not None else None,
-            token_loss_mask=obs.token_loss_mask.to(device) if obs.token_loss_mask is not None else None,
+            images={k: _obs_to_device(v, device) for k, v in obs.images.items()},
+            image_masks={k: _obs_to_device(v, device) for k, v in obs.image_masks.items()},
+            state=_obs_to_device(obs.state, device),
+            tokenized_prompt=_obs_to_device(obs.tokenized_prompt, device) if obs.tokenized_prompt is not None else None,
+            tokenized_prompt_mask=_obs_to_device(obs.tokenized_prompt_mask, device) if obs.tokenized_prompt_mask is not None else None,
+            token_ar_mask=_obs_to_device(obs.token_ar_mask, device) if obs.token_ar_mask is not None else None,
+            token_loss_mask=_obs_to_device(obs.token_loss_mask, device) if obs.token_loss_mask is not None else None,
         )
     if isinstance(obs, dict):
         return {k: _obs_to_device(v, device) for k, v in obs.items()}
+    if isinstance(obs, jax.Array):
+        return obs
     if isinstance(obs, torch.Tensor):
         return obs.to(device)
     return obs

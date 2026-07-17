@@ -25,11 +25,32 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import os
+# ---------------------------------------------------------------------------
+# Limit JAX GPU memory BEFORE any JAX import, so PyTorch has room.
+# JAX pre-allocates ~90% of GPU by default — this knocks it down to ~35%.
+# Set via CLI for finer control, e.g. XLA_PYTHON_CLIENT_MEM_FRACTION=0.3
+# ---------------------------------------------------------------------------
+os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.35")
+# Disable preallocation — JAX only allocates what it needs, when it needs it.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
+import multiprocessing
+import typing
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import torch
 import tyro
 
+from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from openpi.models.model import Observation
+from openpi.training.config import get_config
+from openpi.training.data_loader import create_torch_dataset, transform_dataset
+import openpi.transforms as _transforms
+
 from rlt_openpi.training.config import RLTokenTrainConfig
-from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.rl_token_trainer import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
@@ -52,16 +73,32 @@ class TrainConfig:
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Inline helpers
 # ------------------------------------------------------------------
+
+
+def _numpy_collate(items):
+    """Collate batch elements into numpy arrays (no torch)."""
+    return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+
+
+def _patch_repack_action_key(data_config, action_key: str):
+    """Rewrite the repack transform so ``"actions"`` reads from *action_key*."""
+    new_inputs = []
+    for t in data_config.repack_transforms.inputs:
+        if isinstance(t, _transforms.RepackTransform) and "actions" in t.structure:
+            patched = dict(t.structure)
+            patched["actions"] = action_key
+            t = _transforms.RepackTransform(patched)
+        new_inputs.append(t)
+    repack = _transforms.Group(inputs=new_inputs)
+    return dataclasses.replace(data_config, repack_transforms=repack)
 
 
 def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
     """Dynamically import and call a data-transforms factory."""
     if dotted_path is None:
         return None
-
-    from openpi.training.config import get_config
 
     module_path, func_name = dotted_path.rsplit(".", 1)
     factory_fn = getattr(importlib.import_module(module_path), func_name)
@@ -114,19 +151,53 @@ def main(config: TrainConfig) -> None:
     print("  Trainer created (RLTokenModel + optimizer).")
 
     print("[3/4] Loading demonstration dataset...")
-    data_loader = build_data_loader(
-        openpi_config_name=config.train.vla_config_name,
-        repo_id=config.repo_id,
+
+    # Build data config from OpenPI (same as build_data_loader).
+    openpi_config = get_config(config.train.vla_config_name)
+    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+    data_config = dataclasses.replace(data_config, repo_id=config.repo_id)
+
+    # Auto-detect action column name.
+    meta = LeRobotDatasetMetadata(config.repo_id)
+    if "action" in meta.features and "actions" not in meta.features:
+        data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
+        data_config = _patch_repack_action_key(data_config, "action")
+
+    if data_transforms is not None:
+        print("Overriding data_transforms with custom Group")
+        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
+
+    # Create dataset + transforms (OpenPI pipeline).
+    dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
+    dataset = transform_dataset(dataset, data_config)
+
+    # Torch DataLoader as batching engine only — _numpy_collate keeps data as numpy.
+    mp_context = multiprocessing.get_context("spawn") if config.num_workers > 0 else None
+    raw_loader = torch.utils.data.DataLoader(
+        typing.cast(torch.utils.data.Dataset, dataset),
         batch_size=config.train.batch_size,
-        num_workers=config.num_workers,
         shuffle=True,
-        data_transforms=data_transforms,
+        num_workers=config.num_workers,
+        multiprocessing_context=mp_context,
+        persistent_workers=config.num_workers > 0,
+        collate_fn=_numpy_collate,
+        drop_last=True,
     )
+
+    # numpy→JAX, matching OpenPI's TorchDataLoader.__iter__:
+    #   numpy batch → jnp.asarray → Observation.from_dict
+    def _jax_iter(loader):
+        while True:
+            for batch in loader:
+                batch = jax.tree.map(jnp.asarray, batch)
+                yield Observation.from_dict(batch), batch["actions"]
+
+    data_loader = _jax_iter(raw_loader)
     print("  Data loader ready.")
 
     print("[4/4] Starting training loop...")
     print("-" * 60)
-    trainer.train(vla, iter(data_loader), log_fn=rl_logger.log)
+    trainer.train(vla, data_loader, log_fn=rl_logger.log)
 
     print("-" * 60)
     print("Training complete.")
