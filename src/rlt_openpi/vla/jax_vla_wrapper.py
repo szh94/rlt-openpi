@@ -27,6 +27,7 @@ import torch
 from openpi.models import model as _model
 from openpi.models.model import Observation
 from openpi.models.pi0 import make_attn_mask
+from openpi.shared import nnx_utils
 from openpi.training import checkpoints as _checkpoints
 from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize, compose
 import openpi.transforms as _transforms
@@ -88,49 +89,29 @@ def _observation_to_numpy(obs: Observation) -> Observation:
 class JaxEmbeddingExtractor:
     """Wraps a JAX Pi0 model for embedding extraction and action sampling.
 
-    Unlike the PyTorch ``EmbeddingExtractor``, this is **not** a
-    ``torch.nn.Module``.  It holds a reference to the native JAX NNX
-    model and converts arrays at the boundary::
-
-        torch → numpy → JAX → numpy → torch
-
-    The JAX model runs on whatever device JAX is configured to use
-    (typically GPU when available).
+    Follows the same JIT strategy as :class:`openpi.policies.policy.Policy`:
+    ``sample_actions`` is JIT-compiled via :func:`nnx_utils.module_jit`;
+    ``extract_embeddings`` runs eagerly to avoid XLA compilation overhead
+    during training (when PyTorch is also on the GPU).
     """
 
     def __init__(self, pi0_model) -> None:
         self.pi0 = pi0_model
-        # Per-instance RNG key for action sampling.
-        self._rng = jax.random.PRNGKey(0)
+        self._rng = jax.random.key(0)
 
-        # JIT-compile sample_actions for rollout (follows nnx_utils.module_jit).
-        # extract_embeddings runs eagerly to keep GPU memory low when PyTorch
-        # is also using the GPU during training.
-        import flax.nnx as nnx
-
-        pi0_graphdef, pi0_params = nnx.split(self.pi0)
-
-        @jax.jit
-        def _sample_jit(params, rng, obs_np, num_steps):
-            pi0 = nnx.merge(pi0_graphdef, params)
-            return pi0.sample_actions(rng, obs_np, num_steps=num_steps)
-
-        self._pi0_params = pi0_params
-        self._sample_jit = _sample_jit
+        # JIT-compile sample_actions like Policy.__init__ does.
+        self._sample_actions = nnx_utils.module_jit(pi0_model.sample_actions)
 
     def _next_rng(self):
         self._rng, rng = jax.random.split(self._rng)
         return rng
 
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
-        """Extract post-transformer prefix embeddings (eager mode).
-
-        Runs eagerly (no JIT) to avoid XLA compilation memory overhead
-        when PyTorch is also using the GPU.
+        """Extract post-transformer prefix embeddings (eager, like policy.infer core).
 
         Returns:
-            z: [B, M, embedding_dim] post-transformer prefix embeddings.
-            pad_mask: [B, M] boolean mask (True = valid token).
+            z: [B, M, embedding_dim] float32.
+            pad_mask: [B, M] bool.
         """
         obs_np = _observation_to_numpy(observation)
         prefix_tokens, prefix_mask, prefix_ar_mask = self.pi0.embed_prefix(obs_np)
@@ -150,22 +131,14 @@ class JaxEmbeddingExtractor:
         observation: Observation,
         num_steps: int = 10,
     ) -> Tensor:
-        """Get reference actions from the JAX VLA via diffusion sampling.
-
-        Delegates to ``Pi0.sample_actions``, which internally calls
-        ``preprocess_observation`` (a near-no-op when the observation
-        is already preprocessed by ``JaxVLAWrapper.preprocess_obs``).
-
-        Args:
-            observation: Batched openpi Observation (torch tensors).
-            num_steps: Number of diffusion denoising steps (default 10).
+        """Sample actions via JIT-compiled Pi0 (like policy.infer).
 
         Returns:
-            actions: VLA output [B, action_horizon, action_dim] (float32).
+            actions: [B, action_horizon, action_dim] float32.
         """
         obs_np = _observation_to_numpy(observation)
         rng = self._next_rng()
-        actions = self._sample_jit(self._pi0_params, rng, obs_np, num_steps)
+        actions = self._sample_actions(rng, obs_np, num_steps=num_steps)
         return torch.from_numpy(np.array(actions)).to(dtype=torch.float32)
 
 
