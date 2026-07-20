@@ -21,12 +21,10 @@ import pathlib
 from typing import Any
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 import torch
 from openpi.models import model as _model
 from openpi.models.model import Observation
-from openpi.models.pi0 import make_attn_mask
 from openpi.shared import nnx_utils
 from openpi.training import checkpoints as _checkpoints
 from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize, compose
@@ -89,10 +87,11 @@ def _observation_to_numpy(obs: Observation) -> Observation:
 class JaxEmbeddingExtractor:
     """Wraps a JAX Pi0 model for embedding extraction and action sampling.
 
-    Follows the same JIT strategy as :class:`openpi.policies.policy.Policy`:
-    ``sample_actions`` is JIT-compiled via :func:`nnx_utils.module_jit`;
-    ``extract_embeddings`` runs eagerly to avoid XLA compilation overhead
-    during training (when PyTorch is also on the GPU).
+    Both ``extract_embeddings`` and ``sample_actions`` go through the
+    single JIT-compiled :meth:`pi0_model.sample_actions`, which returns
+    ``((prefix_out, prefix_mask), actions)`` — two outputs from one
+    forward pass.  This follows the same JIT strategy as
+    :class:`openpi.policies.policy.Policy`.
     """
 
     def __init__(self, pi0_model) -> None:
@@ -100,6 +99,7 @@ class JaxEmbeddingExtractor:
         self._rng = jax.random.key(0)
 
         # JIT-compile sample_actions like Policy.__init__ does.
+        # Returns ((prefix_out, prefix_mask), actions).
         self._sample_actions = nnx_utils.module_jit(pi0_model.sample_actions)
 
     def _next_rng(self):
@@ -107,21 +107,18 @@ class JaxEmbeddingExtractor:
         return rng
 
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
-        """Extract post-transformer prefix embeddings (eager, like policy.infer core).
+        """Extract post-transformer prefix embeddings via JIT-compiled Pi0.
+
+        Uses the first return value of ``sample_actions`` (prefix
+        embeddings) and discards the action output.
 
         Returns:
             z: [B, M, embedding_dim] float32.
             pad_mask: [B, M] bool.
         """
         obs_np = _observation_to_numpy(observation)
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.pi0.embed_prefix(obs_np)
-        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
-        positions = jnp.cumsum(prefix_mask, axis=1) - 1
-        (prefix_out, _), _kv_cache = self.pi0.PaliGemma.llm(
-            [prefix_tokens, None],
-            mask=prefix_attn_mask,
-            positions=positions,
-        )
+        rng = self._next_rng()
+        (prefix_out, prefix_mask), _ = self._sample_actions(rng, obs_np)
         z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
         return z, pad_mask
@@ -133,12 +130,15 @@ class JaxEmbeddingExtractor:
     ) -> Tensor:
         """Sample actions via JIT-compiled Pi0 (like policy.infer).
 
+        Uses the second return value of ``sample_actions`` (actions) and
+        discards the prefix embedding output.
+
         Returns:
             actions: [B, action_horizon, action_dim] float32.
         """
         obs_np = _observation_to_numpy(observation)
         rng = self._next_rng()
-        actions = self._sample_actions(rng, obs_np, num_steps=num_steps)
+        _, actions = self._sample_actions(rng, obs_np, num_steps=num_steps)
         return torch.from_numpy(np.array(actions)).to(dtype=torch.float32)
 
 
