@@ -103,25 +103,12 @@ class JaxEmbeddingExtractor:
         # Per-instance RNG key for action sampling.
         self._rng = jax.random.PRNGKey(0)
 
-        # JIT-compile by splitting the NNX model (follows nnx_utils.module_jit).
-        # This avoids TracerArrayConversionError that occurs when jax.jit
-        # traces a live NNX module directly.
+        # JIT-compile sample_actions for rollout (follows nnx_utils.module_jit).
+        # extract_embeddings runs eagerly to keep GPU memory low when PyTorch
+        # is also using the GPU during training.
         import flax.nnx as nnx
 
         pi0_graphdef, pi0_params = nnx.split(self.pi0)
-
-        @jax.jit
-        def _extract_jit(params, obs_np):
-            pi0 = nnx.merge(pi0_graphdef, params)
-            prefix_tokens, prefix_mask, prefix_ar_mask = pi0.embed_prefix(obs_np)
-            prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
-            positions = jnp.cumsum(prefix_mask, axis=1) - 1
-            (prefix_out, _), _kv_cache = pi0.PaliGemma.llm(
-                [prefix_tokens, None],
-                mask=prefix_attn_mask,
-                positions=positions,
-            )
-            return prefix_out, prefix_mask
 
         @jax.jit
         def _sample_jit(params, rng, obs_np, num_steps):
@@ -129,7 +116,6 @@ class JaxEmbeddingExtractor:
             return pi0.sample_actions(rng, obs_np, num_steps=num_steps)
 
         self._pi0_params = pi0_params
-        self._extract_jit = _extract_jit
         self._sample_jit = _sample_jit
 
     def _next_rng(self):
@@ -137,17 +123,24 @@ class JaxEmbeddingExtractor:
         return rng
 
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
-        """Extract post-transformer prefix embeddings via JIT-compiled kernel.
+        """Extract post-transformer prefix embeddings (eager mode).
 
-        First call triggers XLA compilation; subsequent calls with the
-        same shapes run the fused kernel directly.
+        Runs eagerly (no JIT) to avoid XLA compilation memory overhead
+        when PyTorch is also using the GPU.
 
         Returns:
             z: [B, M, embedding_dim] post-transformer prefix embeddings.
             pad_mask: [B, M] boolean mask (True = valid token).
         """
         obs_np = _observation_to_numpy(observation)
-        prefix_out, prefix_mask = self._extract_jit(self._pi0_params, obs_np)
+        prefix_tokens, prefix_mask, prefix_ar_mask = self.pi0.embed_prefix(obs_np)
+        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+        positions = jnp.cumsum(prefix_mask, axis=1) - 1
+        (prefix_out, _), _kv_cache = self.pi0.PaliGemma.llm(
+            [prefix_tokens, None],
+            mask=prefix_attn_mask,
+            positions=positions,
+        )
         z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
         return z, pad_mask
