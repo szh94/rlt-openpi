@@ -11,6 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterator
 
+import time
+
 import jax
 import torch
 from torch import Tensor
@@ -236,23 +238,50 @@ class RLTokenTrainer:
         observations: Any,
     ) -> dict[str, float]:
         """Frozen VLA step: extract embeddings (no grad) → L_ro only."""
+        t0 = time.monotonic()
         self.model.train()
 
         observations = _obs_to_device(observations, self.device)
+        t1 = time.monotonic()
+
         with torch.no_grad():
             z, pad_mask = vla.extract_embeddings(observations)
+        t2 = time.monotonic()
 
         z = z.to(self.device)
         pad_mask = pad_mask.to(self.device)
         loss, _z_rl, _z_hat = self.model(z, pad_mask)
+        t3 = time.monotonic()
 
         self.optimizer.zero_grad()
         loss.backward()
+        t4 = time.monotonic()
+
         grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.max_grad_norm)
         self.optimizer.step()
         self.scheduler.step()
+        t5 = time.monotonic()
 
         self._global_step += 1
+
+        # Timing breakout (ms)
+        t_obs_to_device = (t1 - t0) * 1000
+        t_vla_embed = (t2 - t1) * 1000
+        t_rl_forward = (t3 - t2) * 1000
+        t_backward = (t4 - t3) * 1000
+        t_optimizer = (t5 - t4) * 1000
+        t_total = (t5 - t0) * 1000
+
+        print(
+            f"[Step {self._global_step}] "
+            f"obs_to_device={t_obs_to_device:.1f}ms | "
+            f"vla_embed={t_vla_embed:.1f}ms | "
+            f"rl_forward={t_rl_forward:.1f}ms | "
+            f"backward={t_backward:.1f}ms | "
+            f"optimizer={t_optimizer:.1f}ms | "
+            f"total={t_total:.1f}ms"
+        )
+
         return {
             "loss": loss.item(),
             "grad_norm": grad_norm.item(),
