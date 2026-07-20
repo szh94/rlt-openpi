@@ -137,7 +137,7 @@ class JaxEmbeddingExtractor:
         # prefix_out: [B, M, embed_dim], _ is None (suffix slot)
 
         # Convert back to torch tensors.
-        z = torch.from_numpy(np.array(prefix_out)).to(dtype=torch.float32)
+        z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
 
         return z, pad_mask

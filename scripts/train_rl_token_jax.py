@@ -31,7 +31,7 @@ import os
 # JAX pre-allocates ~90% of GPU by default — this knocks it down to ~35%.
 # Set via CLI for finer control, e.g. XLA_PYTHON_CLIENT_MEM_FRACTION=0.3
 # ---------------------------------------------------------------------------
-os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.35")
+# os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.35")
 # Disable preallocation — JAX only allocates what it needs, when it needs it.
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
