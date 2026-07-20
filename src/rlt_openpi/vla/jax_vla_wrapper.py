@@ -103,43 +103,46 @@ class JaxEmbeddingExtractor:
         # Per-instance RNG key for action sampling.
         self._rng = jax.random.PRNGKey(0)
 
-    def _next_rng(self):
-        self._rng, rng = jax.random.split(self._rng)
-        return rng
+        # JIT-compiled extract + sample kernels.
+        # First call triggers XLA compilation (~few seconds); all subsequent
+        # calls with the same input shapes run the fused kernel directly.
+        self._extract_jit = jax.jit(self._do_extract)
+        self._sample_jit = jax.jit(self._do_sample)
 
-    def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
-        """Extract post-transformer prefix embeddings from the frozen JAX VLA.
-
-        Replicates the prefix-only forward pass from
-        ``Pi0.sample_actions``::
-
-            embed_prefix → make_attn_mask → PaliGemma.llm([prefix, None])
-
-        Args:
-            observation: Batched openpi Observation (torch tensors).
-
-        Returns:
-            z: Post-transformer prefix embeddings [B, M, 2048] (float32).
-            pad_mask: Boolean padding mask [B, M] (True = valid token).
-        """
-        obs_np = _observation_to_numpy(observation)
-
-        # JAX prefix embedding forward pass.
+    def _do_extract(self, obs_np: Observation):
+        """JIT-compiled: embed_prefix → LLM prefix forward."""
         prefix_tokens, prefix_mask, prefix_ar_mask = self.pi0.embed_prefix(obs_np)
         prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
         positions = jnp.cumsum(prefix_mask, axis=1) - 1
-
         (prefix_out, _), _kv_cache = self.pi0.PaliGemma.llm(
             [prefix_tokens, None],
             mask=prefix_attn_mask,
             positions=positions,
         )
-        # prefix_out: [B, M, embed_dim], _ is None (suffix slot)
+        return prefix_out, prefix_mask
 
-        # Convert back to torch tensors.
+    def _do_sample(self, rng: jax.Array, obs_np: Observation, num_steps: int):
+        """JIT-compiled: sample_actions (num_steps as static arg)."""
+        return self.pi0.sample_actions(rng, obs_np, num_steps=num_steps)
+
+    def _next_rng(self):
+        self._rng, rng = jax.random.split(self._rng)
+        return rng
+
+    def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
+        """Extract post-transformer prefix embeddings via JIT-compiled kernel.
+
+        First call triggers XLA compilation; subsequent calls with the
+        same shapes run the fused kernel directly.
+
+        Returns:
+            z: [B, M, embedding_dim] post-transformer prefix embeddings.
+            pad_mask: [B, M] boolean mask (True = valid token).
+        """
+        obs_np = _observation_to_numpy(observation)
+        prefix_out, prefix_mask = self._extract_jit(obs_np)
         z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
-
         return z, pad_mask
 
     def sample_actions(
@@ -162,7 +165,7 @@ class JaxEmbeddingExtractor:
         """
         obs_np = _observation_to_numpy(observation)
         rng = self._next_rng()
-        actions = self.pi0.sample_actions(rng, obs_np, num_steps=num_steps)
+        actions = self._sample_jit(rng, obs_np, num_steps)
         return torch.from_numpy(np.array(actions)).to(dtype=torch.float32)
 
 
