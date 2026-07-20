@@ -103,27 +103,34 @@ class JaxEmbeddingExtractor:
         # Per-instance RNG key for action sampling.
         self._rng = jax.random.PRNGKey(0)
 
-        # JIT-compiled extract + sample kernels.
-        # First call triggers XLA compilation (~few seconds); all subsequent
-        # calls with the same input shapes run the fused kernel directly.
-        self._extract_jit = jax.jit(self._do_extract)
-        self._sample_jit = jax.jit(self._do_sample)
+        # JIT-compile by splitting the NNX model (follows nnx_utils.module_jit).
+        # This avoids TracerArrayConversionError that occurs when jax.jit
+        # traces a live NNX module directly.
+        import flax.nnx as nnx
 
-    def _do_extract(self, obs_np: Observation):
-        """JIT-compiled: embed_prefix → LLM prefix forward."""
-        prefix_tokens, prefix_mask, prefix_ar_mask = self.pi0.embed_prefix(obs_np)
-        prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
-        positions = jnp.cumsum(prefix_mask, axis=1) - 1
-        (prefix_out, _), _kv_cache = self.pi0.PaliGemma.llm(
-            [prefix_tokens, None],
-            mask=prefix_attn_mask,
-            positions=positions,
-        )
-        return prefix_out, prefix_mask
+        pi0_graphdef, pi0_params = nnx.split(self.pi0)
 
-    def _do_sample(self, rng: jax.Array, obs_np: Observation, num_steps: int):
-        """JIT-compiled: sample_actions (num_steps as static arg)."""
-        return self.pi0.sample_actions(rng, obs_np, num_steps=num_steps)
+        @jax.jit
+        def _extract_jit(params, obs_np):
+            pi0 = nnx.merge(pi0_graphdef, params)
+            prefix_tokens, prefix_mask, prefix_ar_mask = pi0.embed_prefix(obs_np)
+            prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
+            positions = jnp.cumsum(prefix_mask, axis=1) - 1
+            (prefix_out, _), _kv_cache = pi0.PaliGemma.llm(
+                [prefix_tokens, None],
+                mask=prefix_attn_mask,
+                positions=positions,
+            )
+            return prefix_out, prefix_mask
+
+        @jax.jit
+        def _sample_jit(params, rng, obs_np, num_steps):
+            pi0 = nnx.merge(pi0_graphdef, params)
+            return pi0.sample_actions(rng, obs_np, num_steps=num_steps)
+
+        self._pi0_params = pi0_params
+        self._extract_jit = _extract_jit
+        self._sample_jit = _sample_jit
 
     def _next_rng(self):
         self._rng, rng = jax.random.split(self._rng)
@@ -140,7 +147,7 @@ class JaxEmbeddingExtractor:
             pad_mask: [B, M] boolean mask (True = valid token).
         """
         obs_np = _observation_to_numpy(observation)
-        prefix_out, prefix_mask = self._extract_jit(obs_np)
+        prefix_out, prefix_mask = self._extract_jit(self._pi0_params, obs_np)
         z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
         return z, pad_mask
@@ -165,7 +172,7 @@ class JaxEmbeddingExtractor:
         """
         obs_np = _observation_to_numpy(observation)
         rng = self._next_rng()
-        actions = self._sample_jit(rng, obs_np, num_steps)
+        actions = self._sample_jit(self._pi0_params, rng, obs_np, num_steps)
         return torch.from_numpy(np.array(actions)).to(dtype=torch.float32)
 
 
