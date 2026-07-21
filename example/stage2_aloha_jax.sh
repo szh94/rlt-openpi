@@ -48,7 +48,7 @@ LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true
 
-TASK_PROMPT="pick up the cup"
+TASK_PROMPT="place phone"
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled

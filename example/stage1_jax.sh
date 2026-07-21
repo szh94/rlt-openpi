@@ -2,6 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+LOG_DIR="$SCRIPT_DIR/../log_action"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/stage2_aloha_jax_$(date +%Y%m%d_%H%M%S).log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "日志文件: $LOG_FILE"
+
 # source "$SCRIPT_DIR/../.venv/bin/activate"
 source "$SCRIPT_DIR/keyPara.sh"
 
@@ -22,7 +29,7 @@ python scripts/train_rl_token_jax.py \
     --train.save-dir "$STAGE1_RLT_CHECKPOINT_DIR" \
     --train.vla-finetune-alpha 0.0 \
     --train.batch-size 8 \
-    --train.num-train-steps 10000 \
+    --train.num-train-steps 20000 \
     --train.save-every 10000 \
     --repo-id "$HF_LEROBOT_HOME" \
     --data-transforms-fn "$DATA_TRANSFORMS_FN" \
