@@ -218,11 +218,10 @@ class OnlineRLTrainer:
             stored = 0
             obs = env.reset()
             for i in range(cfg.warmup_steps):
-                action_chunk = worker._get_warmup_action(obs)
-                x, a_tilde_flat = worker._extract_rl_state(obs)
+                x, a_tilde_flat, action_chunk = worker._extract_rl_state(obs)
                 a_flat = action_chunk.reshape(-1)
                 next_obs, rewards, done, _info = env.step(action_chunk)
-                next_x, _ = worker._extract_rl_state(next_obs)
+                next_x, _, _ = worker._extract_rl_state(next_obs)
                 self.replay_buffer.add(
                     x=x, a=a_flat, a_tilde=a_tilde_flat,
                     rewards=rewards, next_x=next_x, done=float(done),

@@ -99,12 +99,16 @@ class RolloutWorker:
         return batched
 
     @torch.no_grad()
-    def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray]:
-        """Extract RL state x = cat(z_rl, s^p) and VLA reference chunk.
+    def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
+        """Extract RL state x = cat(z_rl, s^p), VLA reference, and action chunk.
+
+        Uses a single VLA forward pass when ``extract_both`` is available
+        (JAX path), falling back to two calls for the PyTorch path.
 
         Returns:
             x: RL state [state_dim] as numpy array.
             a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
+            action_chunk: VLA reference actions [C, action_dim] as numpy.
         """
         raw_joint = obs.get("state", None)
         if raw_joint is not None:
@@ -112,12 +116,19 @@ class RolloutWorker:
 
         vla_input = self._obs_to_vla_input(obs)
 
-        # Extract VLA embeddings and encode into z_rl
-        z, pad_mask = self.vla.extract_embeddings(vla_input)
+        # Single VLA forward pass (JAX) or two calls (PyTorch fallback)
+        if hasattr(self.vla, "extract_both"):
+            z, pad_mask, actions = self.vla.extract_both(vla_input)
+        else:
+            z, pad_mask = self.vla.extract_embeddings(vla_input)
+            actions = self.vla.sample_reference_actions(vla_input)
+
+        # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
 
         # Get VLA reference action chunk (first C steps)
-        a_tilde = self.vla.get_rl_chunk_reference(vla_input, self.chunk_length)  # [1, C, action_dim]
+        a_tilde = actions[:, :self.chunk_length, :]  # [1, C, action_dim]
+        action_chunk = a_tilde.squeeze(0).cpu().numpy()  # [C, action_dim]
         a_tilde_flat = a_tilde.reshape(1, -1)  # [1, C*d]
 
         # Proprioceptive state s^p from the preprocessed VLA observation.
@@ -132,18 +143,8 @@ class RolloutWorker:
         return (
             x.squeeze(0).cpu().numpy(),
             a_tilde_flat.squeeze(0).cpu().numpy(),
+            action_chunk,
         )
-
-    @torch.no_grad()
-    def _get_warmup_action(self, obs: dict[str, Any]) -> NDArray:
-        """Get action from VLA-only policy for warmup.
-
-        Returns:
-            action_chunk: [C, action_dim] numpy array.
-        """
-        vla_input = self._obs_to_vla_input(obs)
-        a_tilde = self.vla.get_rl_chunk_reference(vla_input, self.chunk_length)  # [1, C, action_dim]
-        return a_tilde.squeeze(0).cpu().numpy()  # [C, action_dim]
 
     @torch.no_grad()
     def _get_actor_action(self, x: NDArray, a_tilde_flat: NDArray) -> NDArray:
@@ -248,13 +249,10 @@ class RolloutWorker:
         obs = self.env.reset()
 
         for _ in range(num_chunks):
-            # Get VLA reference action (used as both executed and reference)
-            action_chunk = self._get_warmup_action(obs)  # [C, action_dim]
-
-            # Build RL state for this observation
+            # Build RL state and get reference actions (single VLA forward pass)
             print(f"{'─' * 60}")
             print("Warmup: Get rl_state\n")
-            x, a_tilde_flat = self._extract_rl_state(obs)
+            x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
             # Step environment
@@ -265,7 +263,7 @@ class RolloutWorker:
             # Build next RL state
             print(f"{'─' * 60}")
             print("Warmup: Get next rl_state\n")
-            next_x, _ = self._extract_rl_state(next_obs)
+            next_x, _, _ = self._extract_rl_state(next_obs)
 
             # Store transition
             self.replay_buffer.add(
@@ -309,7 +307,7 @@ class RolloutWorker:
 
         while True:
             # Extract RL state and VLA reference
-            x, a_tilde_flat = self._extract_rl_state(obs)
+            x, a_tilde_flat, _ = self._extract_rl_state(obs)
 
             # Check for human intervention.
             # If the intervention manager stepped the robot internally
@@ -336,7 +334,7 @@ class RolloutWorker:
 
             if store_transitions:
                 # Build next RL state (requires VLA forward pass)
-                next_x, _ = self._extract_rl_state(next_obs)
+                next_x, _, _ = self._extract_rl_state(next_obs)
 
                 self.replay_buffer.add(
                     x=x,

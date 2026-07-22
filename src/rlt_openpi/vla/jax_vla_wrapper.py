@@ -85,13 +85,13 @@ def _observation_to_numpy(obs: Observation) -> Observation:
 
 
 class JaxEmbeddingExtractor:
-    """Wraps a JAX Pi0 model for embedding extraction and action sampling.
+    """Wraps a JAX Pi0 model for embedding extraction.
 
-    Both ``extract_embeddings`` and ``sample_actions`` go through the
-    single JIT-compiled :meth:`pi0_model.sample_actions`, which returns
-    ``((prefix_out, prefix_mask), actions)`` — two outputs from one
-    forward pass.  This follows the same JIT strategy as
-    :class:`openpi.policies.policy.Policy`.
+    ``extract_embeddings`` goes through the single JIT-compiled
+    :meth:`pi0_model.sample_actions`, which returns
+    ``((prefix_out, prefix_mask), actions)`` — the prefix embeddings
+    are kept and actions discarded.  This follows the same JIT strategy
+    as :class:`openpi.policies.policy.Policy`.
     """
 
     def __init__(self, pi0_model) -> None:
@@ -123,23 +123,6 @@ class JaxEmbeddingExtractor:
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
         return z, pad_mask
 
-    def sample_actions(
-        self,
-        observation: Observation,
-        num_steps: int = 10,
-    ) -> Tensor:
-        """Sample actions via JIT-compiled Pi0 (like policy.infer).
-
-        Uses the second return value of ``sample_actions`` (actions) and
-        discards the prefix embedding output.
-
-        Returns:
-            actions: [B, action_horizon, action_dim] float32.
-        """
-        obs_np = _observation_to_numpy(observation)
-        rng = self._next_rng()
-        _, actions = self._sample_actions(rng, obs_np, num_steps=num_steps)
-        return torch.from_numpy(np.array(actions)).to(dtype=torch.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -157,8 +140,7 @@ class JaxVLAWrapper:
     Supported operations:
     * ``preprocess_obs`` — raw env obs → batched Observation
     * ``extract_embeddings`` — post-transformer prefix embeddings z_{1:M}
-    * ``sample_reference_actions`` — full VLA action trajectory
-    * ``get_rl_chunk_reference`` — first C steps as RL reference
+    * ``extract_both`` — single forward pass returning both embeddings and robot-space actions
 
     **Unsupported** (VLA joint training disabled — no stubs remain):
     * ``compute_vla_loss``
@@ -265,46 +247,48 @@ class JaxVLAWrapper:
         z, pad_mask = self.extractor.extract_embeddings(observation)
         return z.to(self.device), pad_mask.to(self.device)
 
-    def sample_reference_actions(self, observation: Observation) -> Tensor:
-        """Get full VLA reference action trajectory, unnormalized to robot space.
+    def extract_both(
+        self,
+        observation: Observation,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Single VLA forward pass returning embeddings, pad_mask, and robot-space actions.
 
-        Mirrors OpenPI's ``Policy.infer`` output path.  The output
-        transform chain (Unnormalize → DroidOutputs or SliceAction)
-        converts actions from normalized space to robot space.
+        Combines ``extract_embeddings`` and ``sample_reference_actions``
+        into one JIT-compiled forward pass, avoiding a redundant second
+        call to the Pi0 model.
 
         Returns:
-            actions: [B, H, output_action_dim] where H = action_horizon.
+            z: [B, M, embedding_dim] post-transformer prefix embeddings.
+            pad_mask: [B, M] boolean mask (True = valid token).
+            actions: [B, H, output_action_dim] unnormalized robot-space actions.
         """
-        raw = self.extractor.sample_actions(observation)  # [B, H, action_dim] torch
-        actions_np = raw.cpu().numpy()
+        obs_np = _observation_to_numpy(observation)
+        rng = self.extractor._next_rng()
+        (prefix_out, prefix_mask), raw_actions = self.extractor._sample_actions(rng, obs_np)
+
+        z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(
+            dtype=torch.float32, device=self.device
+        )
+        pad_mask = torch.from_numpy(np.array(prefix_mask)).to(
+            dtype=torch.bool, device=self.device
+        )
+
+        # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
+        raw_t = torch.from_numpy(np.array(raw_actions)).to(dtype=torch.float32)
+        actions_np = raw_t.cpu().numpy()
         state_np = observation.state.cpu().numpy()
 
         out = []
         for i in range(actions_np.shape[0]):
-            actions_in = actions_np[i]  # [H, action_dim_raw]
+            actions_in = actions_np[i]
             t = self._output_transform({
                 "state": state_np[i],
                 "actions": actions_in,
             })
             out.append(t["actions"])
-        return torch.as_tensor(np.stack(out), device=self.device)
+        actions = torch.as_tensor(np.stack(out), device=self.device)
 
-    def get_rl_chunk_reference(
-        self,
-        observation: Observation,
-        chunk_length: int = 10,
-    ) -> Tensor:
-        """Get the first C action steps from the VLA as the RL reference.
-
-        Args:
-            observation: Batched openpi Observation.
-            chunk_length: Number of action steps to slice (C, default 10).
-
-        Returns:
-            a_tilde: [B, C, action_dim] reference actions for the RL chunk.
-        """
-        full_actions = self.sample_reference_actions(observation)
-        return full_actions[:, :chunk_length, :]
+        return z, pad_mask, actions
 
     @staticmethod
     def _load_norm_stats(
