@@ -233,6 +233,27 @@ class RolloutWorker:
 
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
+    def make_aloha_obs(self) -> dict:
+        """Creates a random input example for the Aloha policy."""
+        return {
+            "state": np.ones((14,)),
+            "images": {
+                "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+                "cam_low": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+                "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+                "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            },
+            "prompt": "place phone",
+        }
+
+    def _mock_env_step(self, action_chunk):
+        """Mock env step returning synthetic data (using make_aloha_obs)."""
+        next_obs = self.make_aloha_obs()
+        rewards = np.zeros(self.chunk_length, dtype=np.float32)
+        done = False
+        info = {"steps_executed": self.chunk_length}
+        return next_obs, rewards, done, info
+
     def collect_warmup(self, num_chunks: int) -> int:
         """Run VLA-only policy and store transitions in the replay buffer.
 
@@ -246,7 +267,8 @@ class RolloutWorker:
             Total number of transitions stored.
         """
         stored = 0
-        obs = self.env.reset()
+        # obs = self.env.reset()
+        obs = self.make_aloha_obs()
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
@@ -258,7 +280,8 @@ class RolloutWorker:
             # Step environment
             print(f"{'─' * 60}")
             print("Warmup: Step action chunk\n")
-            next_obs, rewards, done, _info = self.env.step(action_chunk)
+            # next_obs, rewards, done, _info = self.env.step(action_chunk)
+            next_obs, rewards, done, _info = self._mock_env_step(action_chunk)
 
             # Build next RL state
             print(f"{'─' * 60}")
@@ -277,7 +300,8 @@ class RolloutWorker:
             stored += 1
 
             if done:
-                obs = self.env.reset()
+                # obs = self.env.reset()
+                obs = self.make_aloha_obs()
             else:
                 obs = next_obs
 
@@ -303,7 +327,8 @@ class RolloutWorker:
             Episode statistics.
         """
         stats = EpisodeStats()
-        obs = self.env.reset()
+        # obs = self.env.reset()
+        obs = self.make_aloha_obs()
 
         while True:
             # Extract RL state and VLA reference
@@ -328,7 +353,8 @@ class RolloutWorker:
                 stats.interventions += 1
             else:
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
-                next_obs, rewards, done, info = self.env.step(action_chunk)
+                # next_obs, rewards, done, info = self.env.step(action_chunk)
+                next_obs, rewards, done, info = self._mock_env_step(action_chunk)
 
             a_flat = action_chunk.reshape(-1)  # [C*d]
 

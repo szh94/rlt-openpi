@@ -208,6 +208,8 @@ class OnlineRLTrainer:
             "Run name": cfg.run_name,
         })
 
+        # NOTE: Env warmup commented out — using RolloutWorker.collect_warmup()
+        # with mock env (make_aloha_obs) instead.
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
         if self.replay_buffer.size > 0:
             print(f"[Stage 2] Skipping warmup — replay buffer already has {self.replay_buffer.size} transitions (resumed)")
@@ -215,35 +217,19 @@ class OnlineRLTrainer:
             self._load_warmup_buffer(cfg.warmup_buffer)
         else:
             display.warmup_start(cfg.warmup_steps)
-            stored = 0
-            obs = env.reset()
-            for i in range(cfg.warmup_steps):
-                x, a_tilde_flat, action_chunk = worker._extract_rl_state(obs)
-                a_flat = action_chunk.reshape(-1)
-                next_obs, rewards, done, _info = env.step(action_chunk)
-                next_x, _, _ = worker._extract_rl_state(next_obs)
-                self.replay_buffer.add(
-                    x=x, a=a_flat, a_tilde=a_tilde_flat,
-                    rewards=rewards, next_x=next_x, done=float(done),
-                )
-                stored += 1
-                self._total_env_steps += cfg.chunk_length
-                display.warmup_progress(i + 1, cfg.warmup_steps)
-                if done:
-                    obs = env.reset()
-                else:
-                    obs = next_obs
+            stored = worker.collect_warmup(cfg.warmup_steps)
+            self._total_env_steps += stored * cfg.chunk_length
             display.warmup_done(stored, self.replay_buffer.size)
             self._save_warmup_buffer()
 
         # Phase 2: Online RL loop
-        # Inject episode counter into env so RobotEnv.reset() can display it
-        if hasattr(env, '_display_episode_num'):
-            env._display_episode_num = self._total_episodes + 1
+        # NOTE: env._display_episode_num commented out (no real env)
+        # if hasattr(env, '_display_episode_num'):
+        #     env._display_episode_num = self._total_episodes + 1
 
         while self._total_env_steps < cfg.max_env_steps:
-            if hasattr(env, '_display_episode_num'):
-                env._display_episode_num = self._total_episodes + 1
+            # if hasattr(env, '_display_episode_num'):
+            #     env._display_episode_num = self._total_episodes + 1
 
             self.actor.eval()
             stats = worker.collect_episode()
