@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
+from rlt_openpi.envs.robot_env_base.reward import HumanReward
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
@@ -82,6 +83,7 @@ class RolloutWorker:
 
         self._action_chunk_dim = chunk_length * action_dim
         self._mock_chunk_count = 0
+        self._feedback = HumanReward()
 
     def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
@@ -184,22 +186,43 @@ class RolloutWorker:
         }
 
     def _mock_env_step(self, obs, action_chunk):
-        """Mock env step mirroring RobotEnv.step() logic.
+        """Mock env step mirroring RobotEnv.step() line 137–218.
 
         Identical to RobotEnv.step() except:
-        - Uses make_aloha_obs() for observations
-        - No robot hardware, no human feedback, no control sleep
+        - No robot hardware (no _step_fn, no _control_period, no sleep)
+        - next_obs reuses input obs (mock — no real cameras/encoders)
         """
         C = self.chunk_length
         rewards = np.zeros(C, dtype=np.float32)
         done = False
         info: dict[str, Any] = {}
 
-        for k in range(C):
-            # No hardware step, no human signal check (mock env)
-            pass
+        # Episode start: begin listening for keyboard input
+        if self._mock_chunk_count == 0:
+            self._feedback.start()
 
-        info["steps_executed"] = C
+        for k in range(C):
+            # No hardware step (mock env)
+
+            # Check for human signal between steps
+            signal = self._feedback.check()
+            if signal is not None:
+                if signal == "s":
+                    rewards[k] = 1.0
+                    done = True
+                    info["success"] = True
+                    print("Human signal: SUCCESS")
+                elif signal == "f":
+                    done = True
+                    info["success"] = False
+                    print("Human signal: FAILURE")
+                elif signal == "p":
+                    rewards[k] = self._feedback.progress_reward
+                    print(f"Human signal: PROGRESS (+{self._feedback.progress_reward:.2f})")
+                if done:
+                    break
+
+        info["steps_executed"] = k + 1
         self._mock_chunk_count += 1
 
         # Timeout: force episode end after max chunks
@@ -207,13 +230,14 @@ class RolloutWorker:
             done = True
             info["success"] = False
             info["timeout"] = True
+            print(f"Episode timed out after {self._mock_chunk_count} chunks")
 
+        # Restore terminal when episode ends
         if done:
+            self._feedback.stop()
             self._mock_chunk_count = 0
-            next_obs = self.make_aloha_obs()
-        else:
-            next_obs = self.make_aloha_obs()
 
+        next_obs = obs  # reuse obs (mock — no real hardware to query)
         return next_obs, rewards, done, info
 
     def collect_warmup(self, num_chunks: int) -> int:
