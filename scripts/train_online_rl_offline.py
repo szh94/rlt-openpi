@@ -24,7 +24,6 @@ import torch
 import tyro
 
 from rlt_openpi.envs.intervention import InterventionManager
-from rlt_openpi.envs.mock.mock_env import MockEnv
 from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
@@ -75,22 +74,11 @@ def main(config: OnlineRLTrainConfig) -> None:
         print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
 
-    # ── 4. Create MockEnv instead of real robot ─────────────────────
-    # THIS is the ONLY line that differs from train_online_rl.py
-    print("Creating MockEnv (fake observations, no robot)")
-    env = MockEnv(
-        action_dim=config.action_dim,
-        chunk_length=config.chunk_length,
-        task_prompt=config.task_prompt,
-        max_episode_chunks=config.max_episode_chunks,
-        image_size=config.mock_image_size,
-    )
-
-    # ── 5. Run training (same OnlineRLTrainer.train) ────────────────
-    # No VR intervention for mock test
+    # ── 4. Mock env removed — trainer uses RolloutWorker.make_aloha_obs
+    print("Using mock obs (make_aloha_obs), no real env")
     intervention_mgr: InterventionManager | None = None
 
-    trainer.train(env=env, intervention_mgr=intervention_mgr, log_fn=rl_logger.log)
+    trainer.train(env=None, intervention_mgr=intervention_mgr, log_fn=rl_logger.log)
 
     rl_logger.finish()
 

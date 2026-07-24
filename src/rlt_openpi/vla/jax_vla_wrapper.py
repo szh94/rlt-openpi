@@ -177,8 +177,10 @@ class JaxVLAWrapper:
 
         # Load the JAX model from an Orbax checkpoint.
         checkpoint_dir_path = pathlib.Path(checkpoint_dir)
-        print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_dir_path}")
-        params = _model.restore_params(checkpoint_dir_path, restore_type=np.ndarray)
+        checkpoint_params_path = pathlib.Path(checkpoint_dir + "/params")
+
+        print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_params_path}")
+        params = _model.restore_params(checkpoint_params_path, restore_type=np.ndarray)
         self._pi0_model = self.train_config.model.load(params)
         print("JAX Pi0 model loaded successfully.")
 
