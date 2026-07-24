@@ -21,6 +21,7 @@ import pathlib
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import torch
 from openpi.models import model as _model
@@ -55,11 +56,13 @@ class _SliceAction:
 
 
 def _observation_to_numpy(obs: Observation) -> Observation:
-    """Convert an Observation containing torch tensors to numpy arrays for JAX."""
+    """Convert an Observation containing torch/jnp tensors to numpy arrays for JAX."""
 
     def _to_np(x):
         if isinstance(x, torch.Tensor):
             return x.detach().cpu().numpy()
+        if isinstance(x, jnp.ndarray):
+            return np.array(x)
         return x
 
     images = {k: _to_np(v) for k, v in obs.images.items()}
@@ -222,17 +225,19 @@ class JaxVLAWrapper:
     def preprocess_obs(self, obs: dict[str, Any]) -> Observation:
         """Convert a raw environment observation into a batched Observation.
 
-        Applies the full OpenPI input transform chain and returns torch
-        tensors on **CPU** so that ``RolloutWorker`` can move them to the
-        target device via ``.to(device=...)`` without a redundant copy.
+        Applies the full OpenPI input transform chain and returns jnp
+        arrays (same as the JAX path in ``policy.py``), so images stay in
+        NHWC format expected by the JAX model.
 
         Args:
             obs: Raw observation dict from the environment.
         """
         transformed = self._input_transform(dict(obs))
 
+        # Use jnp (NOT torch) so Observation.from_dict keeps images in NHWC
+        # format, matching JAX model expectations (same as policy.py JAX path).
         batched = jax.tree.map(
-            lambda x: torch.from_numpy(np.array(x))[None, ...],
+            lambda x: jnp.asarray(x)[None, ...],
             transformed,
         )
         return Observation.from_dict(batched)

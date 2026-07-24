@@ -135,7 +135,10 @@ class RolloutWorker:
         # DroidInputs merges joint_pos + gripper into state, then
         # PadStatesAndActions zero-pads to the VLA's internal width.
         # Slice to action_dim to drop the padding.
-        s_p = vla_input.state[:, :self.action_dim].to(dtype=torch.float32, device=self.device)  # [1, d]
+        s_p = torch.as_tensor(
+            np.array(vla_input.state[:, :self.action_dim]),
+            dtype=torch.float32, device=self.device,
+        )
 
         # RL state: x = cat(z_rl, s^p)
         x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
