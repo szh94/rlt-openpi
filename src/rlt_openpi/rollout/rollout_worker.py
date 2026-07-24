@@ -65,6 +65,7 @@ class RolloutWorker:
         device: torch.device | str = "cuda",
         max_deviation: float = 0.3,
         deviation_abort_threshold: float = 0.8,
+        max_episode_chunks: int = 150,
     ) -> None:
         self.env = env
         self.vla = vla
@@ -77,8 +78,10 @@ class RolloutWorker:
         self.device = torch.device(device)
         self.max_deviation = max_deviation
         self.deviation_abort_threshold = deviation_abort_threshold
+        self.max_episode_chunks = max_episode_chunks
 
         self._action_chunk_dim = chunk_length * action_dim
+        self._mock_chunk_count = 0
 
     def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
@@ -110,10 +113,6 @@ class RolloutWorker:
             a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
             action_chunk: VLA reference actions [C, action_dim] as numpy.
         """
-        raw_joint = obs.get("state", None)
-        if raw_joint is not None:
-            print(f"\n[VLA input] raw state: {np.array(raw_joint)}")
-
         vla_input = self._obs_to_vla_input(obs)
 
         # Single VLA forward pass (JAX) or two calls (PyTorch fallback)
@@ -160,86 +159,21 @@ class RolloutWorker:
         Returns:
             action_chunk: [C, action_dim] numpy array.
         """
+
         x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
+
         a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
+
 
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
 
-        # Debug: print first action of chunk before and after actor
-        a_tilde_first = a_tilde_t.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
-        a_raw_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
-        print(
-            f"Actor action[0]: a_tilde={np.array2string(a_tilde_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
-        )
-        print(
-            f"Actor action[0]: raw_out={np.array2string(a_raw_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
-        )
-
-        # Safety: abort if raw deviation is abnormally large
-        raw_dev = (a_flat - a_tilde_t).abs()
-        raw_max_dev = raw_dev.max().item()
-        if raw_max_dev > self.deviation_abort_threshold:
-            max_idx = raw_dev.argmax().item()
-            print(
-                f"[ERROR] ABORT: Actor raw deviation {raw_max_dev:.4f} exceeds threshold {self.deviation_abort_threshold:.4f} "
-                f"(idx={max_idx}: a_tilde={a_tilde_t[0, max_idx].item():.4f}, a_actor={a_flat[0, max_idx].item():.4f}). "
-                f"Stats — a_tilde: mean={a_tilde_t.mean().item():.4f} std={a_tilde_t.std().item():.4f} min={a_tilde_t.min().item():.4f} max={a_tilde_t.max().item():.4f}; "
-                f"a_actor: mean={a_flat.mean().item():.4f} std={a_flat.std().item():.4f} min={a_flat.min().item():.4f} max={a_flat.max().item():.4f}. "
-                f"The model is producing extreme outputs — check training."
-            )
-            raise RuntimeError(
-                f"Actor raw max deviation {raw_max_dev:.4f} > "
-                f"abort threshold {self.deviation_abort_threshold:.4f} "
-                f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
-                f"a_actor={a_flat[0, max_idx].item():.4f})"
-            )
-
-        # Safety: cap deviation from VLA reference
-        deviation = a_flat - a_tilde_t
-        deviation = torch.clamp(deviation, -self.max_deviation, self.max_deviation)
-        a_flat = a_tilde_t + deviation
-
-        # Debug: print first action after deviation cap
-        a_capped_first = a_flat.reshape(1, self.chunk_length, self.action_dim)[0, 0, :]
-        print(
-            f"Actor action[0]: capped  ={np.array2string(a_capped_first.cpu().numpy(), precision=4, suppress_small=True, max_line_width=200)}",
-        )
-        # a_flat = a_flat.clamp(-1.0, 1.0)
-
-        # Safety: abort if raw deviation is abnormally large
-        # raw_dev = (a_flat - a_tilde_t).abs()
-        # raw_max_dev = raw_dev.max().item()
-        # if raw_max_dev > self.deviation_abort_threshold:
-        #     max_idx = raw_dev.argmax().item()
-        #     logger.error(
-        #         "ABORT: Actor raw deviation %.4f exceeds threshold %.4f "
-        #         "(idx=%d: a_tilde=%.4f, a_actor=%.4f). "
-        #         "Stats — a_tilde: mean=%.4f std=%.4f min=%.4f max=%.4f; "
-        #         "a_actor: mean=%.4f std=%.4f min=%.4f max=%.4f. "
-        #         "The model is producing extreme outputs — check training.",
-        #         raw_max_dev,
-        #         self.deviation_abort_threshold,
-        #         max_idx,
-        #         a_tilde_t[0, max_idx].item(),
-        #         a_flat[0, max_idx].item(),
-        #         a_tilde_t.mean().item(), a_tilde_t.std().item(),
-        #         a_tilde_t.min().item(), a_tilde_t.max().item(),
-        #         a_flat.mean().item(), a_flat.std().item(),
-        #         a_flat.min().item(), a_flat.max().item(),
-        #     )
-        #     raise RuntimeError(
-        #         f"Actor raw max deviation {raw_max_dev:.4f} > "
-        #         f"abort threshold {self.deviation_abort_threshold:.4f} "
-        #         f"(idx={max_idx}, a_tilde={a_tilde_t[0, max_idx].item():.4f}, "
-        #         f"a_actor={a_flat[0, max_idx].item():.4f})"
-        #     )
 
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
     def make_aloha_obs(self) -> dict:
         """Creates a random input example for the Aloha policy."""
         return {
-            "state": np.ones((14,)),
+            "state": np.random.uniform(0, 180, size=(14,)),
             "images": {
                 "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
                 "cam_low": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
@@ -249,12 +183,37 @@ class RolloutWorker:
             "prompt": "place phone",
         }
 
-    def _mock_env_step(self, action_chunk):
-        """Mock env step returning synthetic data (using make_aloha_obs)."""
-        next_obs = self.make_aloha_obs()
-        rewards = np.zeros(self.chunk_length, dtype=np.float32)
+    def _mock_env_step(self, obs, action_chunk):
+        """Mock env step mirroring RobotEnv.step() logic.
+
+        Identical to RobotEnv.step() except:
+        - Uses make_aloha_obs() for observations
+        - No robot hardware, no human feedback, no control sleep
+        """
+        C = self.chunk_length
+        rewards = np.zeros(C, dtype=np.float32)
         done = False
-        info = {"steps_executed": self.chunk_length}
+        info: dict[str, Any] = {}
+
+        for k in range(C):
+            # No hardware step, no human signal check (mock env)
+            pass
+
+        info["steps_executed"] = C
+        self._mock_chunk_count += 1
+
+        # Timeout: force episode end after max chunks
+        if not done and self._mock_chunk_count >= self.max_episode_chunks:
+            done = True
+            info["success"] = False
+            info["timeout"] = True
+
+        if done:
+            self._mock_chunk_count = 0
+            next_obs = self.make_aloha_obs()
+        else:
+            next_obs = self.make_aloha_obs()
+
         return next_obs, rewards, done, info
 
     def collect_warmup(self, num_chunks: int) -> int:
@@ -276,19 +235,17 @@ class RolloutWorker:
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
             print(f"{'─' * 60}")
-            print("Warmup: Get rl_state\n")
+            print("Warmup: Get rl_state")
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
             # Step environment
-            print(f"{'─' * 60}")
-            print("Warmup: Step action chunk\n")
+            print("Warmup: Step action chunk")
             # next_obs, rewards, done, _info = self.env.step(action_chunk)
-            next_obs, rewards, done, _info = self._mock_env_step(action_chunk)
+            next_obs, rewards, done, _info = self._mock_env_step(obs, action_chunk)
 
             # Build next RL state
-            print(f"{'─' * 60}")
-            print("Warmup: Get next rl_state\n")
+            print("Warmup: Get next rl_state")
             next_x, _, _ = self._extract_rl_state(next_obs)
 
             # Store transition
@@ -357,7 +314,7 @@ class RolloutWorker:
             else:
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
                 # next_obs, rewards, done, info = self.env.step(action_chunk)
-                next_obs, rewards, done, info = self._mock_env_step(action_chunk)
+                next_obs, rewards, done, info = self._mock_env_step(obs, action_chunk)
 
             a_flat = action_chunk.reshape(-1)  # [C*d]
 

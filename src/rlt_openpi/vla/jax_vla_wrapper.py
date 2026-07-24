@@ -283,7 +283,7 @@ class JaxVLAWrapper:
         # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
         raw_t = torch.from_numpy(np.array(raw_actions)).to(dtype=torch.float32)
         actions_np = raw_t.cpu().numpy()
-        state_np = observation.state.cpu().numpy()
+        state_np = obs_np.state  # already numpy from _observation_to_numpy
 
         out = []
         for i in range(actions_np.shape[0]):

@@ -108,6 +108,7 @@ class OnlineRLTrainer:
             device=self.device,
             max_deviation=self.config.max_deviation,
             deviation_abort_threshold=self.config.deviation_abort_threshold,
+            max_episode_chunks=self.config.max_episode_chunks,
         )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:
@@ -217,8 +218,11 @@ class OnlineRLTrainer:
             self._load_warmup_buffer(cfg.warmup_buffer)
         else:
             display.warmup_start(cfg.warmup_steps)
-            stored = worker.collect_warmup(cfg.warmup_steps)
-            self._total_env_steps += stored * cfg.chunk_length
+            stored = 0
+            for i in range(cfg.warmup_steps):
+                stored += worker.collect_warmup(1)
+                self._total_env_steps += cfg.chunk_length
+                display.warmup_progress(i + 1, cfg.warmup_steps)
             display.warmup_done(stored, self.replay_buffer.size)
             self._save_warmup_buffer()
 
