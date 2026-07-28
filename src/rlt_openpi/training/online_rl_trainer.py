@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.critic import TwinQCritic
@@ -20,6 +21,7 @@ from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
+from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.training.td3_utils import actor_loss, compute_td_target, critic_loss
 from rlt_openpi.utils import display
@@ -182,6 +184,82 @@ class OnlineRLTrainer:
         self._total_updates += 1
         return metrics
 
+    def _pretrain_actor(self) -> None:
+        """Phase 0: BC pre-train the actor to match VLA reference actions on dataset observations.
+
+        Loads random observations from a LeRobot dataset, runs the frozen VLA
+        to compute reference actions, then trains the actor via MSE loss to
+        reproduce those actions.  Skipped when ``actor_pretrain_steps <= 0``
+        or ``repo_id`` is empty.
+        """
+        cfg = self.config
+        if cfg.actor_pretrain_steps <= 0 or not cfg.repo_id:
+            return
+
+        print(f"\n[Actor Pretrain] Starting BC pre-training: {cfg.actor_pretrain_steps} steps")
+        print(f"  Dataset: {cfg.repo_id}")
+        print(f"  Batch size: {cfg.actor_pretrain_batch_size}")
+
+        dataloader = build_data_loader(
+            openpi_config_name=cfg.vla_config_name,
+            repo_id=cfg.repo_id,
+            batch_size=cfg.actor_pretrain_batch_size,
+            shuffle=True,
+        )
+
+        self.actor.train()
+
+        data_iter = iter(dataloader)
+        for step in range(cfg.actor_pretrain_steps):
+            observation, _ = next(data_iter)
+
+            # Single VLA forward pass: embeddings + reference actions
+            z, pad_mask, actions = self.vla.extract_both(observation)
+
+            # Move to device (VLA outputs are on CPU)
+            z = z.to(self.device)
+            pad_mask = pad_mask.to(self.device)
+            actions = actions.to(self.device)
+
+            # RL token encode
+            z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
+
+            # Proprioceptive state
+            s_p = observation.state[:, :cfg.action_dim].to(self.device)  # [B, 14]
+
+            # Build RL state
+            x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
+
+            # VLA reference chunk
+            a_tilde = actions[:, :cfg.chunk_length, :].reshape(z_rl.shape[0], -1)  # [B, C*d]
+
+            # Actor forward + BC loss
+            a_actor = self.actor(x, a_tilde)  # [B, C*d]
+            loss = F.mse_loss(a_actor, a_tilde)
+
+            self.actor_optimizer.zero_grad()
+            loss.backward()
+            self.actor_optimizer.step()
+
+            print(f"[Actor Pretrain] step {step + 1}/{cfg.actor_pretrain_steps}  loss={loss.item():.6f}")
+
+        # Save pretrain checkpoint
+        save_dir = Path(cfg.save_dir) / cfg.run_name
+        save_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_path = save_dir / "actor_pretrain.pt"
+        torch.save(
+            {
+                "actor": self.actor.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "pretrain_steps": cfg.actor_pretrain_steps,
+                "repo_id": cfg.repo_id,
+                "final_loss": loss.item(),
+            },
+            ckpt_path,
+        )
+        print(f"[Actor Pretrain] Saved checkpoint to {ckpt_path}")
+        print(f"[Actor Pretrain] Done. Final loss={loss.item():.6f}\n")
+
     def train(
         self,
         env: Any,
@@ -208,6 +286,9 @@ class OnlineRLTrainer:
             "Action dim": str(cfg.action_dim),
             "Run name": cfg.run_name,
         })
+
+        # Phase 0: Actor BC pre-training
+        self._pretrain_actor()
 
         # NOTE: Env warmup commented out — using RolloutWorker.collect_warmup()
         # with mock env (make_aloha_obs) instead.

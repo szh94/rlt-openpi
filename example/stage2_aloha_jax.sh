@@ -45,6 +45,13 @@ JOINT_OVERRIDE='{}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
+# Actor BC pre-training (before warmup)
+# Set ACTOR_PRETRAIN_STEPS=0 to skip, or provide a dataset name for REPO_ID.
+DATASET_NAME="aloha_phone"             # LeRobot dataset name under HF_LEROBOT_HOME
+REPO_ID="${HF_LEROBOT_HOME}/${DATASET_NAME}"
+ACTOR_PRETRAIN_STEPS=1000              # Number of BC pre-training steps (0 = skip)
+ACTOR_PRETRAIN_BATCH_SIZE=16          # Batch size for BC pre-training
+
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true
 
@@ -92,6 +99,9 @@ python scripts/train_online_rl_jax.py \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
+    --repo-id "$REPO_ID" \
+    --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
+    --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --save-every 40 \
     $(
     # === 默认参数，必要时取消注释修改 ===

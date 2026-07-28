@@ -266,6 +266,7 @@ class RolloutWorker:
             # print(f"{'─' * 60}")
             # raw_joint = obs.get("state", None)
             # print(f"[VLA input] raw state: {np.array(raw_joint)}")
+            
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
             # print(f"action_chunk[0]: {action_chunk[0]}")
             a_flat = action_chunk.reshape(-1)  # [C*d]
