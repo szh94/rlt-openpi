@@ -67,7 +67,7 @@ class RolloutWorker:
         max_deviation: float = 0.3,
         deviation_abort_threshold: float = 0.8,
         max_episode_chunks: int = 150,
-        use_mock_env: bool = False,
+        use_mock_env: bool = True,
     ) -> None:
         self.env = env
         self.vla = vla
@@ -163,15 +163,19 @@ class RolloutWorker:
         Returns:
             action_chunk: [C, action_dim] numpy array.
         """
-
+        # x: [state_dim] -> unsqueeze -> [1, state_dim]
         x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
-
+        # a_tilde_flat: [C*d] -> unsqueeze -> [1, C*d]
         a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
 
-
+        # actor forward: input (1, state_dim) & (1, C*d) -> output [1, C*d]
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
+        
+        # 打印前 action_dim 个维度的差值（即第一个时间步的动作调整量）
+        diff = (a_flat[0, :self.action_dim] - a_tilde_t[0, :self.action_dim]).cpu().numpy()
+        print(f"Actor input-output diff (first {self.action_dim} dims): {diff}")
 
-
+        # squeeze to remove batch dim: [1, C*d] -> [C*d]; then numpy; then reshape to [C, d]
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
     def make_aloha_obs(self) -> dict:
@@ -259,20 +263,21 @@ class RolloutWorker:
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
-            print(f"{'─' * 60}")
-            print("Warmup: Get rl_state")
+            # print(f"{'─' * 60}")
+            # raw_joint = obs.get("state", None)
+            # print(f"[VLA input] raw state: {np.array(raw_joint)}")
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
+            # print(f"action_chunk[0]: {action_chunk[0]}")
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
             # Step environment
-            print("Warmup: Step action chunk")
             if self._use_mock_env:
                 next_obs, rewards, done, _info = self._mock_env_step(obs, action_chunk)
             else:
                 next_obs, rewards, done, _info = self.env.step(action_chunk)
 
             # Build next RL state
-            print("Warmup: Get next rl_state")
+            # print("Warmup: Get next rl_state")
             next_x, _, _ = self._extract_rl_state(next_obs)
 
             # Store transition

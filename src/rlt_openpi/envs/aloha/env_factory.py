@@ -111,7 +111,7 @@ def make_aloha_env(
     """
     import cv2
     import einops
-    from rlt_openpi.hansrobot.hansrobot_realsense import hansrobot
+    from example.hansrobot.hansrobot_realsense import hansrobot
     from openpi_client import image_tools
 
     from rlt_openpi.envs.robot_env_base.robot_env import RobotEnv
