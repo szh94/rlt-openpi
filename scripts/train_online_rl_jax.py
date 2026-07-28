@@ -60,6 +60,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         vla=vla,
         rl_token_model=rl_token_model,
         device="cuda",
+        data_transforms=aloha_data_transforms(),
     )
 
     # Resume from checkpoint if provided

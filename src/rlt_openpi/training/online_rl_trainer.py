@@ -46,9 +46,12 @@ class OnlineRLTrainer:
         vla: VLAWrapper,
         rl_token_model: RLTokenModel,
         device: torch.device | str = "cuda",
+        *,
+        data_transforms: Any = None,
     ) -> None:
         self.config = config
         self.device = torch.device(device)
+        self._data_transforms = data_transforms
 
         # Frozen components
         self.vla = vla
@@ -192,25 +195,27 @@ class OnlineRLTrainer:
         reproduce those actions.  Skipped when ``actor_pretrain_steps <= 0``
         or ``repo_id`` is empty.
         """
-        cfg = self.config
-        if cfg.actor_pretrain_steps <= 0 or not cfg.repo_id:
+        config = self.config
+        if config.actor_pretrain_steps <= 0 or not config.repo_id:
             return
 
-        print(f"\n[Actor Pretrain] Starting BC pre-training: {cfg.actor_pretrain_steps} steps")
-        print(f"  Dataset: {cfg.repo_id}")
-        print(f"  Batch size: {cfg.actor_pretrain_batch_size}")
+        print(f"\n[Actor Pretrain] Starting BC pre-training: {config.actor_pretrain_steps} steps")
+        print(f"  Dataset: {config.repo_id}")
+        print(f"  Batch size: {config.actor_pretrain_batch_size}")
 
         dataloader = build_data_loader(
-            openpi_config_name=cfg.vla_config_name,
-            repo_id=cfg.repo_id,
-            batch_size=cfg.actor_pretrain_batch_size,
+            openpi_config_name=config.vla_config_name,
+            repo_id=config.repo_id,
+            batch_size=config.actor_pretrain_batch_size,
+            num_workers=config.num_workers,
             shuffle=True,
+            data_transforms=self._data_transforms,
         )
 
         self.actor.train()
 
         data_iter = iter(dataloader)
-        for step in range(cfg.actor_pretrain_steps):
+        for step in range(config.actor_pretrain_steps):
             observation, _ = next(data_iter)
 
             # Single VLA forward pass: embeddings + reference actions
@@ -225,13 +230,13 @@ class OnlineRLTrainer:
             z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
 
             # Proprioceptive state
-            s_p = observation.state[:, :cfg.action_dim].to(self.device)  # [B, 14]
+            s_p = observation.state[:, :config.action_dim].to(self.device)  # [B, 14]
 
             # Build RL state
             x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
 
             # VLA reference chunk
-            a_tilde = actions[:, :cfg.chunk_length, :].reshape(z_rl.shape[0], -1)  # [B, C*d]
+            a_tilde = actions[:, :config.chunk_length, :].reshape(z_rl.shape[0], -1)  # [B, C*d]
 
             # Actor forward + BC loss
             a_actor = self.actor(x, a_tilde)  # [B, C*d]
@@ -241,18 +246,18 @@ class OnlineRLTrainer:
             loss.backward()
             self.actor_optimizer.step()
 
-            print(f"[Actor Pretrain] step {step + 1}/{cfg.actor_pretrain_steps}  loss={loss.item():.6f}")
+            print(f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  loss={loss.item():.6f}")
 
         # Save pretrain checkpoint
-        save_dir = Path(cfg.save_dir) / cfg.run_name
+        save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = save_dir / "actor_pretrain.pt"
         torch.save(
             {
                 "actor": self.actor.state_dict(),
                 "actor_optimizer": self.actor_optimizer.state_dict(),
-                "pretrain_steps": cfg.actor_pretrain_steps,
-                "repo_id": cfg.repo_id,
+                "pretrain_steps": config.actor_pretrain_steps,
+                "repo_id": config.repo_id,
                 "final_loss": loss.item(),
             },
             ckpt_path,

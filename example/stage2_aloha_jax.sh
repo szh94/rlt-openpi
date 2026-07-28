@@ -47,8 +47,6 @@ LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
 # Actor BC pre-training (before warmup)
 # Set ACTOR_PRETRAIN_STEPS=0 to skip, or provide a dataset name for REPO_ID.
-DATASET_NAME="aloha_phone"             # LeRobot dataset name under HF_LEROBOT_HOME
-REPO_ID="${HF_LEROBOT_HOME}/${DATASET_NAME}"
 ACTOR_PRETRAIN_STEPS=1000              # Number of BC pre-training steps (0 = skip)
 ACTOR_PRETRAIN_BATCH_SIZE=16          # Batch size for BC pre-training
 
@@ -63,7 +61,7 @@ export WANDB_MODE=offline
 echo "========================================"
 echo " Stage 2 Online RL (ALOHA Dual-Arm)"
 echo " [JAX VLA]"
-echo "   VLA checkpoint  = $VLA_CHECKPOINT"
+echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
 echo "   Control Hz      = $ALOHA_CONTROL_HZ"
 echo "   Chunk length    = $ALOHA_CHUNK_LENGTH"
@@ -89,7 +87,7 @@ ENV_KWARGS="${ENV_KWARGS}}"
 python scripts/train_online_rl_jax.py \
     --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
     --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
     --task-prompt "$TASK_PROMPT" \
@@ -99,7 +97,7 @@ python scripts/train_online_rl_jax.py \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
-    --repo-id "$REPO_ID" \
+    --repo-id "$HF_LEROBOT_HOME" \
     --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
     --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --save-every 40 \
