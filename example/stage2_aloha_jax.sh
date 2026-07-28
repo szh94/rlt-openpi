@@ -98,6 +98,7 @@ python scripts/train_online_rl_jax.py \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
     --repo-id "$HF_LEROBOT_HOME" \
+    --data-transforms-fn "$DATA_TRANSFORMS_FN" \
     --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
     --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --save-every 40 \

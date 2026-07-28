@@ -92,6 +92,7 @@ class OnlineRLTrainConfig:
     actor_pretrain_steps: int = 1000  # Number of BC pre-training steps. 0 = skip.
     actor_pretrain_batch_size: int = 16  # Batch size for BC pre-training.
     num_workers: int = 4  # DataLoader worker processes for BC pre-training.
+    data_transforms_fn: str | None = None  # Dotted path to data-transforms factory (same as Stage 1).
 
     # Environment
     env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"

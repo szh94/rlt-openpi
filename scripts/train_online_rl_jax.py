@@ -19,13 +19,13 @@ Usage::
 from __future__ import annotations
 
 # import json
+import importlib
 
 import tyro
 
 # NOTE: env imports commented out — using mock env (make_aloha_obs)
 # from rlt_openpi.envs.factory import make_env, make_intervention
 # from rlt_openpi.envs.intervention import InterventionManager
-from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
@@ -33,10 +33,28 @@ from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
+
+def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
+    """Dynamically import and call a data-transforms factory (same as Stage 1)."""
+    if dotted_path is None:
+        return None
+
+    from openpi.training.config import get_config
+
+    module_path, func_name = dotted_path.rsplit(".", 1)
+    factory_fn = getattr(importlib.import_module(module_path), func_name)
+    return factory_fn(get_config(openpi_config_name).model)
+
+
 def main(config: OnlineRLTrainConfig) -> None:
     """Run online RL training with JAX VLA (Stage 2, Algorithm 1)."""
     # Set up logger
     rl_logger = Logger.from_train_config(config)
+
+    # Resolve data transforms (same pattern as Stage 1 JAX)
+    data_transforms = _resolve_data_transforms(
+        config.data_transforms_fn, config.vla_config_name
+    )
 
     # Load frozen JAX VLA
     vla = JaxVLAWrapper(
@@ -44,7 +62,7 @@ def main(config: OnlineRLTrainConfig) -> None:
         config_name=config.vla_config_name,
         device="cuda",
         output_action_dim=config.action_dim,
-        data_transforms=aloha_data_transforms(),
+        data_transforms=data_transforms,
     )
 
     # Load frozen RL token model from Stage 1
@@ -58,7 +76,6 @@ def main(config: OnlineRLTrainConfig) -> None:
     # Build BC pre-training data loader (if configured)
     pretrain_data_iter = None
     if config.repo_id and config.actor_pretrain_steps > 0:
-        data_transforms = aloha_data_transforms()
         print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
         pretrain_dataloader = build_data_loader(
             openpi_config_name=config.vla_config_name,
