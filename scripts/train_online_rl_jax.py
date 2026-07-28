@@ -18,16 +18,27 @@ Usage::
 
 from __future__ import annotations
 
-# import json
+import dataclasses
 import importlib
+import multiprocessing
+import typing
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+import torch
 import tyro
+
+from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
+from openpi.models.model import Observation
+from openpi.training.config import get_config
+from openpi.training.data_loader import create_torch_dataset, transform_dataset
+import openpi.transforms as _transforms
 
 # NOTE: env imports commented out — using mock env (make_aloha_obs)
 # from rlt_openpi.envs.factory import make_env, make_intervention
 # from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.training.config import OnlineRLTrainConfig
-from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
@@ -39,11 +50,81 @@ def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
     if dotted_path is None:
         return None
 
-    from openpi.training.config import get_config
-
     module_path, func_name = dotted_path.rsplit(".", 1)
     factory_fn = getattr(importlib.import_module(module_path), func_name)
     return factory_fn(get_config(openpi_config_name).model)
+
+
+def _numpy_collate(items):
+    """Collate batch elements into numpy arrays (no torch)."""
+    return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+
+
+def _patch_repack_action_key(data_config, action_key: str):
+    """Rewrite the repack transform so ``"actions"`` reads from *action_key*."""
+    new_inputs = []
+    for t in data_config.repack_transforms.inputs:
+        if isinstance(t, _transforms.RepackTransform) and "actions" in t.structure:
+            patched = dict(t.structure)
+            patched["actions"] = action_key
+            t = _transforms.RepackTransform(patched)
+        new_inputs.append(t)
+    repack = _transforms.Group(inputs=new_inputs)
+    return dataclasses.replace(data_config, repack_transforms=repack)
+
+
+def _build_jax_data_iter(
+    vla_config_name: str,
+    repo_id: str,
+    batch_size: int,
+    *,
+    num_workers: int = 4,
+    data_transforms: _transforms.Group | None = None,
+):
+    """Build a JAX-native data iterator — same pattern as Stage 1 JAX.
+
+    Uses ``jnp.asarray`` (not ``torch.as_tensor``) so that
+    ``Observation.from_dict`` goes through the numpy path, which keeps
+    images in NHWC format that JAX models expect.
+    """
+    openpi_config = get_config(vla_config_name)
+    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+    data_config = dataclasses.replace(data_config, repo_id=repo_id)
+
+    # Auto-detect action column name.
+    meta = LeRobotDatasetMetadata(repo_id)
+    if "action" in meta.features and "actions" not in meta.features:
+        data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
+        data_config = _patch_repack_action_key(data_config, "action")
+
+    if data_transforms is not None:
+        print("Overriding data_transforms with custom Group")
+        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
+
+    dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
+    dataset = transform_dataset(dataset, data_config)
+
+    mp_context = multiprocessing.get_context("spawn") if num_workers > 0 else None
+    raw_loader = torch.utils.data.DataLoader(
+        typing.cast(torch.utils.data.Dataset, dataset),
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        multiprocessing_context=mp_context,
+        persistent_workers=num_workers > 0,
+        collate_fn=_numpy_collate,
+        drop_last=True,
+    )
+
+    # numpy → JAX, matching OpenPI's TorchDataLoader.__iter__:
+    #   numpy batch → jnp.asarray → Observation.from_dict
+    def _jax_iter(loader):
+        while True:
+            for batch in loader:
+                batch = jax.tree.map(jnp.asarray, batch)
+                yield Observation.from_dict(batch), batch["actions"]
+
+    return _jax_iter(raw_loader)
 
 
 def main(config: OnlineRLTrainConfig) -> None:
@@ -73,19 +154,17 @@ def main(config: OnlineRLTrainConfig) -> None:
     # JaxVLAWrapper cannot fine-tune the VLA (vla_finetune_alpha must be 0).
     # The base JAX VLA loaded above is used as-is.
 
-    # Build BC pre-training data loader (if configured)
+    # Build BC pre-training data iterator (same pattern as Stage 1 JAX)
     pretrain_data_iter = None
     if config.repo_id and config.actor_pretrain_steps > 0:
         print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
-        pretrain_dataloader = build_data_loader(
-            openpi_config_name=config.vla_config_name,
+        pretrain_data_iter = _build_jax_data_iter(
+            vla_config_name=config.vla_config_name,
             repo_id=config.repo_id,
             batch_size=config.actor_pretrain_batch_size,
             num_workers=config.num_workers,
-            shuffle=True,
             data_transforms=data_transforms,
         )
-        pretrain_data_iter = iter(pretrain_dataloader)
 
     # Create trainer
     trainer = OnlineRLTrainer(
