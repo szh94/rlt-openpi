@@ -21,7 +21,6 @@ from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.rollout.rollout_worker import RolloutWorker
 from rlt_openpi.training.config import OnlineRLTrainConfig
-from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.training.td3_utils import actor_loss, compute_td_target, critic_loss
 from rlt_openpi.utils import display
@@ -46,12 +45,9 @@ class OnlineRLTrainer:
         vla: VLAWrapper,
         rl_token_model: RLTokenModel,
         device: torch.device | str = "cuda",
-        *,
-        data_transforms: Any = None,
     ) -> None:
         self.config = config
         self.device = torch.device(device)
-        self._data_transforms = data_transforms
 
         # Frozen components
         self.vla = vla
@@ -187,34 +183,28 @@ class OnlineRLTrainer:
         self._total_updates += 1
         return metrics
 
-    def _pretrain_actor(self) -> None:
+    def _pretrain_actor(self, data_iter: Any) -> None:
         """Phase 0: BC pre-train the actor to match VLA reference actions on dataset observations.
 
-        Loads random observations from a LeRobot dataset, runs the frozen VLA
-        to compute reference actions, then trains the actor via MSE loss to
-        reproduce those actions.  Skipped when ``actor_pretrain_steps <= 0``
-        or ``repo_id`` is empty.
+        Uses a pre-built data loader iterator (built by the caller, e.g.
+        ``train_online_rl_jax.py``) to feed observations through the frozen
+        VLA, then trains the actor via MSE loss to reproduce the VLA's
+        reference actions.  Skipped when *data_iter* is ``None``.
+
+        Args:
+            data_iter: Infinite iterator yielding ``(Observation, _)`` tuples,
+                or ``None`` to skip pre-training.
         """
         config = self.config
-        if config.actor_pretrain_steps <= 0 or not config.repo_id:
+        if data_iter is None:
             return
 
         print(f"\n[Actor Pretrain] Starting BC pre-training: {config.actor_pretrain_steps} steps")
         print(f"  Dataset: {config.repo_id}")
         print(f"  Batch size: {config.actor_pretrain_batch_size}")
 
-        dataloader = build_data_loader(
-            openpi_config_name=config.vla_config_name,
-            repo_id=config.repo_id,
-            batch_size=config.actor_pretrain_batch_size,
-            num_workers=config.num_workers,
-            shuffle=True,
-            data_transforms=self._data_transforms,
-        )
-
         self.actor.train()
 
-        data_iter = iter(dataloader)
         for step in range(config.actor_pretrain_steps):
             observation, _ = next(data_iter)
 
@@ -270,6 +260,8 @@ class OnlineRLTrainer:
         env: Any,
         intervention_mgr: InterventionManager | None = None,
         log_fn: Any | None = None,
+        *,
+        pretrain_data_iter: Any = None,
     ) -> None:
         """Run the full online RL training loop (Algorithm 1).
 
@@ -277,6 +269,8 @@ class OnlineRLTrainer:
             env: Chunk-level environment wrapper.
             intervention_mgr: Optional human intervention manager.
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
+            pretrain_data_iter: Optional infinite iterator yielding
+                ``(Observation, _)`` tuples for BC pre-training.
         """
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
@@ -293,7 +287,7 @@ class OnlineRLTrainer:
         })
 
         # Phase 0: Actor BC pre-training
-        self._pretrain_actor()
+        self._pretrain_actor(pretrain_data_iter)
 
         # NOTE: Env warmup commented out — using RolloutWorker.collect_warmup()
         # with mock env (make_aloha_obs) instead.

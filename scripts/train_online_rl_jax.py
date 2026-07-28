@@ -27,6 +27,7 @@ import tyro
 # from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
+from rlt_openpi.training.data_loader import build_data_loader
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
@@ -54,13 +55,27 @@ def main(config: OnlineRLTrainConfig) -> None:
     # JaxVLAWrapper cannot fine-tune the VLA (vla_finetune_alpha must be 0).
     # The base JAX VLA loaded above is used as-is.
 
+    # Build BC pre-training data loader (if configured)
+    pretrain_data_iter = None
+    if config.repo_id and config.actor_pretrain_steps > 0:
+        data_transforms = aloha_data_transforms()
+        print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
+        pretrain_dataloader = build_data_loader(
+            openpi_config_name=config.vla_config_name,
+            repo_id=config.repo_id,
+            batch_size=config.actor_pretrain_batch_size,
+            num_workers=config.num_workers,
+            shuffle=True,
+            data_transforms=data_transforms,
+        )
+        pretrain_data_iter = iter(pretrain_dataloader)
+
     # Create trainer
     trainer = OnlineRLTrainer(
         config=config,
         vla=vla,
         rl_token_model=rl_token_model,
         device="cuda",
-        data_transforms=aloha_data_transforms(),
     )
 
     # Resume from checkpoint if provided
@@ -96,7 +111,7 @@ def main(config: OnlineRLTrainConfig) -> None:
     #     intervention_mgr = make_intervention(config.intervention_factory, env=env)
     #     print(f"Intervention manager created via {config.intervention_factory}")
 
-    trainer.train(env=None, intervention_mgr=None, log_fn=rl_logger.log)
+    trainer.train(env=None, intervention_mgr=None, log_fn=rl_logger.log, pretrain_data_iter=pretrain_data_iter)
 
     rl_logger.finish()
 
