@@ -102,8 +102,11 @@ class JaxEmbeddingExtractor:
         self.pi0 = pi0_model
         self._rng = jax.random.key(0)
 
-        # JIT-compile sample_actions like Policy.__init__ does.
-        # Returns ((prefix_out, prefix_mask), actions).
+        # JIT-compile: extract_prefix_embeddings runs only 1 LLM pass (prefix only,
+        # no diffusion). ~11x faster than sample_actions for embedding extraction.
+        self._extract_prefix = nnx_utils.module_jit(pi0_model.extract_prefix_embeddings)
+
+        # sample_actions kept for extract_both (needs actions too).
         self._sample_actions = nnx_utils.module_jit(pi0_model.sample_actions)
 
     def _next_rng(self):
@@ -113,8 +116,8 @@ class JaxEmbeddingExtractor:
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
         """Extract post-transformer prefix embeddings via JIT-compiled Pi0.
 
-        Uses the first return value of ``sample_actions`` (prefix
-        embeddings) and discards the action output.
+        Uses ``extract_prefix_embeddings`` which runs a single LLM forward pass
+        on the prefix tokens only — no diffusion denoising loop.
 
         Returns:
             z: [B, M, embedding_dim] float32.
@@ -124,8 +127,7 @@ class JaxEmbeddingExtractor:
         obs_np = _observation_to_numpy(observation)
         t1 = time.monotonic()
 
-        rng = self._next_rng()
-        (prefix_out, prefix_mask), _ = self._sample_actions(rng, obs_np)
+        prefix_out, prefix_mask = self._extract_prefix(obs_np)
         t2 = time.monotonic()
 
         # DLPack zero-copy: JAX GPU → PyTorch GPU, avoids ~945ms GPU→CPU roundtrip.
@@ -135,14 +137,14 @@ class JaxEmbeddingExtractor:
         t3 = time.monotonic()
 
         t_obs_to_numpy = (t1 - t0) * 1000
-        t_sample_actions = (t2 - t1) * 1000
+        t_extract_prefix = (t2 - t1) * 1000
         t_dlpack_to_torch = (t3 - t2) * 1000
         t_total = (t3 - t0) * 1000
 
         print(
             f"[JaxEmbeddingExtractor] "
             f"obs_to_numpy={t_obs_to_numpy:.1f}ms | "
-            f"sample_actions(JIT)={t_sample_actions:.1f}ms | "
+            f"extract_prefix(JIT)={t_extract_prefix:.1f}ms | "
             f"dlpack_to_torch={t_dlpack_to_torch:.1f}ms | "
             f"total={t_total:.1f}ms"
         )
