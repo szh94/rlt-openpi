@@ -128,20 +128,22 @@ class JaxEmbeddingExtractor:
         (prefix_out, prefix_mask), _ = self._sample_actions(rng, obs_np)
         t2 = time.monotonic()
 
-        z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
-        pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
+        # DLPack zero-copy: JAX GPU → PyTorch GPU, avoids ~945ms GPU→CPU roundtrip.
+        # .clone() ensures the PyTorch tensor owns its memory independently from JAX.
+        z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(dtype=torch.float32)
+        pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(dtype=torch.bool)
         t3 = time.monotonic()
 
         t_obs_to_numpy = (t1 - t0) * 1000
         t_sample_actions = (t2 - t1) * 1000
-        t_to_torch = (t3 - t2) * 1000
+        t_dlpack_to_torch = (t3 - t2) * 1000
         t_total = (t3 - t0) * 1000
 
         print(
             f"[JaxEmbeddingExtractor] "
             f"obs_to_numpy={t_obs_to_numpy:.1f}ms | "
             f"sample_actions(JIT)={t_sample_actions:.1f}ms | "
-            f"to_torch={t_to_torch:.1f}ms | "
+            f"dlpack_to_torch={t_dlpack_to_torch:.1f}ms | "
             f"total={t_total:.1f}ms"
         )
 
@@ -310,15 +312,16 @@ class JaxVLAWrapper:
         rng = self.extractor._next_rng()
         (prefix_out, prefix_mask), raw_actions = self.extractor._sample_actions(rng, obs_np)
 
-        z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(
+        # DLPack zero-copy: JAX GPU → PyTorch GPU (avoid GPU→CPU roundtrip).
+        z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
             dtype=torch.float32, device=self.device
         )
-        pad_mask = torch.from_numpy(np.array(prefix_mask)).to(
+        pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(
             dtype=torch.bool, device=self.device
         )
 
         # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
-        raw_t = torch.from_numpy(np.array(raw_actions)).to(dtype=torch.float32)
+        raw_t = torch.utils.dlpack.from_dlpack(raw_actions.__dlpack__()).to(dtype=torch.float32)
         actions_np = raw_t.cpu().numpy()
         state_np = obs_np.state  # already numpy from _observation_to_numpy
 

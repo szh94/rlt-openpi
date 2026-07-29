@@ -64,7 +64,7 @@ class RolloutWorker:
         chunk_length: int,
         action_dim: int,
         device: torch.device | str = "cuda",
-        max_deviation: float = 0.3,
+        max_deviation: float = 3.0,
         deviation_abort_threshold: float = 0.8,
         max_episode_chunks: int = 150,
         use_mock_env: bool = True,

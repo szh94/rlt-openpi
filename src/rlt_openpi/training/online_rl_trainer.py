@@ -221,10 +221,11 @@ class OnlineRLTrainer:
             z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
 
             # Proprioceptive state
-            s_p = torch.as_tensor(
-                np.array(observation.state[:, :config.action_dim]),
+            s_p = torch.as_tensor(np.array(
+                observation.state[:, :config.action_dim]),
                 dtype=torch.float32, device=self.device,
             )
+
             # Build RL state
             x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
 
