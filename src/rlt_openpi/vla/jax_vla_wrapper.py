@@ -18,6 +18,7 @@ Differences from the PyTorch :class:`VLAWrapper`:
 from __future__ import annotations
 
 import pathlib
+import time
 from typing import Any
 
 import jax
@@ -119,11 +120,31 @@ class JaxEmbeddingExtractor:
             z: [B, M, embedding_dim] float32.
             pad_mask: [B, M] bool.
         """
+        t0 = time.monotonic()
         obs_np = _observation_to_numpy(observation)
+        t1 = time.monotonic()
+
         rng = self._next_rng()
         (prefix_out, prefix_mask), _ = self._sample_actions(rng, obs_np)
+        t2 = time.monotonic()
+
         z = torch.from_numpy(np.array(prefix_out, dtype=np.float32)).to(dtype=torch.float32)
         pad_mask = torch.from_numpy(np.array(prefix_mask)).to(dtype=torch.bool)
+        t3 = time.monotonic()
+
+        t_obs_to_numpy = (t1 - t0) * 1000
+        t_sample_actions = (t2 - t1) * 1000
+        t_to_torch = (t3 - t2) * 1000
+        t_total = (t3 - t0) * 1000
+
+        print(
+            f"[JaxEmbeddingExtractor] "
+            f"obs_to_numpy={t_obs_to_numpy:.1f}ms | "
+            f"sample_actions(JIT)={t_sample_actions:.1f}ms | "
+            f"to_torch={t_to_torch:.1f}ms | "
+            f"total={t_total:.1f}ms"
+        )
+
         return z, pad_mask
 
 
@@ -251,8 +272,24 @@ class JaxVLAWrapper:
             z: [B, M, embedding_dim] post-transformer prefix embeddings.
             pad_mask: [B, M] boolean mask (True = valid token).
         """
+        t0 = time.monotonic()
         z, pad_mask = self.extractor.extract_embeddings(observation)
-        return z.to(self.device), pad_mask.to(self.device)
+        t1 = time.monotonic()
+        z = z.to(self.device)
+        pad_mask = pad_mask.to(self.device)
+        t2 = time.monotonic()
+
+        t_extract = (t1 - t0) * 1000
+        t_to_device = (t2 - t1) * 1000
+        t_total = (t2 - t0) * 1000
+        print(
+            f"[JaxVLAWrapper.extract_embeddings] "
+            f"extract={t_extract:.1f}ms | "
+            f"to_device={t_to_device:.1f}ms | "
+            f"total={t_total:.1f}ms"
+        )
+
+        return z, pad_mask
 
     def extract_both(
         self,
@@ -293,7 +330,7 @@ class JaxVLAWrapper:
                 "actions": actions_in,
             })
             out.append(t["actions"])
-        actions = torch.as_tensor(np.stack(out), device=self.device)
+        actions = torch.as_tensor(np.stack(out), device=self.device, dtype=torch.float32)
 
         return z, pad_mask, actions
 

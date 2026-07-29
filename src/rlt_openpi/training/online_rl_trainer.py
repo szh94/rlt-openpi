@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -214,14 +215,16 @@ class OnlineRLTrainer:
             # Move to device (VLA outputs are on CPU)
             z = z.to(self.device)
             pad_mask = pad_mask.to(self.device)
-            actions = actions.to(self.device)
+            actions = actions.to(device=self.device, dtype=torch.float32)
 
             # RL token encode
             z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
 
             # Proprioceptive state
-            s_p = observation.state[:, :config.action_dim].to(self.device)  # [B, 14]
-
+            s_p = torch.as_tensor(
+                np.array(observation.state[:, :config.action_dim]),
+                dtype=torch.float32, device=self.device,
+            )
             # Build RL state
             x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
 
@@ -236,7 +239,52 @@ class OnlineRLTrainer:
             loss.backward()
             self.actor_optimizer.step()
 
-            print(f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  loss={loss.item():.6f}")
+            # Diagnostic prints (first 3 steps + every 100 steps)
+            if step < 3 or (step + 1) % 100 == 0:
+                with torch.no_grad():
+                    diff = a_actor - a_tilde
+                    grad_norm = sum(
+                        p.grad.norm().item() ** 2 for p in self.actor.parameters() if p.grad is not None
+                    ) ** 0.5
+                    weight_norm = sum(
+                        p.norm().item() ** 2 for p in self.actor.parameters()
+                    ) ** 0.5
+                    print(
+                        f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
+                        f"loss={loss.item():.6f}  "
+                        f"|a_tilde|={a_tilde.norm(dim=-1).mean().item():.3f}  "
+                        f"|a_actor|={a_actor.norm(dim=-1).mean().item():.3f}  "
+                        f"|diff|={diff.norm(dim=-1).mean().item():.3f}  "
+                        f"|grad|={grad_norm:.4f}  "
+                        f"|w|={weight_norm:.2f}"
+                    )
+                    # Extra detail on first step
+                    if step == 0:
+                        print(
+                            f"  a_tilde: mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
+                            f"min={a_tilde.min().item():.4f} max={a_tilde.max().item():.4f}"
+                        )
+                        print(
+                            f"  a_actor: mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
+                            f"min={a_actor.min().item():.4f} max={a_actor.max().item():.4f}"
+                        )
+                        print(
+                            f"  diff:    mean={diff.mean().item():.4f} std={diff.std().item():.4f} "
+                            f"min={diff.min().item():.4f} max={diff.max().item():.4f}"
+                        )
+                        print(
+                            f"  z_rl: mean={z_rl.mean().item():.4f} std={z_rl.std().item():.4f} "
+                            f"norm_mean={z_rl.norm(dim=-1).mean().item():.2f}"
+                        )
+                        print(
+                            f"  s_p:   mean={s_p.mean().item():.4f} std={s_p.std().item():.4f} "
+                            f"norm_mean={s_p.norm(dim=-1).mean().item():.2f}"
+                        )
+            elif (step + 1) % 10 == 0:
+                print(
+                    f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
+                    f"loss={loss.item():.6f}"
+                )
 
         # Save pretrain checkpoint
         save_dir = Path(config.save_dir) / config.run_name
