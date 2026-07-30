@@ -127,6 +127,47 @@ def _build_jax_data_iter(
     return _jax_iter(raw_loader)
 
 
+def _build_mock_obs_iter(
+    vla_config_name: str,
+    repo_id: str,
+    *,
+    data_transforms: _transforms.Group | None = None,
+):
+    """Build an infinite iterator yielding raw observation dicts from a dataset.
+
+    Each yielded dict is a single observation (no batch dim) in the format
+    expected by ``VLAWrapper.preprocess_obs``.  Used by ``RolloutWorker``
+    to replace random ``make_aloha_obs()`` with real dataset observations.
+
+    Unlike ``_build_jax_data_iter``, this does NOT batch and does NOT
+    convert to ``Observation`` — the worker's ``_obs_to_vla_input``
+    handles batching and preprocessing.
+    """
+    openpi_config = get_config(vla_config_name)
+    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+    data_config = dataclasses.replace(data_config, repo_id=repo_id)
+
+    # Auto-detect action column name.
+    meta = LeRobotDatasetMetadata(repo_id)
+    if "action" in meta.features and "actions" not in meta.features:
+        data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
+        data_config = _patch_repack_action_key(data_config, "action")
+
+    if data_transforms is not None:
+        print("Overriding data_transforms with custom Group")
+        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
+
+    dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
+    dataset = transform_dataset(dataset, data_config)
+
+    def _iter():
+        while True:
+            for item in dataset:
+                yield item
+
+    return _iter()
+
+
 def main(config: OnlineRLTrainConfig) -> None:
     """Run online RL training with JAX VLA (Stage 2, Algorithm 1)."""
     # Set up logger
@@ -163,6 +204,16 @@ def main(config: OnlineRLTrainConfig) -> None:
             repo_id=config.repo_id,
             batch_size=config.actor_pretrain_batch_size,
             num_workers=config.num_workers,
+            data_transforms=data_transforms,
+        )
+
+    # Build mock obs iterator (replaces random make_aloha_obs with real dataset obs)
+    mock_obs_iter = None
+    if config.repo_id:
+        print(f"[Data] Building mock obs iterator from dataset: {config.repo_id}")
+        mock_obs_iter = _build_mock_obs_iter(
+            vla_config_name=config.vla_config_name,
+            repo_id=config.repo_id,
             data_transforms=data_transforms,
         )
 
@@ -207,7 +258,7 @@ def main(config: OnlineRLTrainConfig) -> None:
     #     intervention_mgr = make_intervention(config.intervention_factory, env=env)
     #     print(f"Intervention manager created via {config.intervention_factory}")
 
-    trainer.train(env=None, intervention_mgr=None, log_fn=rl_logger.log, pretrain_data_iter=pretrain_data_iter)
+    trainer.train(env=None, intervention_mgr=None, log_fn=rl_logger.log, pretrain_data_iter=pretrain_data_iter, mock_obs_iter=mock_obs_iter)
 
     rl_logger.finish()
 

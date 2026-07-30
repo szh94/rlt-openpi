@@ -9,7 +9,7 @@ human intervention.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import torch
@@ -68,6 +68,7 @@ class RolloutWorker:
         deviation_abort_threshold: float = 0.8,
         max_episode_chunks: int = 150,
         use_mock_env: bool = True,
+        mock_obs_iter: Iterator[dict] | None = None,
     ) -> None:
         self.env = env
         self.vla = vla
@@ -86,6 +87,7 @@ class RolloutWorker:
         self._action_chunk_dim = chunk_length * action_dim
         self._mock_chunk_count = 0
         self._feedback = HumanReward()
+        self._mock_obs_iter = mock_obs_iter
 
     def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
@@ -191,6 +193,17 @@ class RolloutWorker:
             "prompt": "place phone",
         }
 
+    def _get_mock_obs(self) -> dict:
+        """Get a mock observation, preferring dataset iterator over random Aloha obs.
+
+        When ``mock_obs_iter`` is provided (constructed from a real dataset),
+        each call yields the next observation dict from the dataset iterator.
+        Falls back to :meth:`make_aloha_obs` when no iterator is set.
+        """
+        if self._mock_obs_iter is not None:
+            return next(self._mock_obs_iter)
+        return self.make_aloha_obs()
+
     def _mock_env_step(self, obs, action_chunk):
         """Mock env step mirroring RobotEnv.step() line 137–218.
 
@@ -259,7 +272,7 @@ class RolloutWorker:
             Total number of transitions stored.
         """
         stored = 0
-        obs = self.make_aloha_obs() if self._use_mock_env else self.env.reset()
+        obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
@@ -294,7 +307,7 @@ class RolloutWorker:
             stored += 1
 
             if done:
-                obs = self.make_aloha_obs() if self._use_mock_env else self.env.reset()
+                obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
             else:
                 obs = next_obs
 
@@ -320,7 +333,7 @@ class RolloutWorker:
             Episode statistics.
         """
         stats = EpisodeStats()
-        obs = self.make_aloha_obs() if self._use_mock_env else self.env.reset()
+        obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
 
         while True:
             # Extract RL state and VLA reference
