@@ -133,17 +133,15 @@ class OnlineRLTrainer:
         a_tilde = batch["a_tilde"]
         rewards = batch["rewards"]
         next_x = batch["next_x"]
+        next_a_tilde = batch["next_a_tilde"]
         dones = batch["dones"]
 
         # --- Critic update (every step) ---
-        # Compute TD target
-        # For next_a_tilde, we use a_tilde from the batch as an approximation
-        # (the true next reference would require a VLA call, which is expensive)
         td_target = compute_td_target(
             rewards=rewards,
             dones=dones,
             next_x=next_x,
-            next_a_tilde=a_tilde,  # approximate next reference
+            next_a_tilde=next_a_tilde,
             actor=self.actor,
             critic=self.critic,
             gamma=cfg.gamma,

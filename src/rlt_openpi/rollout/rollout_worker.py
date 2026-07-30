@@ -279,7 +279,7 @@ class RolloutWorker:
 
             # Build next RL state
             # print("Warmup: Get next rl_state")
-            next_x, _, _ = self._extract_rl_state(next_obs)
+            next_x, next_a_tilde, _ = self._extract_rl_state(next_obs)
 
             # Store transition
             self.replay_buffer.add(
@@ -288,6 +288,7 @@ class RolloutWorker:
                 a_tilde=a_tilde_flat,
                 rewards=rewards,
                 next_x=next_x,
+                next_a_tilde=next_a_tilde,
                 done=float(done),
             )
             stored += 1
@@ -353,7 +354,7 @@ class RolloutWorker:
 
             if store_transitions:
                 # Build next RL state (requires VLA forward pass)
-                next_x, _, _ = self._extract_rl_state(next_obs)
+                next_x, next_a_tilde, _ = self._extract_rl_state(next_obs)
 
                 self.replay_buffer.add(
                     x=x,
@@ -361,6 +362,7 @@ class RolloutWorker:
                     a_tilde=a_tilde_flat,
                     rewards=rewards,
                     next_x=next_x,
+                    next_a_tilde=next_a_tilde,
                     done=float(done),
                 )
 

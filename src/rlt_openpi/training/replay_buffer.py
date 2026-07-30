@@ -37,6 +37,7 @@ class ReplayBuffer:
         self._a_tilde = np.zeros((capacity, action_chunk_dim), dtype=np.float32)
         self._rewards = np.zeros((capacity, chunk_length), dtype=np.float32)
         self._next_x = np.zeros((capacity, state_dim), dtype=np.float32)
+        self._next_a_tilde = np.zeros((capacity, action_chunk_dim), dtype=np.float32)
         self._dones = np.zeros((capacity, 1), dtype=np.float32)
 
     @property
@@ -51,6 +52,7 @@ class ReplayBuffer:
         a_tilde: NDArray,
         rewards: NDArray,
         next_x: NDArray,
+        next_a_tilde: NDArray,
         done: float,
     ) -> None:
         """Add a single chunk-level transition.
@@ -61,6 +63,7 @@ class ReplayBuffer:
             a_tilde: VLA reference action chunk [action_chunk_dim].
             rewards: Per-step rewards [chunk_length].
             next_x: Next RL state [state_dim].
+            next_a_tilde: Next VLA reference action chunk [action_chunk_dim].
             done: Episode termination flag (0.0 or 1.0).
         """
         self._x[self._ptr] = x
@@ -68,6 +71,7 @@ class ReplayBuffer:
         self._a_tilde[self._ptr] = a_tilde
         self._rewards[self._ptr] = rewards
         self._next_x[self._ptr] = next_x
+        self._next_a_tilde[self._ptr] = next_a_tilde
         self._dones[self._ptr] = done
         self._ptr = (self._ptr + 1) % self.capacity
         self._size = min(self._size + 1, self.capacity)
@@ -79,6 +83,7 @@ class ReplayBuffer:
         a_tildes: NDArray,
         rewards: NDArray,
         next_xs: NDArray,
+        next_a_tildes: NDArray,
         dones: NDArray,
         stride: int = 2,
     ) -> int:
@@ -93,6 +98,7 @@ class ReplayBuffer:
             a_tildes: VLA reference action chunks [N, action_chunk_dim].
             rewards: Per-step rewards [N, chunk_length].
             next_xs: Next RL states [N, state_dim].
+            next_a_tildes: Next VLA reference action chunks [N, action_chunk_dim].
             dones: Termination flags [N, 1].
             stride: Subsampling stride (default 2).
 
@@ -101,7 +107,7 @@ class ReplayBuffer:
         """
         indices = range(0, len(xs), stride)
         for i in indices:
-            self.add(xs[i], actions[i], a_tildes[i], rewards[i], next_xs[i], dones[i].item())
+            self.add(xs[i], actions[i], a_tildes[i], rewards[i], next_xs[i], next_a_tildes[i], dones[i].item())
         return len(list(indices))
 
     def state_dict(self) -> dict[str, object]:
@@ -119,6 +125,7 @@ class ReplayBuffer:
             "a_tilde": self._a_tilde[:n].copy(),
             "rewards": self._rewards[:n].copy(),
             "next_x": self._next_x[:n].copy(),
+            "next_a_tilde": self._next_a_tilde[:n].copy(),
             "dones": self._dones[:n].copy(),
         }
 
@@ -132,6 +139,7 @@ class ReplayBuffer:
         self._a_tilde[:n] = state["a_tilde"]
         self._rewards[:n] = state["rewards"]
         self._next_x[:n] = state["next_x"]
+        self._next_a_tilde[:n] = state.get("next_a_tilde", np.zeros_like(state["a_tilde"]))
         self._dones[:n] = state["dones"]
 
     def sample(self, batch_size: int, device: str = "cpu") -> dict[str, torch.Tensor]:
@@ -152,5 +160,6 @@ class ReplayBuffer:
             "a_tilde": torch.as_tensor(self._a_tilde[indices], device=device),
             "rewards": torch.as_tensor(self._rewards[indices], device=device),
             "next_x": torch.as_tensor(self._next_x[indices], device=device),
+            "next_a_tilde": torch.as_tensor(self._next_a_tilde[indices], device=device),
             "dones": torch.as_tensor(self._dones[indices], device=device),
         }
