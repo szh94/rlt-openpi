@@ -205,7 +205,16 @@ class JaxVLAWrapper:
         checkpoint_params_path = pathlib.Path(checkpoint_dir + "/params")
 
         print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_params_path}")
-        params = _model.restore_params(checkpoint_params_path, restore_type=np.ndarray)
+        # Load params as on-device jax.Arrays (the restore_type default), NOT numpy.
+        # With restore_type=np.ndarray the params stay in host RAM, and module_jit
+        # passes them into the jitted function on every call — jax.jit does not
+        # cache host arrays, so all ~13.4 GB crossed PCIe on every training step
+        # (~900 ms/step of pure transfer; extract_embeddings 1196 -> 262 ms after
+        # this change, output bit-identical). Peak GPU memory is params + ~1 GB
+        # either way, so host storage saved nothing at the moment it matters.
+        # If GPU memory gets tight, add dtype=jnp.bfloat16 (halves params to
+        # 6.7 GB, ~2% embedding perturbation) — same as openpi's serving loader.
+        params = _model.restore_params(checkpoint_params_path)
         self._pi0_model = self.train_config.model.load(params)
         print("JAX Pi0 model loaded successfully.")
 
