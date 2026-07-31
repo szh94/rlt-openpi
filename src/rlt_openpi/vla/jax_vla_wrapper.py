@@ -205,7 +205,9 @@ class JaxVLAWrapper:
         checkpoint_params_path = pathlib.Path(checkpoint_dir + "/params")
 
         print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_params_path}")
-        params = _model.restore_params(checkpoint_params_path, restore_type=np.ndarray)
+        # Fix: keep params to stay on VRAM. Can use jnp.bfloat16 with trade of half of memory for 2% embedding pertubation
+        # params = _model.restore_params(checkpoint_params_path, restore_type=np.ndarray)
+        params = _model.restore_params(checkpoint_params_path)
         self._pi0_model = self.train_config.model.load(params)
         print("JAX Pi0 model loaded successfully.")
 
