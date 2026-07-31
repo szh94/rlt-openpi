@@ -158,12 +158,18 @@ def _build_mock_obs_iter(
         data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
 
     dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
-    dataset = transform_dataset(dataset, data_config)
+
+    # Only apply repack transforms (key remapping from LeRobot flat keys to
+    # DROID schema).  Do NOT apply data_transforms (ThreeCameraDroidInputs),
+    # Normalize, or model_transforms — vla.preprocess_obs() handles those
+    # downstream.  The yielded dict must match the raw DROID-schema format
+    # produced by the real Franka environment.
+    repack_fn = _transforms.compose(list(data_config.repack_transforms.inputs))
 
     def _iter():
         while True:
             for item in dataset:
-                yield item
+                yield repack_fn(item)
 
     return _iter()
 
