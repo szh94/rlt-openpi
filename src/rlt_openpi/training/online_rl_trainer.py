@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import torch
@@ -96,6 +96,8 @@ class OnlineRLTrainer:
         self,
         env: Any,
         intervention_mgr: InterventionManager | None = None,
+        # Mock env (注释掉; 需要 mock 时取消注释)
+        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> RolloutWorker:
         """Create a rollout worker wired to this trainer's components."""
         return RolloutWorker(
@@ -111,6 +113,8 @@ class OnlineRLTrainer:
             max_deviation=self.config.max_deviation,
             deviation_abort_threshold=self.config.deviation_abort_threshold,
             max_episode_chunks=self.config.max_episode_chunks,
+            # Mock env (注释掉; 需要 mock 时取消注释)
+            # mock_obs_iter=mock_obs_iter,
         )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:
@@ -133,17 +137,15 @@ class OnlineRLTrainer:
         a_tilde = batch["a_tilde"]
         rewards = batch["rewards"]
         next_x = batch["next_x"]
+        next_a_tilde = batch["next_a_tilde"]
         dones = batch["dones"]
 
         # --- Critic update (every step) ---
-        # Compute TD target
-        # For next_a_tilde, we use a_tilde from the batch as an approximation
-        # (the true next reference would require a VLA call, which is expensive)
         td_target = compute_td_target(
             rewards=rewards,
             dones=dones,
             next_x=next_x,
-            next_a_tilde=a_tilde,  # approximate next reference
+            next_a_tilde=next_a_tilde,
             actor=self.actor,
             critic=self.critic,
             gamma=cfg.gamma,
@@ -221,6 +223,8 @@ class OnlineRLTrainer:
             z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
 
             # Proprioceptive state
+            # JAX path: observation.state is jnp, need np.array() before torch.as_tensor()
+            # torch path: s_p = observation.state[:, :config.action_dim].to(self.device)
             s_p = torch.as_tensor(np.array(
                 observation.state[:, :config.action_dim]),
                 dtype=torch.float32, device=self.device,
@@ -240,6 +244,8 @@ class OnlineRLTrainer:
             loss.backward()
             self.actor_optimizer.step()
 
+            print(f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  loss={loss.item():.6f}")
+
             # Diagnostic prints (first 3 steps + every 100 steps)
             if step < 3 or (step + 1) % 100 == 0:
                 with torch.no_grad():
@@ -253,32 +259,36 @@ class OnlineRLTrainer:
                     print(
                         f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
                         f"loss={loss.item():.6f}  "
+                        f"|z_rl|={z_rl.norm(dim=-1).mean().item():.2f}  "
+                        f"|s_p|={s_p.norm(dim=-1).mean().item():.2f}  "
                         f"|a_tilde|={a_tilde.norm(dim=-1).mean().item():.3f}  "
                         f"|a_actor|={a_actor.norm(dim=-1).mean().item():.3f}  "
                         f"|diff|={diff.norm(dim=-1).mean().item():.3f}  "
                         f"|grad|={grad_norm:.4f}  "
                         f"|w|={weight_norm:.2f}"
                     )
+                    print(f"  a_tilde[0]: {a_tilde[0]}")
+                    print(f"  a_actor[0]: {a_actor[0]}")
                     # Extra detail on first step
                     if step == 0:
                         print(
-                            f"  a_tilde: mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
+                            f"  a_tilde:  mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
                             f"min={a_tilde.min().item():.4f} max={a_tilde.max().item():.4f}"
                         )
                         print(
-                            f"  a_actor: mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
+                            f"  a_actor:  mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
                             f"min={a_actor.min().item():.4f} max={a_actor.max().item():.4f}"
                         )
                         print(
-                            f"  diff:    mean={diff.mean().item():.4f} std={diff.std().item():.4f} "
+                            f"  diff:  mean={diff.mean().item():.4f} std={diff.std().item():.4f} "
                             f"min={diff.min().item():.4f} max={diff.max().item():.4f}"
                         )
                         print(
-                            f"  z_rl: mean={z_rl.mean().item():.4f} std={z_rl.std().item():.4f} "
+                            f"  z_rl:  mean={z_rl.mean().item():.4f} std={z_rl.std().item():.4f} "
                             f"norm_mean={z_rl.norm(dim=-1).mean().item():.2f}"
                         )
                         print(
-                            f"  s_p:   mean={s_p.mean().item():.4f} std={s_p.std().item():.4f} "
+                            f"  s_p:  mean={s_p.mean().item():.4f} std={s_p.std().item():.4f} "
                             f"norm_mean={s_p.norm(dim=-1).mean().item():.2f}"
                         )
             elif (step + 1) % 10 == 0:
@@ -311,6 +321,8 @@ class OnlineRLTrainer:
         log_fn: Any | None = None,
         *,
         pretrain_data_iter: Any = None,
+        # Mock env (注释掉; 需要 mock 时取消注释)
+        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> None:
         """Run the full online RL training loop (Algorithm 1).
 
@@ -320,9 +332,12 @@ class OnlineRLTrainer:
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
             pretrain_data_iter: Optional infinite iterator yielding
                 ``(Observation, _)`` tuples for BC pre-training.
+            # Mock env (注释掉): mock_obs_iter: Optional infinite iterator yielding raw
+            # Mock env (注释掉): observation dicts for mock env (replaces random Aloha obs).
         """
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
+        # Mock env (注释掉): worker = self._create_rollout_worker(env, intervention_mgr, mock_obs_iter)
         train_display = display.TrainingDisplay(window_size=20)
         train_start = time.time()
 
@@ -335,11 +350,10 @@ class OnlineRLTrainer:
             "Run name": cfg.run_name,
         })
 
-        # Phase 0: Actor BC pre-training
-        self._pretrain_actor(pretrain_data_iter)
+        # Phase 0: Actor BC pre-training (commented out)
+        # self._pretrain_actor(pretrain_data_iter)
 
-        # NOTE: Env warmup commented out — using RolloutWorker.collect_warmup()
-        # with mock env (make_aloha_obs) instead.
+        # NOTE: Warmup runs through RolloutWorker.collect_warmup() on the real env.
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
         if self.replay_buffer.size > 0:
             print(f"[Stage 2] Skipping warmup — replay buffer already has {self.replay_buffer.size} transitions (resumed)")

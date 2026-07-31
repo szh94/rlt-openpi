@@ -51,7 +51,6 @@ Thumbs.db
 .claude
 .vscode
 checkpoints
-/example/keyPara.sh
 /log_action
 /live_image
 
