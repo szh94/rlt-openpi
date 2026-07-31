@@ -286,6 +286,7 @@ class RolloutWorker:
         stored = 0
         # Mock env (注释掉): obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
         obs = self.env.reset()
+        print(f"obs keys: {list(obs.keys())}")
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)

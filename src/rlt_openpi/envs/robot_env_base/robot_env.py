@@ -135,7 +135,8 @@ class RobotEnv:
         return self._get_obs_fn()
 
     def step(
-        self, action_chunk: NDArray
+        self,
+        action_chunk: NDArray
     ) -> tuple[dict[str, Any], NDArray, bool, dict[str, Any]]:
         """Execute C single-step actions on the robot.
 

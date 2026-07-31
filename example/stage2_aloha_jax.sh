@@ -14,11 +14,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # === 自动保存终端输出到带时间戳的日志文件 ===
-LOG_DIR="$SCRIPT_DIR/../log_action"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/stage2_aloha_jax_$(date +%Y%m%d_%H%M%S).log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "日志文件: $LOG_FILE"
+# LOG_DIR="$SCRIPT_DIR/../log_action"
+# mkdir -p "$LOG_DIR"
+# LOG_FILE="$LOG_DIR/stage2_aloha_jax_$(date +%Y%m%d_%H%M%S).log"
+# exec > >(tee -a "$LOG_FILE") 2>&1
+# echo "日志文件: $LOG_FILE"
 
 # source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=./keyPara.sh
@@ -34,7 +34,6 @@ DRY_RUN=false                       # true=打印action不驱动机器人, false
 
 # 相机列表: 3个相机 (不再使用 cam_low)
 # 默认: cam_high, cam_left_wrist, cam_right_wrist
-# ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 
 # 关节安全过滤: {} 表示不过滤, 指定关节索引和角度值(°)来锁定特定关节
@@ -93,7 +92,7 @@ python scripts/train_online_rl_jax.py \
     --task-prompt "$TASK_PROMPT" \
     --action-dim 14 \
     --chunk-length "$ALOHA_CHUNK_LENGTH" \
-    --warmup-steps 150 \
+    --warmup-steps 50 \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
