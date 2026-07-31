@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
+import json
 import multiprocessing
 import typing
 
@@ -35,9 +36,8 @@ from openpi.training.config import get_config
 from openpi.training.data_loader import create_torch_dataset, transform_dataset
 import openpi.transforms as _transforms
 
-# NOTE: env imports commented out — using mock env (make_aloha_obs)
-# from rlt_openpi.envs.factory import make_env, make_intervention
-# from rlt_openpi.envs.intervention import InterventionManager
+from rlt_openpi.envs.factory import make_env, make_intervention
+from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -127,51 +127,55 @@ def _build_jax_data_iter(
     return _jax_iter(raw_loader)
 
 
-def _build_mock_obs_iter(
-    vla_config_name: str,
-    repo_id: str,
-    *,
-    data_transforms: _transforms.Group | None = None,
-):
-    """Build an infinite iterator yielding raw observation dicts from a dataset.
-
-    Each yielded dict is a single observation (no batch dim) in the format
-    expected by ``VLAWrapper.preprocess_obs``.  Used by ``RolloutWorker``
-    to replace random ``make_aloha_obs()`` with real dataset observations.
-
-    Unlike ``_build_jax_data_iter``, this does NOT batch and does NOT
-    convert to ``Observation`` — the worker's ``_obs_to_vla_input``
-    handles batching and preprocessing.
-    """
-    openpi_config = get_config(vla_config_name)
-    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
-    data_config = dataclasses.replace(data_config, repo_id=repo_id)
-
-    # Auto-detect action column name.
-    meta = LeRobotDatasetMetadata(repo_id)
-    if "action" in meta.features and "actions" not in meta.features:
-        data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
-        data_config = _patch_repack_action_key(data_config, "action")
-
-    if data_transforms is not None:
-        print("Overriding data_transforms with custom Group")
-        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
-
-    dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
-
-    # Only apply repack transforms (key remapping from LeRobot flat keys to
-    # DROID schema).  Do NOT apply data_transforms (ThreeCameraDroidInputs),
-    # Normalize, or model_transforms — vla.preprocess_obs() handles those
-    # downstream.  The yielded dict must match the raw DROID-schema format
-    # produced by the real Franka environment.
-    repack_fn = _transforms.compose(list(data_config.repack_transforms.inputs))
-
-    def _iter():
-        while True:
-            for item in dataset:
-                yield repack_fn(item)
-
-    return _iter()
+# =========================================================================
+# Mock env (注释掉以保持真实 env 生效; 需要 mock 时取消注释整个区块)
+# =========================================================================
+# def _build_mock_obs_iter(
+#     vla_config_name: str,
+#     repo_id: str,
+#     *,
+#     data_transforms: _transforms.Group | None = None,
+# ):
+#     """Build an infinite iterator yielding raw observation dicts from a dataset.
+#
+#     Each yielded dict is a single observation (no batch dim) in the format
+#     expected by ``VLAWrapper.preprocess_obs``.  Used by ``RolloutWorker``
+#     to replace random ``make_aloha_obs()`` with real dataset observations.
+#
+#     Unlike ``_build_jax_data_iter``, this does NOT batch and does NOT
+#     convert to ``Observation`` — the worker's ``_obs_to_vla_input``
+#     handles batching and preprocessing.
+#     """
+#     openpi_config = get_config(vla_config_name)
+#     data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+#     data_config = dataclasses.replace(data_config, repo_id=repo_id)
+#
+#     # Auto-detect action column name.
+#     meta = LeRobotDatasetMetadata(repo_id)
+#     if "action" in meta.features and "actions" not in meta.features:
+#         data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
+#         data_config = _patch_repack_action_key(data_config, "action")
+#
+#     if data_transforms is not None:
+#         print("Overriding data_transforms with custom Group")
+#         data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
+#
+#     dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
+#
+#     # Only apply repack transforms (key remapping from LeRobot flat keys to
+#     # DROID schema).  Do NOT apply data_transforms (ThreeCameraDroidInputs),
+#     # Normalize, or model_transforms — vla.preprocess_obs() handles those
+#     # downstream.  The yielded dict must match the raw DROID-schema format
+#     # produced by the real Franka environment.
+#     repack_fn = _transforms.compose(list(data_config.repack_transforms.inputs))
+#
+#     def _iter():
+#         while True:
+#             for item in dataset:
+#                 yield repack_fn(item)
+#
+#     return _iter()
+# =========================================================================
 
 
 def main(config: OnlineRLTrainConfig) -> None:
@@ -213,15 +217,16 @@ def main(config: OnlineRLTrainConfig) -> None:
             data_transforms=data_transforms,
         )
 
+    # Mock env (注释掉; 需要 mock 时取消注释)
     # Build mock obs iterator (replaces random make_aloha_obs with real dataset obs)
-    mock_obs_iter = None
-    if config.repo_id:
-        print(f"[Data] Building mock obs iterator from dataset: {config.repo_id}")
-        mock_obs_iter = _build_mock_obs_iter(
-            vla_config_name=config.vla_config_name,
-            repo_id=config.repo_id,
-            data_transforms=data_transforms,
-        )
+    # mock_obs_iter = None
+    # if config.repo_id:
+    #     print(f"[Data] Building mock obs iterator from dataset: {config.repo_id}")
+    #     mock_obs_iter = _build_mock_obs_iter(
+    #         vla_config_name=config.vla_config_name,
+    #         repo_id=config.repo_id,
+    #         data_transforms=data_transforms,
+    #     )
 
     # Create trainer
     trainer = OnlineRLTrainer(
@@ -236,35 +241,41 @@ def main(config: OnlineRLTrainConfig) -> None:
         print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
 
-    # NOTE: env-factory check commented out — using mock env (make_aloha_obs)
-    # if not config.env_factory:
-    #     print(
-    #         "[ERROR] --env-factory is required. Provide a Python import path to an env factory function."
-    #     )
-    #     raise SystemExit(1)
+    # Create environment via pluggable factory.
+    if not config.env_factory:
+        print(
+            "[ERROR] --env-factory is required. Provide a Python import path to an env factory function."
+        )
+        raise SystemExit(1)
 
-    # NOTE: env/intervention creation commented out — using mock env (make_aloha_obs)
-    # env_extra_kwargs = json.loads(config.env_kwargs)
-    # env = make_env(
-    #     config.env_factory,
-    #     action_dim=config.action_dim,
-    #     chunk_length=config.chunk_length,
-    #     task_prompt=config.task_prompt,
-    #     max_episode_chunks=config.max_episode_chunks,
-    #     dry_run=config.dry_run,
-    #     **env_extra_kwargs,
-    # )
-    # print(
-    #     f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}"
-    # )
+    env_extra_kwargs = json.loads(config.env_kwargs)
+    env = make_env(
+        config.env_factory,
+        action_dim=config.action_dim,
+        chunk_length=config.chunk_length,
+        task_prompt=config.task_prompt,
+        max_episode_chunks=config.max_episode_chunks,
+        dry_run=config.dry_run,
+        **env_extra_kwargs,
+    )
+    print(
+        f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}"
+    )
 
-    # # Create intervention manager (VR teleoperation, etc.) if specified.
-    # intervention_mgr: InterventionManager | None = None
-    # if config.intervention_factory:
-    #     intervention_mgr = make_intervention(config.intervention_factory, env=env)
-    #     print(f"Intervention manager created via {config.intervention_factory}")
+    # Create intervention manager (VR teleoperation, etc.) if specified.
+    intervention_mgr: InterventionManager | None = None
+    if config.intervention_factory:
+        intervention_mgr = make_intervention(config.intervention_factory, env=env)
+        print(f"Intervention manager created via {config.intervention_factory}")
 
-    trainer.train(env=None, intervention_mgr=None, log_fn=rl_logger.log, pretrain_data_iter=pretrain_data_iter, mock_obs_iter=mock_obs_iter)
+    trainer.train(
+        env=env,
+        intervention_mgr=intervention_mgr,
+        log_fn=rl_logger.log,
+        pretrain_data_iter=pretrain_data_iter,
+        # Mock env (注释掉; 需要 mock 时取消注释)
+        # mock_obs_iter=mock_obs_iter,
+    )
 
     rl_logger.finish()
 

@@ -96,7 +96,8 @@ class OnlineRLTrainer:
         self,
         env: Any,
         intervention_mgr: InterventionManager | None = None,
-        mock_obs_iter: Iterator[dict] | None = None,
+        # Mock env (注释掉; 需要 mock 时取消注释)
+        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> RolloutWorker:
         """Create a rollout worker wired to this trainer's components."""
         return RolloutWorker(
@@ -112,7 +113,8 @@ class OnlineRLTrainer:
             max_deviation=self.config.max_deviation,
             deviation_abort_threshold=self.config.deviation_abort_threshold,
             max_episode_chunks=self.config.max_episode_chunks,
-            mock_obs_iter=mock_obs_iter,
+            # Mock env (注释掉; 需要 mock 时取消注释)
+            # mock_obs_iter=mock_obs_iter,
         )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:
@@ -319,7 +321,8 @@ class OnlineRLTrainer:
         log_fn: Any | None = None,
         *,
         pretrain_data_iter: Any = None,
-        mock_obs_iter: Iterator[dict] | None = None,
+        # Mock env (注释掉; 需要 mock 时取消注释)
+        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> None:
         """Run the full online RL training loop (Algorithm 1).
 
@@ -329,11 +332,12 @@ class OnlineRLTrainer:
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
             pretrain_data_iter: Optional infinite iterator yielding
                 ``(Observation, _)`` tuples for BC pre-training.
-            mock_obs_iter: Optional infinite iterator yielding raw observation
-                dicts for mock env (replaces random Aloha obs).
+            # Mock env (注释掉): mock_obs_iter: Optional infinite iterator yielding raw
+            # Mock env (注释掉): observation dicts for mock env (replaces random Aloha obs).
         """
         cfg = self.config
-        worker = self._create_rollout_worker(env, intervention_mgr, mock_obs_iter)
+        worker = self._create_rollout_worker(env, intervention_mgr)
+        # Mock env (注释掉): worker = self._create_rollout_worker(env, intervention_mgr, mock_obs_iter)
         train_display = display.TrainingDisplay(window_size=20)
         train_start = time.time()
 
@@ -349,8 +353,7 @@ class OnlineRLTrainer:
         # Phase 0: Actor BC pre-training (commented out)
         # self._pretrain_actor(pretrain_data_iter)
 
-        # NOTE: Env warmup commented out — using RolloutWorker.collect_warmup()
-        # with mock env (make_aloha_obs) instead.
+        # NOTE: Warmup runs through RolloutWorker.collect_warmup() on the real env.
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
         if self.replay_buffer.size > 0:
             print(f"[Stage 2] Skipping warmup — replay buffer already has {self.replay_buffer.size} transitions (resumed)")

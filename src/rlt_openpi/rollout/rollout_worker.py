@@ -67,9 +67,15 @@ class RolloutWorker:
         max_deviation: float = 3.0,
         deviation_abort_threshold: float = 0.8,
         max_episode_chunks: int = 150,
-        use_mock_env: bool = True,
-        mock_obs_iter: Iterator[dict] | None = None,
+        # --- Mock env (注释掉以保持真实 env 生效; 需要 mock 时取消注释) ---
+        # use_mock_env: bool = True,
+        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> None:
+        if env is None:
+            raise ValueError(
+                "env must be provided — mock env support is commented out; "
+                "all observations and steps now come from the real env"
+            )
         self.env = env
         self.vla = vla
         self.rl_token_model = rl_token_model
@@ -82,12 +88,14 @@ class RolloutWorker:
         self.max_deviation = max_deviation
         self.deviation_abort_threshold = deviation_abort_threshold
         self.max_episode_chunks = max_episode_chunks
-        self._use_mock_env = use_mock_env or env is None
+
+        # --- Mock env (注释掉; 需要 mock 时取消注释) ---
+        # self._use_mock_env = use_mock_env or env is None
+        # self._mock_chunk_count = 0
+        # self._mock_obs_iter = mock_obs_iter
 
         self._action_chunk_dim = chunk_length * action_dim
-        self._mock_chunk_count = 0
         self._feedback = HumanReward()
-        self._mock_obs_iter = mock_obs_iter
 
     def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
@@ -180,84 +188,88 @@ class RolloutWorker:
         # squeeze to remove batch dim: [1, C*d] -> [C*d]; then numpy; then reshape to [C, d]
         return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
 
-    def make_aloha_obs(self) -> dict:
-        """Creates a random input example for the Aloha policy."""
-        return {
-            "state": np.random.uniform(0, 180, size=(14,)),
-            "images": {
-                "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-                "cam_low": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-                "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-                "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-            },
-            "prompt": "place phone",
-        }
-
-    def _get_mock_obs(self) -> dict:
-        """Get a mock observation, preferring dataset iterator over random Aloha obs.
-
-        When ``mock_obs_iter`` is provided (constructed from a real dataset),
-        each call yields the next observation dict from the dataset iterator.
-        Falls back to :meth:`make_aloha_obs` when no iterator is set.
-        """
-        if self._mock_obs_iter is not None:
-            return next(self._mock_obs_iter)
-        return self.make_aloha_obs()
-
-    def _mock_env_step(self, obs, action_chunk):
-        """Mock env step mirroring RobotEnv.step() line 137–218.
-
-        Identical to RobotEnv.step() except:
-        - No robot hardware (no _step_fn, no _control_period, no sleep)
-        - next_obs reuses input obs (mock — no real cameras/encoders)
-        """
-        C = self.chunk_length
-        rewards = np.zeros(C, dtype=np.float32)
-        done = False
-        info: dict[str, Any] = {}
-
-        # Episode start: begin listening for keyboard input
-        if self._mock_chunk_count == 0:
-            self._feedback.start()
-
-        for k in range(C):
-            # No hardware step (mock env)
-
-            # Check for human signal between steps
-            signal = self._feedback.check()
-            if signal is not None:
-                if signal == "s":
-                    rewards[k] = 1.0
-                    done = True
-                    info["success"] = True
-                    print("Human signal: SUCCESS")
-                elif signal == "f":
-                    done = True
-                    info["success"] = False
-                    print("Human signal: FAILURE")
-                elif signal == "p":
-                    rewards[k] = self._feedback.progress_reward
-                    print(f"Human signal: PROGRESS (+{self._feedback.progress_reward:.2f})")
-                if done:
-                    break
-
-        info["steps_executed"] = k + 1
-        self._mock_chunk_count += 1
-
-        # Timeout: force episode end after max chunks
-        if not done and self._mock_chunk_count >= self.max_episode_chunks:
-            done = True
-            info["success"] = False
-            info["timeout"] = True
-            print(f"Episode timed out after {self._mock_chunk_count} chunks")
-
-        # Restore terminal when episode ends
-        if done:
-            self._feedback.stop()
-            self._mock_chunk_count = 0
-
-        next_obs = obs  # reuse obs (mock — no real hardware to query)
-        return next_obs, rewards, done, info
+    # =========================================================================
+    # Mock env (注释掉以保持真实 env 生效; 需要 mock 时取消注释整个区块)
+    # =========================================================================
+    # def make_aloha_obs(self) -> dict:
+    #     """Creates a random input example for the Aloha policy."""
+    #     return {
+    #         "state": np.random.uniform(0, 180, size=(14,)),
+    #         "images": {
+    #             "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+    #             "cam_low": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+    #             "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+    #             "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+    #         },
+    #         "prompt": "place phone",
+    #     }
+    #
+    # def _get_mock_obs(self) -> dict:
+    #     """Get a mock observation, preferring dataset iterator over random Aloha obs.
+    #
+    #     When ``mock_obs_iter`` is provided (constructed from a real dataset),
+    #     each call yields the next observation dict from the dataset iterator.
+    #     Falls back to :meth:`make_aloha_obs` when no iterator is set.
+    #     """
+    #     if self._mock_obs_iter is not None:
+    #         return next(self._mock_obs_iter)
+    #     return self.make_aloha_obs()
+    #
+    # def _mock_env_step(self, obs, action_chunk):
+    #     """Mock env step mirroring RobotEnv.step() line 137–218.
+    #
+    #     Identical to RobotEnv.step() except:
+    #     - No robot hardware (no _step_fn, no _control_period, no sleep)
+    #     - next_obs reuses input obs (mock — no real cameras/encoders)
+    #     """
+    #     C = self.chunk_length
+    #     rewards = np.zeros(C, dtype=np.float32)
+    #     done = False
+    #     info: dict[str, Any] = {}
+    #
+    #     # Episode start: begin listening for keyboard input
+    #     if self._mock_chunk_count == 0:
+    #         self._feedback.start()
+    #
+    #     for k in range(C):
+    #         # No hardware step (mock env)
+    #
+    #         # Check for human signal between steps
+    #         signal = self._feedback.check()
+    #         if signal is not None:
+    #             if signal == "s":
+    #                 rewards[k] = 1.0
+    #                 done = True
+    #                 info["success"] = True
+    #                 print("Human signal: SUCCESS")
+    #             elif signal == "f":
+    #                 done = True
+    #                 info["success"] = False
+    #                 print("Human signal: FAILURE")
+    #             elif signal == "p":
+    #                 rewards[k] = self._feedback.progress_reward
+    #                 print(f"Human signal: PROGRESS (+{self._feedback.progress_reward:.2f})")
+    #             if done:
+    #                 break
+    #
+    #     info["steps_executed"] = k + 1
+    #     self._mock_chunk_count += 1
+    #
+    #     # Timeout: force episode end after max chunks
+    #     if not done and self._mock_chunk_count >= self.max_episode_chunks:
+    #         done = True
+    #         info["success"] = False
+    #         info["timeout"] = True
+    #         print(f"Episode timed out after {self._mock_chunk_count} chunks")
+    #
+    #     # Restore terminal when episode ends
+    #     if done:
+    #         self._feedback.stop()
+    #         self._mock_chunk_count = 0
+    #
+    #     next_obs = obs  # reuse obs (mock — no real hardware to query)
+    #     return next_obs, rewards, done, info
+    # =========================================================================
 
     def collect_warmup(self, num_chunks: int) -> int:
         """Run VLA-only policy and store transitions in the replay buffer.
@@ -272,7 +284,8 @@ class RolloutWorker:
             Total number of transitions stored.
         """
         stored = 0
-        obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+        # Mock env (注释掉): obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+        obs = self.env.reset()
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
@@ -284,11 +297,11 @@ class RolloutWorker:
             # print(f"action_chunk[0]: {action_chunk[0]}")
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
-            # Step environment
-            if self._use_mock_env:
-                next_obs, rewards, done, _info = self._mock_env_step(obs, action_chunk)
-            else:
-                next_obs, rewards, done, _info = self.env.step(action_chunk)
+            # Step environment (真实 env)
+            # Mock env (注释掉): if self._use_mock_env:
+            # Mock env (注释掉):     next_obs, rewards, done, _info = self._mock_env_step(obs, action_chunk)
+            # Mock env (注释掉): else:
+            next_obs, rewards, done, _info = self.env.step(action_chunk)
 
             # Build next RL state
             # print("Warmup: Get next rl_state")
@@ -307,7 +320,8 @@ class RolloutWorker:
             stored += 1
 
             if done:
-                obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+                # Mock env (注释掉): obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+                obs = self.env.reset()
             else:
                 obs = next_obs
 
@@ -333,7 +347,8 @@ class RolloutWorker:
             Episode statistics.
         """
         stats = EpisodeStats()
-        obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+        # Mock env (注释掉): obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
+        obs = self.env.reset()
 
         while True:
             # Extract RL state and VLA reference
@@ -358,10 +373,11 @@ class RolloutWorker:
                 stats.interventions += 1
             else:
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
-                if self._use_mock_env:
-                    next_obs, rewards, done, info = self._mock_env_step(obs, action_chunk)
-                else:
-                    next_obs, rewards, done, info = self.env.step(action_chunk)
+                # Step environment (真实 env)
+                # Mock env (注释掉): if self._use_mock_env:
+                # Mock env (注释掉):     next_obs, rewards, done, info = self._mock_env_step(obs, action_chunk)
+                # Mock env (注释掉): else:
+                next_obs, rewards, done, info = self.env.step(action_chunk)
 
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
