@@ -6,7 +6,7 @@ robot through three user-supplied callables (``step_fn``, ``reset_fn``,
 polymetis, ROS, etc.) — the wiring happens in the user's launch script.
 
 Human reward (success/failure) is collected via
-:class:`~rlt_openpi.envs.robot_env_base.reward.HumanReward` using instant
+:class:`~rlt_openpi.envs.envbase.reward.HumanReward` using instant
 keypress detection (no Enter needed) during episodes.
 
 Usage (with DROID)::
@@ -48,7 +48,7 @@ from typing import Any, Callable
 import numpy as np
 from numpy.typing import NDArray
 
-from rlt_openpi.envs.robot_env_base.reward import HumanReward
+from rlt_openpi.envs.envbase.reward import HumanReward
 from rlt_openpi.utils import display
 
 
@@ -164,7 +164,7 @@ class RobotEnv:
                 a = action_chunk[k]
                 vals = " ".join(f"[{i}]{a[i]:+.6f}" for i in range(len(a)))
                 tag = "dry_run" if self._dry_run else "Action chunk"
-                print(f"[{tag}: step {k:>2d}]: {vals}")
+                print(f"[Action chunk: step {k:>2d}]: {vals}")
 
             # Send to hardware (dry_run skips this)
             if not self._dry_run:

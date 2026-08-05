@@ -1,7 +1,7 @@
 """Environment for the Alicia-D robotic arm (Synria Robotics).
 
 Provides ``make_alicd_env``, a factory function that wraps the
-Alicia-D-SDK in the :class:`~rlt_openpi.envs.robot_env_base.robot_env.RobotEnv`
+Alicia-D-SDK in the :class:`~rlt_openpi.envs.envbase.robot_env.RobotEnv`
 interface for online RL training.
 
 Usage::

@@ -2,7 +2,7 @@
 
 Provides ``make_aloha_env``, a factory function that wraps the
 ``hansrobot`` direct-control interface in the
-:class:`~rlt_openpi.envs.robot_env_base.robot_env.RobotEnv` interface
+:class:`~rlt_openpi.envs.envbase.robot_env.RobotEnv` interface
 for online RL training (no ROS dependency).
 
 ALOHA hardware: two arms (left/right) controlled via ``hansrobot``

@@ -18,7 +18,7 @@ from numpy.typing import NDArray
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
-from rlt_openpi.envs.robot_env_base.reward import HumanReward
+from rlt_openpi.envs.envbase.reward import HumanReward
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
@@ -152,6 +152,7 @@ class RolloutWorker:
             np.array(vla_input.state[:, :self.action_dim]),
             dtype=torch.float32, device=self.device,
         )
+        print(f"[DEBUG] s_p (normalized) = {s_p.squeeze(0).cpu().numpy()}")
 
         # RL state: x = cat(z_rl, s^p)
         x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
@@ -286,15 +287,21 @@ class RolloutWorker:
         stored = 0
         # Mock env (注释掉): obs = self._get_mock_obs() if self._use_mock_env else self.env.reset()
         obs = self.env.reset()
-        print(f"obs keys: {list(obs.keys())}")
+        print("[DEBUG] obs keys and value shapes:")
+        for k, v in obs.items():
+            if hasattr(v, "shape"):
+                print(f"  {k}: shape={v.shape}, dtype={getattr(v, 'dtype', 'N/A')}")
+            else:
+                print(f"  {k}: type={type(v).__name__}, value={v}")
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
             # print(f"{'─' * 60}")
             # raw_joint = obs.get("state", None)
             # print(f"[VLA input] raw state: {np.array(raw_joint)}")
-            
+            print(f"[DEBUG] joint_position = {obs['observation/joint_position']}")
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
+            print(f"[DEBUG] x last 14 dims = {x[-14:]}")
             # print(f"action_chunk[0]: {action_chunk[0]}")
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
@@ -353,6 +360,7 @@ class RolloutWorker:
 
         while True:
             # Extract RL state and VLA reference
+            print(f"[DEBUG] joint_position = {obs['observation/joint_position']}")
             x, a_tilde_flat, _ = self._extract_rl_state(obs)
 
             # Check for human intervention.

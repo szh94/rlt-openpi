@@ -17,6 +17,13 @@ checkpoint_dir = "/home/zhike/model/openpi-jax/full/sim/models (2)/models/pretra
 policy = policy_config.create_trained_policy(config, checkpoint_dir)
 
 obs = aloha_policy.make_aloha_example()
-print("obs:",obs)
+
+print("[DEBUG] obs keys and value shapes:")
+for k, v in obs.items():
+    if hasattr(v, "shape"):
+        print(f"  {k}: shape={v.shape}, dtype={getattr(v, 'dtype', 'N/A')}")
+    else:
+        print(f"  {k}: type={type(v).__name__}, value={v}")
+
 action = policy.infer(obs)
 print(action)

@@ -114,7 +114,7 @@ def make_aloha_env(
     from example.hansrobot.hansrobot_realsense import hansrobot
     from openpi_client import image_tools
 
-    from rlt_openpi.envs.robot_env_base.robot_env import RobotEnv
+    from rlt_openpi.envs.envbase.robot_env import RobotEnv
 
     if camera_names is None:
         camera_names = ["cam_high", "cam_left_wrist", "cam_right_wrist"]

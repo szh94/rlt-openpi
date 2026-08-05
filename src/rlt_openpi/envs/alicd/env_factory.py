@@ -81,7 +81,7 @@ def make_alicd_env(
     """
     import alicia_d_sdk
 
-    from rlt_openpi.envs.robot_env_base.robot_env import RobotEnv
+    from rlt_openpi.envs.envbase.robot_env import RobotEnv
 
     # ------------------------------------------------------------------
     # Connect to robot
