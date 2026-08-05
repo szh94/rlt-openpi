@@ -195,9 +195,20 @@ class RolloutWorker:
         """
         stored = 0
         obs = self.env.reset()
+        # 打印 proprioceptive 状态值（ALOHA schema: state float32[14]）
+        if "state" in obs:
+            print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
+
         print("[DEBUG] obs keys and value shapes:")
         for k, v in obs.items():
-            if hasattr(v, "shape"):
+            if isinstance(v, dict):
+                # 嵌套字典（如 images{cam: array}）：只打印各内容项的 shape
+                shapes = ", ".join(
+                    f"{ik}: {getattr(iv, 'shape', type(iv).__name__)}"
+                    for ik, iv in v.items()
+                )
+                print(f"  {k}: dict{{ {shapes} }}")
+            elif hasattr(v, "shape"):
                 print(f"  {k}: shape={v.shape}, dtype={getattr(v, 'dtype', 'N/A')}")
             else:
                 print(f"  {k}: type={type(v).__name__}, value={v}")
