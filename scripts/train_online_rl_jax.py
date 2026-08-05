@@ -38,6 +38,7 @@ import openpi.transforms as _transforms
 
 from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
+from rlt_openpi.envs.obs_source import make_obs_source
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
@@ -127,57 +128,6 @@ def _build_jax_data_iter(
     return _jax_iter(raw_loader)
 
 
-# =========================================================================
-# Mock env (注释掉以保持真实 env 生效; 需要 mock 时取消注释整个区块)
-# =========================================================================
-# def _build_mock_obs_iter(
-#     vla_config_name: str,
-#     repo_id: str,
-#     *,
-#     data_transforms: _transforms.Group | None = None,
-# ):
-#     """Build an infinite iterator yielding raw observation dicts from a dataset.
-#
-#     Each yielded dict is a single observation (no batch dim) in the format
-#     expected by ``VLAWrapper.preprocess_obs``.  Used by ``RolloutWorker``
-#     to replace random ``make_aloha_obs()`` with real dataset observations.
-#
-#     Unlike ``_build_jax_data_iter``, this does NOT batch and does NOT
-#     convert to ``Observation`` — the worker's ``_obs_to_vla_input``
-#     handles batching and preprocessing.
-#     """
-#     openpi_config = get_config(vla_config_name)
-#     data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
-#     data_config = dataclasses.replace(data_config, repo_id=repo_id)
-#
-#     # Auto-detect action column name.
-#     meta = LeRobotDatasetMetadata(repo_id)
-#     if "action" in meta.features and "actions" not in meta.features:
-#         data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
-#         data_config = _patch_repack_action_key(data_config, "action")
-#
-#     if data_transforms is not None:
-#         print("Overriding data_transforms with custom Group")
-#         data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
-#
-#     dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
-#
-#     # Only apply repack transforms (key remapping from LeRobot flat keys to
-#     # DROID schema).  Do NOT apply data_transforms (ThreeCameraDroidInputs),
-#     # Normalize, or model_transforms — vla.preprocess_obs() handles those
-#     # downstream.  The yielded dict must match the raw DROID-schema format
-#     # produced by the real Franka environment.
-#     repack_fn = _transforms.compose(list(data_config.repack_transforms.inputs))
-#
-#     def _iter():
-#         while True:
-#             for item in dataset:
-#                 yield repack_fn(item)
-#
-#     return _iter()
-# =========================================================================
-
-
 def main(config: OnlineRLTrainConfig) -> None:
     """Run online RL training with JAX VLA (Stage 2, Algorithm 1)."""
     # Set up logger
@@ -217,17 +167,6 @@ def main(config: OnlineRLTrainConfig) -> None:
             data_transforms=data_transforms,
         )
 
-    # Mock env (注释掉; 需要 mock 时取消注释)
-    # Build mock obs iterator (replaces random make_aloha_obs with real dataset obs)
-    # mock_obs_iter = None
-    # if config.repo_id:
-    #     print(f"[Data] Building mock obs iterator from dataset: {config.repo_id}")
-    #     mock_obs_iter = _build_mock_obs_iter(
-    #         vla_config_name=config.vla_config_name,
-    #         repo_id=config.repo_id,
-    #         data_transforms=data_transforms,
-    #     )
-
     # Create trainer
     trainer = OnlineRLTrainer(
         config=config,
@@ -249,15 +188,39 @@ def main(config: OnlineRLTrainConfig) -> None:
         raise SystemExit(1)
 
     env_extra_kwargs = json.loads(config.env_kwargs)
-    env = make_env(
-        config.env_factory,
-        action_dim=config.action_dim,
-        chunk_length=config.chunk_length,
-        task_prompt=config.task_prompt,
-        max_episode_chunks=config.max_episode_chunks,
-        dry_run=config.dry_run,
+
+    # 黑盒 obs 来源：除 "robot" 外（mock/dataset），构建 ObsSource 并注入 env 工厂，
+    # 工厂会跳过机器人初始化，obs 全部来自该黑盒。
+    obs_source = None
+    if config.obs_source and config.obs_source != "robot":
+        obs_kwargs: dict = {"image_size": tuple(env_extra_kwargs.get("image_size", (224, 224)))}
+        if "camera_names" in env_extra_kwargs:
+            obs_kwargs["camera_names"] = env_extra_kwargs["camera_names"]
+        if config.obs_source == "dataset":
+            if not config.repo_id:
+                print("[ERROR] --obs-source dataset requires --repo-id (LeRobot 数据集 ID)")
+                raise SystemExit(1)
+            obs_kwargs["repo_id"] = config.repo_id
+            obs_kwargs["vla_config_name"] = config.vla_config_name
+            obs_kwargs["task_prompt"] = config.task_prompt
+        else:  # mock
+            obs_kwargs["task_prompt"] = config.task_prompt
+        obs_source = make_obs_source(config.obs_source, **obs_kwargs)
+        print(
+            f"[ObsSource] built {type(obs_source).__name__} from --obs-source={config.obs_source}",
+        )
+
+    env_kwargs = {
+        "action_dim": config.action_dim,
+        "chunk_length": config.chunk_length,
+        "task_prompt": config.task_prompt,
+        "max_episode_chunks": config.max_episode_chunks,
+        "dry_run": config.dry_run,
         **env_extra_kwargs,
-    )
+    }
+    if obs_source is not None:
+        env_kwargs["obs_source"] = obs_source
+    env = make_env(config.env_factory, **env_kwargs)
     print(
         f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}"
     )
@@ -273,8 +236,6 @@ def main(config: OnlineRLTrainConfig) -> None:
         intervention_mgr=intervention_mgr,
         log_fn=rl_logger.log,
         pretrain_data_iter=pretrain_data_iter,
-        # Mock env (注释掉; 需要 mock 时取消注释)
-        # mock_obs_iter=mock_obs_iter,
     )
 
     rl_logger.finish()

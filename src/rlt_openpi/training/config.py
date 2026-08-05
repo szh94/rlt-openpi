@@ -103,6 +103,7 @@ class OnlineRLTrainConfig:
     dry_run: Annotated[str, tyro.conf.arg(metavar="{true,false}")] = (
         "false"  # If True, print actions instead of sending to hardware
     )
+    obs_source: str = "robot"  # 黑盒 obs 来源: "robot"=真实硬件 | "mock"=随机假obs | "dataset"=从数据集加载
 
     # MockEnv configuration (only used when env is MockEnv)
     mock_image_size: int = 224  # H=W of generated random camera images (ALOHA default)

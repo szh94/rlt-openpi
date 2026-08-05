@@ -53,6 +53,7 @@ def make_franka_env(
     from droid.robot_env import RobotEnv as DroidEnv
 
     from rlt_openpi.envs.envbase.robot_env import RobotEnv
+    from rlt_openpi.envs.real.robot_obs_source import RobotObsSource
 
     droid = DroidEnv(action_space=action_space, control_hz=control_hz)
 
@@ -62,26 +63,38 @@ def make_franka_env(
     def reset_fn():
         droid.reset(randomize=False)
 
-    def get_obs_fn() -> dict:
-        """Return observation in DROID-schema keys.
+    def read_obs_fn() -> dict:
+        """Read raw DROID observation from the robot."""
+        return droid.get_observation()
+
+    def _build_franka_obs(raw_obs: dict) -> dict:
+        """Convert a raw DROID observation to DROID-schema keys.
 
         ``DroidInputs`` (or a custom override like
         ``ThreeCameraDroidInputs``) in the VLA transform chain will
         convert these into the model-format dict (state, images, masks).
         """
-        obs = droid.get_observation()
         return {
             "observation/joint_position": np.array(
-                obs["robot_state"]["joint_positions"], dtype=np.float32
+                raw_obs["robot_state"]["joint_positions"], dtype=np.float32
             ),
             "observation/gripper_position": np.array(
-                [obs["robot_state"]["gripper_position"]], dtype=np.float32
+                [raw_obs["robot_state"]["gripper_position"]], dtype=np.float32
             ),
-            "observation/exterior_image_1_left": obs["image"][CAM_BASE],
-            "observation/wrist_image_left": obs["image"][CAM_WRIST],
-            "observation/exterior_image_2_left": obs["image"][CAM_RIGHT],
+            "observation/exterior_image_1_left": raw_obs["image"][CAM_BASE],
+            "observation/wrist_image_left": raw_obs["image"][CAM_WRIST],
+            "observation/exterior_image_2_left": raw_obs["image"][CAM_RIGHT],
             "prompt": task_prompt,
         }
+
+    obs_source = RobotObsSource(
+        read_obs_fn=read_obs_fn,
+        build_obs_fn=_build_franka_obs,
+    )
+
+    def get_obs_fn() -> dict:
+        """Return observation in DROID-schema keys (delegates to obs_source)."""
+        return obs_source.get_obs()
 
     env = RobotEnv(
         step_fn=step_fn,
@@ -98,4 +111,5 @@ def make_franka_env(
     # directly and read observations in the same format as the env.
     env.droid_env = droid  # type: ignore[attr-defined]
     env.droid_get_obs_fn = get_obs_fn  # type: ignore[attr-defined]
+    env.obs_source = obs_source  # type: ignore[attr-defined]
     return env

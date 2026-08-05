@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import torch
@@ -96,8 +96,6 @@ class OnlineRLTrainer:
         self,
         env: Any,
         intervention_mgr: InterventionManager | None = None,
-        # Mock env (注释掉; 需要 mock 时取消注释)
-        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> RolloutWorker:
         """Create a rollout worker wired to this trainer's components."""
         return RolloutWorker(
@@ -113,8 +111,6 @@ class OnlineRLTrainer:
             max_deviation=self.config.max_deviation,
             deviation_abort_threshold=self.config.deviation_abort_threshold,
             max_episode_chunks=self.config.max_episode_chunks,
-            # Mock env (注释掉; 需要 mock 时取消注释)
-            # mock_obs_iter=mock_obs_iter,
         )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:
@@ -321,8 +317,6 @@ class OnlineRLTrainer:
         log_fn: Any | None = None,
         *,
         pretrain_data_iter: Any = None,
-        # Mock env (注释掉; 需要 mock 时取消注释)
-        # mock_obs_iter: Iterator[dict] | None = None,
     ) -> None:
         """Run the full online RL training loop (Algorithm 1).
 
@@ -332,12 +326,9 @@ class OnlineRLTrainer:
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
             pretrain_data_iter: Optional infinite iterator yielding
                 ``(Observation, _)`` tuples for BC pre-training.
-            # Mock env (注释掉): mock_obs_iter: Optional infinite iterator yielding raw
-            # Mock env (注释掉): observation dicts for mock env (replaces random Aloha obs).
         """
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
-        # Mock env (注释掉): worker = self._create_rollout_worker(env, intervention_mgr, mock_obs_iter)
         train_display = display.TrainingDisplay(window_size=20)
         train_start = time.time()
 

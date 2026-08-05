@@ -16,6 +16,7 @@ import tyro
 
 from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
+from rlt_openpi.envs.obs_source import make_obs_source
 from rlt_openpi.policies.aloha.config import aloha_data_transforms
 from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
@@ -73,15 +74,39 @@ def main(config: OnlineRLTrainConfig) -> None:
         raise SystemExit(1)
 
     env_extra_kwargs = json.loads(config.env_kwargs)
-    env = make_env(
-        config.env_factory,
-        action_dim=config.action_dim,
-        chunk_length=config.chunk_length,
-        task_prompt=config.task_prompt,
-        max_episode_chunks=config.max_episode_chunks,
-        dry_run=config.dry_run,
+
+    # 黑盒 obs 来源：除 "robot" 外（mock/dataset），构建 ObsSource 并注入 env 工厂，
+    # 工厂会跳过机器人初始化，obs 全部来自该黑盒。
+    obs_source = None
+    if config.obs_source and config.obs_source != "robot":
+        obs_kwargs: dict = {"image_size": tuple(env_extra_kwargs.get("image_size", (224, 224)))}
+        if "camera_names" in env_extra_kwargs:
+            obs_kwargs["camera_names"] = env_extra_kwargs["camera_names"]
+        if config.obs_source == "dataset":
+            if not config.repo_id:
+                print("[ERROR] --obs-source dataset requires --repo-id (LeRobot 数据集 ID)")
+                raise SystemExit(1)
+            obs_kwargs["repo_id"] = config.repo_id
+            obs_kwargs["vla_config_name"] = config.vla_config_name
+            obs_kwargs["task_prompt"] = config.task_prompt
+        else:  # mock
+            obs_kwargs["task_prompt"] = config.task_prompt
+        obs_source = make_obs_source(config.obs_source, **obs_kwargs)
+        print(
+            f"[ObsSource] built {type(obs_source).__name__} from --obs-source={config.obs_source}",
+        )
+
+    env_kwargs = {
+        "action_dim": config.action_dim,
+        "chunk_length": config.chunk_length,
+        "task_prompt": config.task_prompt,
+        "max_episode_chunks": config.max_episode_chunks,
+        "dry_run": config.dry_run,
         **env_extra_kwargs,
-    )
+    }
+    if obs_source is not None:
+        env_kwargs["obs_source"] = obs_source
+    env = make_env(config.env_factory, **env_kwargs)
     # Create intervention manager (VR teleoperation, etc.) if specified.
     intervention_mgr: InterventionManager | None = None
     if config.intervention_factory:

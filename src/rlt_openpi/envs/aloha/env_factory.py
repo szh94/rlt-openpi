@@ -68,6 +68,7 @@ def make_aloha_env(
     joint_override: dict[str, float] | None = None,
     speed_deg_s: float = 30.0,
     adapt_to_pi: bool = False,
+    obs_source: "ObsSource | None" = None,
     **kwargs: Any,
 ):
     """Create an ALOHA dual-arm environment for online RL.
@@ -103,6 +104,11 @@ def make_aloha_env(
         adapt_to_pi: If True, apply PI-style joint-flip and gripper-space
             conversion in ``AlohaInputs`` / ``AlohaOutputs``.  Set to
             True for real ALOHA hardware, False for mock/simulated envs.
+        obs_source: Optional :class:`~rlt_openpi.envs.obs_source.ObsSource`
+            to inject as the obs black box.  When ``None`` (default), obs
+            come from the real hansrobot hardware.  When provided (e.g.
+            ``MockObsSource`` / ``DatasetObsSource``), robot initialization
+            is skipped and ``get_obs`` is delegated entirely to the source.
         **kwargs: Forwarded to ``RobotEnv``.
 
     Returns:
@@ -115,9 +121,34 @@ def make_aloha_env(
     from openpi_client import image_tools
 
     from rlt_openpi.envs.envbase.robot_env import RobotEnv
+    from rlt_openpi.envs.obs_source import ObsSource
+    from rlt_openpi.envs.real.robot_obs_source import RobotObsSource
 
     if camera_names is None:
         camera_names = ["cam_high", "cam_left_wrist", "cam_right_wrist"]
+
+    # ------------------------------------------------------------------
+    # 黑盒 obs 来源注入（mock / dataset / 自定义 ObsSource）：
+    # 非 None 时跳过机器人初始化，obs 全部来自 obs_source.get_obs()。
+    # ------------------------------------------------------------------
+    if obs_source is not None:
+        print(
+            f"[aloha] using injected obs_source={type(obs_source).__name__} — "
+            "robot init skipped",
+        )
+        env = RobotEnv(
+            step_fn=lambda action: None,
+            reset_fn=lambda: None,
+            get_obs_fn=obs_source.get_obs,
+            action_dim=action_dim,
+            chunk_length=chunk_length,
+            control_hz=control_hz,
+            max_episode_chunks=max_episode_chunks,
+            print_actions=print_actions,
+            **kwargs,
+        )
+        env.obs_source = obs_source  # type: ignore[attr-defined]
+        return env
 
     # ------------------------------------------------------------------
     # Create the hansrobot instance
@@ -203,15 +234,20 @@ def make_aloha_env(
     }
 
     # ------------------------------------------------------------------
-    # get_obs_fn — read joint state + camera images in ALOHA schema
+    # obs_source — black-box obs access (RobotObsSource wraps the robot)
     #
-    # hansrobot returns degrees + raw gripper; we convert to radians +
-    # [0,1] for the RL pipeline.
+    # read_obs_fn 读取 hansrobot 原始数据（degrees + raw gripper）；
+    # _build_aloha_obs 把原始数据转换成 ALOHA schema（radians + [0,1]）。
+    # obs_source 对外统一提供 get_obs()。
     # ------------------------------------------------------------------
     _frame_stats = [0, 0]  # [ok_count, fail_count]
 
-    def get_obs_fn() -> dict[str, Any]:
-        """Return observation dict in ALOHA format.
+    def read_obs_fn() -> dict[str, Any]:
+        """Read raw hansrobot observation (degrees + raw gripper)."""
+        return robot.get_observation()
+
+    def _build_aloha_obs(raw_obs: dict[str, Any]) -> dict[str, Any]:
+        """Convert a raw hansrobot observation to ALOHA schema.
 
         Adapts hansrobot observation format::
 
@@ -223,16 +259,17 @@ def make_aloha_env(
 
         to the ALOHA standard schema (radians + normalized gripper).
 
+        Args:
+            raw_obs: Raw dict from ``hansrobot.get_observation()``.
+
         Returns:
             Dict with keys ``"state"`` (float32[14]), ``"images"``
             (dict of cam_name → (3, H, W) uint8), and ``"prompt"`` (str).
         """
-        obs = robot.get_observation()
-
         # ------------------------------------------------------------------
         # State: convert degrees → radians, raw gripper → [0, 1]
         # ------------------------------------------------------------------
-        raw_state = obs.get("observation.state")
+        raw_state = raw_obs.get("observation.state")
         if raw_state is None:
             state = np.zeros(14, dtype=np.float32)
         else:
@@ -265,12 +302,12 @@ def make_aloha_env(
                     hr_key = f"observation.images.{hr_suffix}"
                     break
 
-            if hr_key is None or hr_key not in obs:
+            if hr_key is None or hr_key not in raw_obs:
                 print(f"[WARNING] Camera '{cam_name}' missing from hansrobot observation — using zero image")
                 images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
                 continue
 
-            img = obs[hr_key]
+            img = raw_obs[hr_key]
             if img is None:
                 images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
                 _frame_stats[1] += 1
@@ -311,6 +348,15 @@ def make_aloha_env(
 
         return result
 
+    obs_source = RobotObsSource(
+        read_obs_fn=read_obs_fn,
+        build_obs_fn=_build_aloha_obs,
+    )
+
+    def get_obs_fn() -> dict[str, Any]:
+        """Return observation dict in ALOHA format (delegates to obs_source)."""
+        return obs_source.get_obs()
+
     # ------------------------------------------------------------------
     # print_actions_fn — log action values (wrapped by RobotEnv if print_actions=True)
     # ------------------------------------------------------------------
@@ -345,6 +391,7 @@ def make_aloha_env(
     env.aloha_get_obs_fn = get_obs_fn  # type: ignore[attr-defined]
     env.aloha_cameras = camera_names  # type: ignore[attr-defined]
     env.aloha_dry_run = dry_run  # type: ignore[attr-defined]
+    env.obs_source = obs_source  # type: ignore[attr-defined]
 
     # Attach action logger so RobotEnv can call it after each step
     if print_actions:

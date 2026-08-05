@@ -44,6 +44,9 @@ LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true
 
+# 黑盒 obs 来源: robot=真实机械臂硬件(默认) | mock=随机假obs(测试) | dataset=从数据集加载
+OBS_SOURCE=${OBS_SOURCE:-robot}
+
 TASK_PROMPT="pick up the cup"
 
 export WANDB_MODE=offline
@@ -61,6 +64,7 @@ echo "   Dry run         = $DRY_RUN"
 echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Adapt to PI     = $ADAPT_TO_PI"
+echo "   Obs source      = $OBS_SOURCE"
 echo "========================================"
 
 # Build env-kwargs JSON
@@ -87,6 +91,8 @@ python scripts/train_online_rl.py \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
+    --obs-source "$OBS_SOURCE" \
+    --repo-id "$HF_LEROBOT_HOME" \
     --save-every 40 \
     $(
     # === 默认参数，必要时取消注释修改 ===
