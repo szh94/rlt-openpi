@@ -159,13 +159,6 @@ class RobotEnv:
         for k in range(C):
             t_start = time.time()
 
-            # Print all action values (generic, works for any action_dim)
-            if self._print_actions or self._dry_run:
-                a = action_chunk[k]
-                vals = " ".join(f"[{i}]{a[i]:+.6f}" for i in range(len(a)))
-                tag = "dry_run" if self._dry_run else "Action chunk"
-                print(f"[Action chunk: step {k:>2d}]: {vals}")
-
             # Send to hardware (dry_run skips this)
             if not self._dry_run:
                 self._step_fn(action_chunk[k])

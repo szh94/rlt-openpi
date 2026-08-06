@@ -12,7 +12,7 @@ from openpi.models import model as _model
 from openpi.models.model import Observation
 from openpi.shared import nnx_utils
 from openpi.training import checkpoints as _checkpoints
-from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize, compose
+from openpi.transforms import InjectDefaultPrompt, Normalize, Unnormalize
 import openpi.transforms as _transforms
 from torch import Tensor
 
@@ -203,7 +203,7 @@ class JaxVLAWrapper:
         self.action_dim = self.train_config.model.action_dim
         self.action_horizon = self.train_config.model.action_horizon
 
-        # Build transform chains (identical logic to VLAWrapper).
+        # Build the data config and norm stats exactly as create_trained_policy does.
         data_config = self.train_config.data.create(
             self.train_config.assets_dirs, self.train_config.model
         )
@@ -215,7 +215,11 @@ class JaxVLAWrapper:
 
         dt = data_transforms or data_config.data_transforms
 
-        output_transforms = [
+        # Output transform chain, same order as create_trained_policy:
+        # model_transforms.outputs → Unnormalize → data_transforms.outputs
+        # → repack_transforms.outputs.  When output_action_dim is set, it
+        # replaces the data_transforms outputs with a plain slice (RLT).
+        output_transforms: list[_transforms.DataTransformFn] = [
             *data_config.model_transforms.outputs,
             Unnormalize(norm_stats, use_quantiles=use_q),
         ]
@@ -226,18 +230,26 @@ class JaxVLAWrapper:
             )
         else:
             output_transforms.extend(dt.outputs)
+        output_transforms.extend(repack_transforms.outputs)
 
-        # Mirrors openpi create_trained_policy (policy_config.py) exactly:
-        #   repack_transforms.inputs → InjectDefaultPrompt → data_transforms.inputs
-        #   → Normalize → model_transforms.inputs
-        self._input_transform = compose([
+        # 直接拷贝 create_trained_policy (openpi/policies/policy_config.py) 的写法：
+        #   transforms=[
+        #       *repack_transforms.inputs,
+        #       transforms.InjectDefaultPrompt(default_prompt),
+        #       *data_config.data_transforms.inputs,
+        #       transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
+        #       *data_config.model_transforms.inputs,
+        #   ],
+        # 与 policy.py 中 self._input_transform = _transforms.compose(transforms) 完全一致。
+        transforms: list[_transforms.DataTransformFn] = [
             *repack_transforms.inputs,
             InjectDefaultPrompt(default_prompt),
             *dt.inputs,
             Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
-        ])
-        self._output_transform = compose(output_transforms)
+        ]
+        self._input_transform = _transforms.compose(transforms)
+        self._output_transform = _transforms.compose(output_transforms)
 
     # ------------------------------------------------------------------
     # Public interface (mirrors VLAWrapper)

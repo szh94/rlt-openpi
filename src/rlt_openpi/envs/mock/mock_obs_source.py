@@ -44,11 +44,19 @@ class MockObsSource(ObsSource):
         #     "prompt": self._task_prompt,
         # }
         return {
-            "state": np.ones((14,)),
+            "state": np.array([164.707, -30.758, 55.32, 36.983, 92.156, 72.361, 0.0, 17.403, 6.064, -68.643, -27.598, -83.321, -19.6, 0.0]),
+            # "state": np.ones((14,)),
+            # "images": {
+            #     "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            #     "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            #     "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+            # },
+            # black
             "images": {
-                "cam_high": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-                "cam_left_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
-                "cam_right_wrist": np.random.randint(256, size=(3, 224, 224), dtype=np.uint8),
+                "cam_high": np.zeros((3, 224, 224), dtype=np.uint8),
+                "cam_low": np.zeros((3, 224, 224), dtype=np.uint8),
+                "cam_left_wrist": np.zeros((3, 224, 224), dtype=np.uint8),
+                "cam_right_wrist": np.zeros((3, 224, 224), dtype=np.uint8),
             },
             "prompt": self._task_prompt,
         }
