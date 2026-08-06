@@ -195,14 +195,12 @@ class RolloutWorker:
         """
         stored = 0
         obs = self.env.reset()
-        # 打印 proprioceptive 状态值（ALOHA schema: state float32[14]）
-        if "state" in obs:
-            print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
-
+        print("[DEBUG] collect warmup")
+        print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
         print("[DEBUG] obs keys and value shapes:")
         for k, v in obs.items():
             if isinstance(v, dict):
-                # 嵌套字典（如 images{cam: array}）：只打印各内容项的 shape
+                # 嵌套字典
                 shapes = ", ".join(
                     f"{ik}: {getattr(iv, 'shape', type(iv).__name__)}"
                     for ik, iv in v.items()
@@ -225,6 +223,7 @@ class RolloutWorker:
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
             # Step environment (真实 env)
+            print(f"[DEBUG] action_chunk = {action_chunk}")
             next_obs, rewards, done, _info = self.env.step(action_chunk)
 
             # Build next RL state

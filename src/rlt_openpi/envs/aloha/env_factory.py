@@ -202,7 +202,7 @@ def make_aloha_env(
                 f"Moving to reset position: left={[f'{v:.1f}' for v in left_joints_deg]}, "
                 f"right={[f'{v:.1f}' for v in right_joints_deg]}",
             )
-            robot.move(left_joints_deg, right_joints_deg)
+            # robot.move(left_joints_deg, right_joints_deg)
         else:
             print("No reset_position set — skipping hardware reset")
 
@@ -249,7 +249,7 @@ def make_aloha_env(
     def convert_image_hwc_to_chw(img):
         # img: [H, W, 3] -> [3, H, W]
         return np.transpose(img, (2, 0, 1))
-
+    
     def _build_aloha_obs(raw_obs: dict[str, Any]) -> dict[str, Any]:
         """Convert a raw hansrobot observation to ALOHA schema.
 
@@ -270,6 +270,7 @@ def make_aloha_env(
             Dict with keys ``"state"`` (float32[14]), ``"images"``
             (dict of cam_name → (3, H, W) uint8), and ``"prompt"`` (str).
         """
+        # # ------------------------------------------------------------------
         # # original
         # # ------------------------------------------------------------------
         # # State: convert degrees → radians, raw gripper → [0, 1]
@@ -338,9 +339,9 @@ def make_aloha_env(
         #     "prompt": task_prompt,
         # }
 
-        # # ------------------------------------------------------------------
-        # # hansrobot
-        # # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # hansrobot
+        # ------------------------------------------------------------------
         # # [H, W, 3] -> [3, H, W]
         # head_img = convert_image_hwc_to_chw(raw_observation['observation.images.head_image'])
         # left_img = convert_image_hwc_to_chw(raw_observation['observation.images.left_wrist_image'])
@@ -351,12 +352,12 @@ def make_aloha_env(
         images["cam_left_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.left_wrist_image'])
         images["cam_right_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.right_wrist_image'])
         
-        obs = {
+        result = {
             'images': images,
-            "state": raw_obs['observation.state'],
+            "state" : raw_obs['observation.state'],
             "prompt": "place phone",
         }
-
+        
         # Save live images (throttled: every _save_interval seconds)
         if _live_dir:
             now = time.time()

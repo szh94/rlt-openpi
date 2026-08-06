@@ -1,20 +1,3 @@
-"""JAX-based VLA wrapper for RLT-OpenPI.
-
-Provides :class:`JaxVLAWrapper` and :class:`JaxEmbeddingExtractor` that use
-the native JAX Pi0 model (from ``openpi-main/src/openpi/models/pi0.py``)
-instead of the PyTorch port.  All RLT components (RLTokenModel, Actor,
-TwinQCritic) remain in PyTorch — the JAX↔PyTorch bridge converts arrays
-at the output boundary.
-
-Differences from the PyTorch :class:`VLAWrapper`:
-
-* Loads Orbax checkpoints (directory) instead of ``.safetensors`` files.
-* Joint training (``vla_finetune_alpha > 0``) is **not supported** — a JAX
-  NNX model cannot be optimised by a PyTorch optimizer.
-* :meth:`preprocess_obs` returns torch tensors on **CPU** so that
-  ``RolloutWorker`` can call ``.to(device=...)`` without redundant copies.
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -259,14 +242,14 @@ class JaxVLAWrapper:
         Args:
             obs: Raw observation dict from the environment.
         """
+        print(f"[DEBUG] In preprocess_obs")
+        print(f"[DEBUG] obs.state before trans = {obs['state']}")
         transformed = self._input_transform(dict(obs))
+        print(f"[DEBUG] obs.state after trans = {transformed['state']}")
 
         # Use jnp (NOT torch) so Observation.from_dict keeps images in NHWC
         # format, matching JAX model expectations (same as policy.py JAX path).
-        batched = jax.tree.map(
-            lambda x: jnp.asarray(x)[None, ...],
-            transformed,
-        )
+        batched = jax.tree.map(lambda x: jnp.asarray(x)[None, ...], transformed,)
         return Observation.from_dict(batched)
 
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
