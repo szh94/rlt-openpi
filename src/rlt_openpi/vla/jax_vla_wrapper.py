@@ -166,6 +166,11 @@ class JaxVLAWrapper:
         device: Torch device where output tensors are placed.
         data_transforms: Optional override for the config's default
             ``data_transforms``.
+        repack_transforms: Optional transforms applied **first** to remap raw
+            env/dataset keys into the standardized observation schema (mirrors
+            ``create_trained_policy`` in ``openpi.policies.policy_config``).
+            Defaults to empty (no repack) since RLT envs already emit the
+            ALOHA/DROID schema directly.
         default_prompt: If set, injected into inputs that lack a ``prompt`` key.
         output_action_dim: If set, slices output actions to this dimension
             instead of using the default ``DroidOutputs`` transform.
@@ -177,11 +182,13 @@ class JaxVLAWrapper:
         config_name: str,
         device: torch.device | str = "cuda",
         data_transforms: _transforms.Group | None = None,
+        repack_transforms: _transforms.Group | None = None,
         default_prompt: str | None = None,
         output_action_dim: int | None = None,
     ) -> None:
         self.device = torch.device(device)
         self.train_config = load_vla_config(config_name)
+        repack_transforms = repack_transforms or _transforms.Group()
 
         # Load the JAX model from an Orbax checkpoint.
         checkpoint_dir_path = pathlib.Path(checkpoint_dir)
@@ -220,9 +227,13 @@ class JaxVLAWrapper:
         else:
             output_transforms.extend(dt.outputs)
 
+        # Mirrors openpi create_trained_policy (policy_config.py) exactly:
+        #   repack_transforms.inputs → InjectDefaultPrompt → data_transforms.inputs
+        #   → Normalize → model_transforms.inputs
         self._input_transform = compose([
-            *dt.inputs,
+            *repack_transforms.inputs,
             InjectDefaultPrompt(default_prompt),
+            *dt.inputs,
             Normalize(norm_stats, use_quantiles=use_q),
             *data_config.model_transforms.inputs,
         ])
@@ -244,7 +255,7 @@ class JaxVLAWrapper:
         """
         print(f"[DEBUG] In preprocess_obs")
         print(f"[DEBUG] obs.state before trans = {obs['state']}")
-        transformed = self._input_transform(dict(obs))
+        transformed = self._input_transform(obs)
         print(f"[DEBUG] obs.state after trans = {transformed['state']}")
 
         # Use jnp (NOT torch) so Observation.from_dict keeps images in NHWC
