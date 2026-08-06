@@ -246,6 +246,10 @@ def make_aloha_env(
         """Read raw hansrobot observation (degrees + raw gripper)."""
         return robot.get_observation()
 
+    def convert_image_hwc_to_chw(img):
+        # img: [H, W, 3] -> [3, H, W]
+        return np.transpose(img, (2, 0, 1))
+
     def _build_aloha_obs(raw_obs: dict[str, Any]) -> dict[str, Any]:
         """Convert a raw hansrobot observation to ALOHA schema.
 
@@ -266,71 +270,91 @@ def make_aloha_env(
             Dict with keys ``"state"`` (float32[14]), ``"images"``
             (dict of cam_name → (3, H, W) uint8), and ``"prompt"`` (str).
         """
-        # ------------------------------------------------------------------
-        # State: convert degrees → radians, raw gripper → [0, 1]
-        # ------------------------------------------------------------------
-        raw_state = raw_obs.get("observation.state")
-        if raw_state is None:
-            state = np.zeros(14, dtype=np.float32)
-        else:
-            raw_state = np.asarray(raw_state, dtype=np.float64)
-            # Joints: deg → rad  (indices 0-5 and 7-12)
-            joints_rad = np.radians(
-                np.concatenate([raw_state[:6], raw_state[7:13]]),
-            )
-            # Grippers: raw → [0, 1]  (indices 6 and 13)
-            gripper_norm = np.clip(
-                np.array([raw_state[6], raw_state[13]]) / _HANSROBOT_GRIPPER_MAX,
-                0.0, 1.0,
-            )
-            # Reassemble: [left_j(6), left_g(1), right_j(6), right_g(1)]
-            state = np.zeros(14, dtype=np.float32)
-            state[:6] = joints_rad[:6]
-            state[6] = gripper_norm[0]
-            state[7:13] = joints_rad[6:]
-            state[13] = gripper_norm[1]
+        # # original
+        # # ------------------------------------------------------------------
+        # # State: convert degrees → radians, raw gripper → [0, 1]
+        # # ------------------------------------------------------------------
+        # raw_state = raw_obs.get("observation.state")
+        # if raw_state is None:
+        #     state = np.zeros(14, dtype=np.float32)
+        # else:
+        #     raw_state = np.asarray(raw_state, dtype=np.float64)
+        #     # Joints: deg → rad  (indices 0-5 and 7-12)
+        #     joints_rad = np.radians(
+        #         np.concatenate([raw_state[:6], raw_state[7:13]]),
+        #     )
+        #     # Grippers: raw → [0, 1]  (indices 6 and 13)
+        #     gripper_norm = np.clip(
+        #         np.array([raw_state[6], raw_state[13]]) / _HANSROBOT_GRIPPER_MAX,
+        #         0.0, 1.0,
+        #     )
+        #     # Reassemble: [left_j(6), left_g(1), right_j(6), right_g(1)]
+        #     state = np.zeros(14, dtype=np.float32)
+        #     state[:6] = joints_rad[:6]
+        #     state[6] = gripper_norm[0]
+        #     state[7:13] = joints_rad[6:]
+        #     state[13] = gripper_norm[1]
 
-        # ------------------------------------------------------------------
-        # Images: map hansrobot camera keys to ALOHA standard names
-        # ------------------------------------------------------------------
+        # # ------------------------------------------------------------------
+        # # Images: map hansrobot camera keys to ALOHA standard names
+        # # ------------------------------------------------------------------
+        # images: dict[str, np.ndarray] = {}
+        # for cam_name in camera_names:
+        #     # Find hansrobot key for this ALOHA cam name
+        #     hr_key = None
+        #     for hr_suffix, aloha_name in _CAMERA_MAP.items():
+        #         if aloha_name == cam_name:
+        #             hr_key = f"observation.images.{hr_suffix}"
+        #             break
+
+        #     if hr_key is None or hr_key not in raw_obs:
+        #         print(f"[WARNING] Camera '{cam_name}' missing from hansrobot observation — using zero image")
+        #         images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
+        #         continue
+
+        #     img = raw_obs[hr_key]
+        #     if img is None:
+        #         images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
+        #         _frame_stats[1] += 1
+        #         continue
+
+        #     _frame_stats[0] += 1
+        #     if _frame_stats[0] == 1:  # only on first successful read
+        #         print(
+        #             f"Camera '{cam_name}' first frame: shape={img.shape}, dtype={img.dtype}, "
+        #             f"min={img.min():.1f} max={img.max():.1f} mean={img.mean():.1f}",
+        #         )
+
+        #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        #     img = image_tools.convert_to_uint8(
+        #         image_tools.resize_with_pad(img, *image_size),
+        #     )
+        #     img = einops.rearrange(img, "h w c -> c h w")
+        #     images[cam_name] = img
+
+        # result: dict[str, Any] = {
+        #     "state": state,
+        #     "images": images,
+        #     "prompt": task_prompt,
+        # }
+
+        # # ------------------------------------------------------------------
+        # # hansrobot
+        # # ------------------------------------------------------------------
+        # # [H, W, 3] -> [3, H, W]
+        # head_img = convert_image_hwc_to_chw(raw_observation['observation.images.head_image'])
+        # left_img = convert_image_hwc_to_chw(raw_observation['observation.images.left_wrist_image'])
+        # right_img = convert_image_hwc_to_chw(raw_observation['observation.images.right_wrist_image'])
+
         images: dict[str, np.ndarray] = {}
-        for cam_name in camera_names:
-            # Find hansrobot key for this ALOHA cam name
-            hr_key = None
-            for hr_suffix, aloha_name in _CAMERA_MAP.items():
-                if aloha_name == cam_name:
-                    hr_key = f"observation.images.{hr_suffix}"
-                    break
-
-            if hr_key is None or hr_key not in raw_obs:
-                print(f"[WARNING] Camera '{cam_name}' missing from hansrobot observation — using zero image")
-                images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
-                continue
-
-            img = raw_obs[hr_key]
-            if img is None:
-                images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
-                _frame_stats[1] += 1
-                continue
-
-            _frame_stats[0] += 1
-            if _frame_stats[0] == 1:  # only on first successful read
-                print(
-                    f"Camera '{cam_name}' first frame: shape={img.shape}, dtype={img.dtype}, "
-                    f"min={img.min():.1f} max={img.max():.1f} mean={img.mean():.1f}",
-                )
-
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            img = image_tools.convert_to_uint8(
-                image_tools.resize_with_pad(img, *image_size),
-            )
-            img = einops.rearrange(img, "h w c -> c h w")
-            images[cam_name] = img
-
-        result: dict[str, Any] = {
-            "state": state,
-            "images": images,
-            "prompt": task_prompt,
+        images["cam_high"] = convert_image_hwc_to_chw(raw_obs['observation.images.head_image'])
+        images["cam_left_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.left_wrist_image'])
+        images["cam_right_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.right_wrist_image'])
+        
+        obs = {
+            'images': images,
+            "state": raw_obs['observation.state'],
+            "prompt": "place phone",
         }
 
         # Save live images (throttled: every _save_interval seconds)
