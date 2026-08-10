@@ -144,7 +144,7 @@ class RolloutWorker:
             np.array(vla_input.state[:, :self.action_dim]),
             dtype=torch.float32, device=self.device,
         )
-        print(f"[DEBUG] s_p (normalized) = {s_p.squeeze(0).cpu().numpy()}")
+        # print(f"[DEBUG] s_p (normalized) = {s_p.squeeze(0).cpu().numpy()}")
 
         # RL state: x = cat(z_rl, s^p)
         x = torch.cat([z_rl, s_p], dim=-1)  # [1, state_dim]
@@ -197,33 +197,30 @@ class RolloutWorker:
         obs = self.env.reset()
         print("[DEBUG] collect warmup")
         print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
-        print("[DEBUG] obs keys and value shapes:")
-        for k, v in obs.items():
-            if isinstance(v, dict):
-                # 嵌套字典
-                shapes = ", ".join(
-                    f"{ik}: {getattr(iv, 'shape', type(iv).__name__)}"
-                    for ik, iv in v.items()
-                )
-                print(f"  {k}: dict{{ {shapes} }}")
-            elif hasattr(v, "shape"):
-                print(f"  {k}: shape={v.shape}, dtype={getattr(v, 'dtype', 'N/A')}")
-            else:
-                print(f"  {k}: type={type(v).__name__}, value={v}")
+
+        # print("[DEBUG] obs keys and value shapes:")
+        # for k, v in obs.items():
+        #     if isinstance(v, dict):
+        #         # 嵌套字典
+        #         shapes = ", ".join(
+        #             f"{ik}: {getattr(iv, 'shape', type(iv).__name__)}"
+        #             for ik, iv in v.items()
+        #         )
+        #         print(f"  {k}: dict{{ {shapes} }}")
+        #     elif hasattr(v, "shape"):
+        #         print(f"  {k}: shape={v.shape}, dtype={getattr(v, 'dtype', 'N/A')}")
+        #     else:
+        #         print(f"  {k}: type={type(v).__name__}, value={v}")
 
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
-            # print(f"{'─' * 60}")
-            # raw_joint = obs.get("state", None)
-            # print(f"[VLA input] raw state: {np.array(raw_joint)}")
-            print(f"[DEBUG] joint_position = {obs.get('observation/joint_position', obs.get('state'))}")
+            # print(f"[DEBUG] joint_position = {obs.get('observation/joint_position', obs.get('state'))}")
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
-            print(f"[DEBUG] x last 14 dims = {x[-14:]}")
-            # print(f"action_chunk[0]: {action_chunk[0]}")
+            print(f"[DEBUG] action_chunk = {action_chunk[0]}")
+            # print(f"[DEBUG] x last 14 dims = {x[-14:]}")
             a_flat = action_chunk.reshape(-1)  # [C*d]
 
-            # Step environment (真实 env)
-            print(f"[DEBUG] action_chunk = {action_chunk}")
+            # Step environment
             next_obs, rewards, done, _info = self.env.step(action_chunk)
 
             # Build next RL state
@@ -295,7 +292,7 @@ class RolloutWorker:
                 stats.interventions += 1
             else:
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
-                # Step environment (真实 env)
+                # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)
 
             a_flat = action_chunk.reshape(-1)  # [C*d]

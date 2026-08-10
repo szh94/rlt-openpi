@@ -54,6 +54,8 @@ ADAPT_TO_PI=true
 
 # 黑盒 obs 来源: robot=真实机械臂硬件(默认) | mock=随机假obs(测试) | dataset=从数据集加载
 OBS_SOURCE=${OBS_SOURCE:-mock}
+# OBS_SOURCE=${OBS_SOURCE:-robot}
+# OBS_SOURCE=${OBS_SOURCE:-dataset}
 
 TASK_PROMPT="place phone"
 
@@ -89,7 +91,7 @@ ENV_KWARGS="${ENV_KWARGS}}"
 
 python scripts/train_online_rl_jax.py \
     --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-    --vla-config-name pi05_droid_finetune \
+    --vla-config-name pi05_jax_full \
     --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
@@ -102,13 +104,13 @@ python scripts/train_online_rl_jax.py \
     --dry-run $DRY_RUN \
     --obs-source "$OBS_SOURCE" \
     --repo-id "$HF_LEROBOT_HOME" \
-    --data-transforms-fn "$DATA_TRANSFORMS_FN" \
     --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
     --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --save-every 40 \
     $(
     # === 默认参数，必要时取消注释修改 ===
     # --intervention-factory rlt_openpi.envs.aloha.intervention.make_aloha_intervention \
+    # --data-transforms-fn "$DATA_TRANSFORMS_FN" \
     # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
     # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
     # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)

@@ -157,15 +157,15 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Build BC pre-training data iterator (same pattern as Stage 1 JAX)
     pretrain_data_iter = None
-    if config.repo_id and config.actor_pretrain_steps > 0:
-        print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
-        pretrain_data_iter = _build_jax_data_iter(
-            vla_config_name=config.vla_config_name,
-            repo_id=config.repo_id,
-            batch_size=config.actor_pretrain_batch_size,
-            num_workers=config.num_workers,
-            data_transforms=data_transforms,
-        )
+    # if config.repo_id and config.actor_pretrain_steps > 0:
+    #     print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
+    #     pretrain_data_iter = _build_jax_data_iter(
+    #         vla_config_name=config.vla_config_name,
+    #         repo_id=config.repo_id,
+    #         batch_size=config.actor_pretrain_batch_size,
+    #         num_workers=config.num_workers,
+    #         data_transforms=data_transforms,
+    #     )
 
     # Create trainer
     trainer = OnlineRLTrainer(
