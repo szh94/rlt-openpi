@@ -47,7 +47,7 @@ LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 # Actor BC pre-training (before warmup)
 # Set ACTOR_PRETRAIN_STEPS=0 to skip, or provide a dataset name for REPO_ID.
 ACTOR_PRETRAIN_STEPS=1000              # Number of BC pre-training steps (0 = skip)
-ACTOR_PRETRAIN_BATCH_SIZE=64          # Batch size for actor pre-training
+ACTOR_PRETRAIN_BATCH_SIZE=16          # Batch size for actor pre-training
 
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true

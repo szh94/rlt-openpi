@@ -92,6 +92,10 @@ def _build_jax_data_iter(
     target is the dataset's future action sequence, unnormalized back to
     the Pi model action space.  This is intentionally the same action space
     as ``JaxVLAWrapper`` with ``output_action_dim`` (Unnormalize + slice).
+
+    OpenPI's ALOHA input transforms use ``jnp.array``.  They therefore must
+    run in the main process: spawning PyTorch workers would create additional
+    JAX CUDA contexts, each of which can reserve GPU memory and cause OOM.
     """
     openpi_config = get_config(vla_config_name)
     data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
@@ -119,6 +123,13 @@ def _build_jax_data_iter(
         f"(action horizon={openpi_config.model.action_horizon})"
     )
     dataset = transform_dataset(dataset, data_config)
+
+    if num_workers > 0:
+        print(
+            "[Data] JAX actor pretraining forces num_workers=0 to prevent "
+            "DataLoader workers from creating extra CUDA contexts."
+        )
+        num_workers = 0
 
     mp_context = multiprocessing.get_context("spawn") if num_workers > 0 else None
     raw_loader = torch.utils.data.DataLoader(
@@ -148,7 +159,12 @@ def _build_jax_data_iter(
         while True:
             for batch in loader:
                 batch = jax.tree.map(jnp.asarray, batch)
-                targets = unnormalize_actions({"actions": batch["actions"]})["actions"]
+                # Unnormalize is strict: this checkpoint's stats select both
+                # state and actions, so provide both even though only actions
+                # are retained as the demo target.
+                targets = unnormalize_actions(
+                    {"state": batch["state"], "actions": batch["actions"]}
+                )["actions"]
                 yield Observation.from_dict(batch), targets[..., :target_dim]
 
     return _jax_iter(raw_loader)
