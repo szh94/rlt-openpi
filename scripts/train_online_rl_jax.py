@@ -82,6 +82,7 @@ def _build_jax_data_iter(
     num_workers: int = 4,
     data_transforms: _transforms.Group | None = None,
     output_action_dim: int | None = None,
+    norm_stats: dict[str, _transforms.NormStats] | None = None,
 ):
     """Build a JAX-native actor-pretraining iterator.
 
@@ -95,6 +96,11 @@ def _build_jax_data_iter(
     openpi_config = get_config(vla_config_name)
     data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
     data_config = dataclasses.replace(data_config, repo_id=repo_id)
+    # Some local JAX configs deliberately omit norm stats and rely on the
+    # checkpoint assets at inference time.  Reuse those exact checkpoint stats
+    # for dataset transforms so pretraining sees the same input/action space.
+    if norm_stats is not None:
+        data_config = dataclasses.replace(data_config, norm_stats=norm_stats)
 
     # Auto-detect action column name.
     meta = LeRobotDatasetMetadata(repo_id)
@@ -188,6 +194,7 @@ def main(config: OnlineRLTrainConfig) -> None:
             num_workers=config.num_workers,
             data_transforms=data_transforms,
             output_action_dim=config.action_dim,
+            norm_stats=vla.norm_stats,
         )
 
     # Create trainer

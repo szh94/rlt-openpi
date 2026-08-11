@@ -212,6 +212,10 @@ class JaxVLAWrapper:
         if data_config.asset_id is None:
             raise ValueError("Asset id is required to load norm stats.")
         norm_stats = self._load_norm_stats(checkpoint_dir_path, data_config)
+        # Expose the checkpoint-resolved stats for dataset consumers such as
+        # actor pretraining.  Local training configs may not carry stats even
+        # though the checkpoint bundles the authoritative assets.
+        self.norm_stats = norm_stats
 
         dt = data_transforms or data_config.data_transforms
 
