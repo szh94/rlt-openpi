@@ -81,12 +81,16 @@ def _build_jax_data_iter(
     *,
     num_workers: int = 4,
     data_transforms: _transforms.Group | None = None,
+    output_action_dim: int | None = None,
 ):
-    """Build a JAX-native data iterator — same pattern as Stage 1 JAX.
+    """Build a JAX-native actor-pretraining iterator.
 
     Uses ``jnp.asarray`` (not ``torch.as_tensor``) so that
     ``Observation.from_dict`` goes through the numpy path, which keeps
-    images in NHWC format that JAX models expect.
+    images in NHWC format that JAX models expect.  Each yielded action
+    target is the dataset's future action sequence, unnormalized back to
+    the Pi model action space.  This is intentionally the same action space
+    as ``JaxVLAWrapper`` with ``output_action_dim`` (Unnormalize + slice).
     """
     openpi_config = get_config(vla_config_name)
     data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
@@ -103,6 +107,11 @@ def _build_jax_data_iter(
         data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
 
     dataset = create_torch_dataset(data_config, openpi_config.model.action_horizon, openpi_config.model)
+    print(
+        "[Data] Actor pretrain dataset: "
+        f"{len(dataset):,} observation/action-window samples "
+        f"(action horizon={openpi_config.model.action_horizon})"
+    )
     dataset = transform_dataset(dataset, data_config)
 
     mp_context = multiprocessing.get_context("spawn") if num_workers > 0 else None
@@ -117,13 +126,24 @@ def _build_jax_data_iter(
         drop_last=True,
     )
 
+    # Dataset samples have already passed OpenPI's input transforms, including
+    # Normalize and PadStatesAndActions.  Undo just normalization to obtain
+    # actions in the same model/robot space used by JaxVLAWrapper's reference
+    # actions; do not apply data_transforms.outputs here.
+    unnormalize_actions = _transforms.Unnormalize(
+        data_config.norm_stats,
+        use_quantiles=data_config.use_quantile_norm,
+    )
+    target_dim = output_action_dim or openpi_config.model.action_dim
+
     # numpy → JAX, matching OpenPI's TorchDataLoader.__iter__:
     #   numpy batch → jnp.asarray → Observation.from_dict
     def _jax_iter(loader):
         while True:
             for batch in loader:
                 batch = jax.tree.map(jnp.asarray, batch)
-                yield Observation.from_dict(batch), batch["actions"]
+                targets = unnormalize_actions({"actions": batch["actions"]})["actions"]
+                yield Observation.from_dict(batch), targets[..., :target_dim]
 
     return _jax_iter(raw_loader)
 
@@ -155,17 +175,20 @@ def main(config: OnlineRLTrainConfig) -> None:
     # JaxVLAWrapper cannot fine-tune the VLA (vla_finetune_alpha must be 0).
     # The base JAX VLA loaded above is used as-is.
 
-    # Build BC pre-training data iterator (same pattern as Stage 1 JAX)
+    # Build actor pre-training data independently of --obs-source.  The
+    # dataset provides current observations plus future action sequences;
+    # it is only used for this pre-warmup supervised phase.
     pretrain_data_iter = None
-    # if config.repo_id and config.actor_pretrain_steps > 0:
-    #     print(f"[Data] Building BC pretrain data loader: {config.repo_id}")
-    #     pretrain_data_iter = _build_jax_data_iter(
-    #         vla_config_name=config.vla_config_name,
-    #         repo_id=config.repo_id,
-    #         batch_size=config.actor_pretrain_batch_size,
-    #         num_workers=config.num_workers,
-    #         data_transforms=data_transforms,
-    #     )
+    if config.repo_id and config.actor_pretrain_steps > 0:
+        print(f"[Data] Building actor pretrain data loader: {config.repo_id}")
+        pretrain_data_iter = _build_jax_data_iter(
+            vla_config_name=config.vla_config_name,
+            repo_id=config.repo_id,
+            batch_size=config.actor_pretrain_batch_size,
+            num_workers=config.num_workers,
+            data_transforms=data_transforms,
+            output_action_dim=config.action_dim,
+        )
 
     # Create trainer
     trainer = OnlineRLTrainer(
