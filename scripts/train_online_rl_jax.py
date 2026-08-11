@@ -23,6 +23,7 @@ import importlib
 import json
 import multiprocessing
 import typing
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +45,10 @@ from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
+
+# 屏蔽 lerobot 内部 torch.tensor(tensor) 触发的无害 UserWarning
+# ("To copy construct from a tensor...")
+warnings.filterwarnings("ignore", message="To copy construct from a tensor.*")
 
 
 def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
