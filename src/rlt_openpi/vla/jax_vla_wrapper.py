@@ -216,6 +216,7 @@ class JaxVLAWrapper:
         # actor pretraining.  Local training configs may not carry stats even
         # though the checkpoint bundles the authoritative assets.
         self.norm_stats = norm_stats
+        self.use_quantile_norm = use_q
 
         dt = data_transforms or data_config.data_transforms
 

@@ -112,6 +112,10 @@ class VLAWrapper:
         if data_config.asset_id is None:
             raise ValueError("Asset id is required to load norm stats.")
         norm_stats = self._load_norm_stats(checkpoint_dir, data_config)
+        # Expose the resolved statistics so the RL actor can use exactly the
+        # same action coordinate system as the VLA.
+        self.norm_stats = norm_stats
+        self.use_quantile_norm = use_q
 
         dt = data_transforms or data_config.data_transforms
 

@@ -57,6 +57,25 @@ class OnlineRLTrainer:
         for param in self.rl_token_model.parameters():
             param.requires_grad_(False)
 
+        # The VLA wrapper returns robot-space actions.  The actor, critic, and
+        # replay buffer instead operate in the VLA-normalized action space.
+        # This prevents large-range gripper coordinates from dominating MSE and
+        # matches TD3's [-1, 1] action clipping.
+        action_stats = self.vla.norm_stats["actions"]
+        if self.vla.use_quantile_norm:
+            low = np.asarray(action_stats.q01[:config.action_dim], dtype=np.float32)
+            high = np.asarray(action_stats.q99[:config.action_dim], dtype=np.float32)
+            action_center = (low + high) / 2.0
+            action_scale = (high - low) / 2.0
+        else:
+            action_center = np.asarray(action_stats.mean[:config.action_dim], dtype=np.float32)
+            action_scale = np.asarray(action_stats.std[:config.action_dim], dtype=np.float32)
+
+        self.action_center = torch.as_tensor(action_center, device=self.device)
+        self.action_scale = torch.as_tensor(action_scale, device=self.device).clamp_min(1e-6)
+        self._action_center_flat = self.action_center.repeat(config.chunk_length)
+        self._action_scale_flat = self.action_scale.repeat(config.chunk_length)
+
         # Trainable actor
         self.actor = Actor(
             state_dim=config.state_dim,
@@ -108,10 +127,49 @@ class OnlineRLTrainer:
             chunk_length=self.config.chunk_length,
             action_dim=self.config.action_dim,
             device=self.device,
+            action_center=self.action_center.cpu().numpy(),
+            action_scale=self.action_scale.cpu().numpy(),
             max_deviation=self.config.max_deviation,
             deviation_abort_threshold=self.config.deviation_abort_threshold,
             max_episode_chunks=self.config.max_episode_chunks,
         )
+
+    def _normalize_action(self, action: torch.Tensor) -> torch.Tensor:
+        """Map flattened robot-space chunks to the actor/critic action space."""
+        return (action - self._action_center_flat) / self._action_scale_flat
+
+    @staticmethod
+    def _print_vla_demo_difference_stats(
+        a_tilde_raw: torch.Tensor,
+        a_demo_raw: torch.Tensor,
+        action_dim: int,
+    ) -> None:
+        """Print raw-space VLA/demo errors for joints and grippers separately.
+
+        The robot convention places a gripper at one-based dimensions 7, 14,
+        ... (zero-based indices 6, 13, ...).  Keeping this diagnostic in raw
+        robot units makes gripper errors directly interpretable.
+        """
+        diff = (a_tilde_raw - a_demo_raw).reshape(-1, action_dim)
+        dim_indices = torch.arange(action_dim, device=diff.device)
+        gripper_mask = (dim_indices + 1) % 7 == 0
+
+        for name, mask in (
+            ("joint", ~gripper_mask),
+            ("gripper", gripper_mask),
+        ):
+            values = diff[:, mask].reshape(-1)
+            if values.numel() == 0:
+                continue
+            print(
+                f"  a_tilde - a_demo [{name}] (raw): "
+                f"mean={values.mean().item():.4f} "
+                f"std={values.std(unbiased=False).item():.4f} "
+                f"mae={values.abs().mean().item():.4f} "
+                f"rmse={values.square().mean().sqrt().item():.4f} "
+                f"min={values.min().item():.4f} "
+                f"max={values.max().item():.4f}"
+            )
 
     def _update_step(self, update_idx: int) -> dict[str, float]:
         """Run one TD3 update step.
@@ -232,13 +290,16 @@ class OnlineRLTrainer:
             # Build RL state
             x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
 
-            # VLA reference chunk and matching demonstrated action chunk.
-            a_tilde = actions[:, :config.chunk_length, :].reshape(z_rl.shape[0], -1)  # [B, C*d]
-            a_demo = torch.as_tensor(
+            # VLA and dataset actions are robot-space values.  Convert both to
+            # the normalized actor space before supervised regression.
+            a_tilde_raw = actions[:, :config.chunk_length, :].reshape(z_rl.shape[0], -1)
+            a_demo_raw = torch.as_tensor(
                 np.array(demo_actions[:, :config.chunk_length, :config.action_dim]),
                 dtype=torch.float32,
                 device=self.device,
             ).reshape(z_rl.shape[0], -1)
+            a_tilde = self._normalize_action(a_tilde_raw)
+            a_demo = self._normalize_action(a_demo_raw)
 
             # Actor produces the VLA-action correction; train its final action
             # against the dataset action sequence rather than against a_tilde.
@@ -255,6 +316,9 @@ class OnlineRLTrainer:
             if step < 3 or (step + 1) % 100 == 0:
                 with torch.no_grad():
                     diff = a_actor - a_demo
+                    self._print_vla_demo_difference_stats(
+                        a_tilde_raw, a_demo_raw, config.action_dim
+                    )
                     grad_norm = sum(
                         p.grad.norm().item() ** 2 for p in self.actor.parameters() if p.grad is not None
                     ) ** 0.5

@@ -64,6 +64,8 @@ class RolloutWorker:
         chunk_length: int,
         action_dim: int,
         device: torch.device | str = "cuda",
+        action_center: NDArray | None = None,
+        action_scale: NDArray | None = None,
         max_deviation: float = 3.0,
         deviation_abort_threshold: float = 0.8,
         max_episode_chunks: int = 150,
@@ -82,12 +84,24 @@ class RolloutWorker:
         self.chunk_length = chunk_length
         self.action_dim = action_dim
         self.device = torch.device(device)
+        self.action_center = np.zeros(action_dim, dtype=np.float32) if action_center is None else np.asarray(action_center, dtype=np.float32)
+        self.action_scale = np.ones(action_dim, dtype=np.float32) if action_scale is None else np.maximum(np.asarray(action_scale, dtype=np.float32), 1e-6)
+        if self.action_center.shape != (action_dim,) or self.action_scale.shape != (action_dim,):
+            raise ValueError("action_center and action_scale must have shape [action_dim]")
         self.max_deviation = max_deviation
         self.deviation_abort_threshold = deviation_abort_threshold
         self.max_episode_chunks = max_episode_chunks
 
         self._action_chunk_dim = chunk_length * action_dim
         self._feedback = HumanReward()
+
+    def _normalize_action(self, action: NDArray) -> NDArray:
+        """Convert robot-space actions to the actor/critic action space."""
+        return ((np.asarray(action, dtype=np.float32) - self.action_center) / self.action_scale).astype(np.float32)
+
+    def _unnormalize_action(self, action: NDArray) -> NDArray:
+        """Convert actor actions back to robot space for env.step()."""
+        return (np.asarray(action, dtype=np.float32) * self.action_scale + self.action_center).astype(np.float32)
 
     def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
         """Prepare observation dict for VLA inference.
@@ -132,9 +146,10 @@ class RolloutWorker:
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
 
         # Get VLA reference action chunk (first C steps)
-        a_tilde = actions[:, :self.chunk_length, :]  # [1, C, action_dim]
-        action_chunk = a_tilde.squeeze(0).cpu().numpy()  # [C, action_dim]
-        a_tilde_flat = a_tilde.reshape(1, -1)  # [1, C*d]
+        a_tilde_raw = actions[:, :self.chunk_length, :]  # [1, C, action_dim]
+        action_chunk = a_tilde_raw.squeeze(0).cpu().numpy()  # robot space, for env.step
+        a_tilde = self._normalize_action(action_chunk)
+        a_tilde_flat = a_tilde.reshape(1, -1)  # normalized [1, C*d]
 
         # Proprioceptive state s^p from the preprocessed VLA observation.
         # DroidInputs merges joint_pos + gripper into state, then
@@ -178,8 +193,10 @@ class RolloutWorker:
         diff = (a_flat[0, :self.action_dim] - a_tilde_t[0, :self.action_dim]).cpu().numpy()
         print(f"Actor input-output diff (first {self.action_dim} dims): {diff}")
 
-        # squeeze to remove batch dim: [1, C*d] -> [C*d]; then numpy; then reshape to [C, d]
-        return a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
+        # Actor output is normalized; only the environment receives raw robot
+        # actions.
+        a_normalized = a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
+        return self._unnormalize_action(a_normalized)
 
     def collect_warmup(self, num_chunks: int) -> int:
         """Run VLA-only policy and store transitions in the replay buffer.
@@ -218,7 +235,7 @@ class RolloutWorker:
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
             print(f"[DEBUG] action_chunk = {action_chunk[0]}")
             # print(f"[DEBUG] x last 14 dims = {x[-14:]}")
-            a_flat = action_chunk.reshape(-1)  # [C*d]
+            a_flat = self._normalize_action(action_chunk).reshape(-1)  # [C*d]
 
             # Step environment
             next_obs, rewards, done, _info = self.env.step(action_chunk)
@@ -295,7 +312,9 @@ class RolloutWorker:
                 # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)
 
-            a_flat = action_chunk.reshape(-1)  # [C*d]
+            # Human interventions and actor outputs are both raw robot-space
+            # chunks here; store the normalized representation for TD3.
+            a_flat = self._normalize_action(action_chunk).reshape(-1)  # [C*d]
 
             if store_transitions:
                 # Build next RL state (requires VLA forward pass)
