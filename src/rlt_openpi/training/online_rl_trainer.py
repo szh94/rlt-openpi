@@ -330,28 +330,28 @@ class OnlineRLTrainer:
                         f"loss={loss.item():.6f}  "
                         f"|z_rl|={z_rl.norm(dim=-1).mean().item():.2f}  "
                         f"|s_p|={s_p.norm(dim=-1).mean().item():.2f}  "
-                        f"|a_tilde|={a_tilde.norm(dim=-1).mean().item():.3f}  "
-                        f"|a_demo|={a_demo.norm(dim=-1).mean().item():.3f}  "
-                        f"|a_actor|={a_actor.norm(dim=-1).mean().item():.3f}  "
+                        f"|a_vla|={a_tilde.norm(dim=-1).mean().item():.3f}  "
+                        f"|a_raw|={a_demo.norm(dim=-1).mean().item():.3f}  "
+                        f"|a_act|={a_actor.norm(dim=-1).mean().item():.3f}  "
                         f"|diff|={diff.norm(dim=-1).mean().item():.3f}  "
                         f"|grad|={grad_norm:.4f}  "
                         f"|w|={weight_norm:.2f}"
                     )
-                    print(f"  a_tilde[0]: {a_tilde[0]}")
-                    print(f"  a_demo[0]: {a_demo[0]}")
-                    print(f"  a_actor[0]: {a_actor[0]}")
+                    print(f"[DEBUG] a_raw[0]: {a_demo[0][:14]}")
+                    print(f"[DEBUG] a_vla[0]: {a_tilde[0][:14]}")
+                    print(f"[DEBUG] a_act[0]: {a_actor[0][:14]}")
                     # Extra detail on first step
                     if step == 0:
                         print(
-                            f"  a_tilde:  mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
+                            f"  a_vla:  mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
                             f"min={a_tilde.min().item():.4f} max={a_tilde.max().item():.4f}"
                         )
                         print(
-                            f"  a_demo:   mean={a_demo.mean().item():.4f} std={a_demo.std().item():.4f} "
+                            f"  a_raw:   mean={a_demo.mean().item():.4f} std={a_demo.std().item():.4f} "
                             f"min={a_demo.min().item():.4f} max={a_demo.max().item():.4f}"
                         )
                         print(
-                            f"  a_actor:  mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
+                            f"  a_act:  mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
                             f"min={a_actor.min().item():.4f} max={a_actor.max().item():.4f}"
                         )
                         print(
