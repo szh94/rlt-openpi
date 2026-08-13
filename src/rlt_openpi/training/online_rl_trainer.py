@@ -240,7 +240,11 @@ class OnlineRLTrainer:
         self._total_updates += 1
         return metrics
 
-    def _pretrain_actor(self, data_iter: Any) -> None:
+    def _pretrain_actor(
+        self,
+        data_iter: Any,
+        log_fn: Any | None = None,
+    ) -> None:
         """Phase 0: pre-train the actor against dataset action sequences.
 
         Uses a pre-built iterator yielding ``(Observation, demo_actions)``.
@@ -252,6 +256,8 @@ class OnlineRLTrainer:
         Args:
             data_iter: Infinite iterator yielding ``(Observation, actions)``
                 tuples, or ``None`` to skip pre-training.
+            log_fn: Optional callable used to report pre-training metrics to
+                the configured logger (including W&B).
         """
         config = self.config
         if data_iter is None:
@@ -310,7 +316,22 @@ class OnlineRLTrainer:
             loss.backward()
             self.actor_optimizer.step()
 
-            print(f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  loss={loss.item():.6f}")
+            step_num = step + 1
+            loss_value = loss.item()
+            print(
+                f"[Actor Pretrain] step {step_num}/{config.actor_pretrain_steps}  "
+                f"loss={loss_value:.6f}"
+            )
+
+            if log_fn is not None and (
+                step_num == 1
+                or step_num % config.log_every == 0
+                or step_num == config.actor_pretrain_steps
+            ):
+                log_fn({
+                    "pretrain/actor_bc_loss": loss_value,
+                    "pretrain/step": step_num,
+                })
 
             # Diagnostic prints (first 3 steps + every 100 steps)
             if step < 3 or (step + 1) % 100 == 0:
@@ -422,7 +443,7 @@ class OnlineRLTrainer:
 
         # Phase 0: actor pre-training from --repo-id.  This is deliberately
         # independent of --obs-source, which only controls online rollouts.
-        self._pretrain_actor(pretrain_data_iter)
+        self._pretrain_actor(pretrain_data_iter, log_fn=log_fn)
 
         # NOTE: Warmup runs through RolloutWorker.collect_warmup() on the real env.
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)
