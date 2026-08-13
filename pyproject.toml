@@ -16,7 +16,7 @@ dependencies = [
     "openpi",
     # Transitive deps pinned to match openpi's tested versions
     "chex",
-    "datasets>=3.0,<4.0",
+    "datasets>=5.0,<6.0",
     "torchcodec<0.11",
     "torchvision",
 ]
