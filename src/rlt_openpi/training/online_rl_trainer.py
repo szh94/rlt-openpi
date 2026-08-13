@@ -548,6 +548,27 @@ class OnlineRLTrainer:
         self.replay_buffer.load_state_dict(buf_state)
         print(f"[Stage 2] Loaded warmup buffer ({self.replay_buffer.size} transitions) from {path}")
 
+    def load_actor_pretrain(self, ckpt_path: str) -> None:
+        """Load an actor-only BC pre-training checkpoint.
+
+        This restores the actor and, when present, its optimizer state. It does
+        not alter the critic, replay buffer, or online-RL counters.
+        """
+        ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        if "actor" not in ckpt:
+            raise KeyError(f"Actor pretrain checkpoint has no 'actor' state: {ckpt_path}")
+
+        self.actor.load_state_dict(ckpt["actor"])
+        if "actor_optimizer" in ckpt:
+            self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
+
+        pretrain_steps = ckpt.get("pretrain_steps", "unknown")
+        repo_id = ckpt.get("repo_id", "unknown")
+        print(
+            f"[Actor Pretrain] Loaded checkpoint from {ckpt_path} "
+            f"(steps={pretrain_steps}, dataset={repo_id})"
+        )
+
     def save(self, path: str | None = None, save_buffer: bool = True) -> Path:
         """Save actor, critic, optimizer, and replay buffer states.
 

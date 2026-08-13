@@ -69,7 +69,7 @@ def main(config: OnlineRLTrainConfig) -> None:
     # dataset provides current observations plus future action sequences;
     # it is only used for this pre-warmup supervised phase.
     pretrain_data_iter = None
-    if config.repo_id and config.actor_pretrain_steps > 0:
+    if config.repo_id and config.actor_pretrain_steps > 0 and not config.resume_checkpoint:
         print(f"[Data] Building actor pretrain data loader: {config.repo_id}")
         pretrain_data_iter = build_jax_data_loader(
             openpi_config_name=config.vla_config_name,
@@ -95,6 +95,8 @@ def main(config: OnlineRLTrainConfig) -> None:
     if config.resume_checkpoint:
         print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
+    elif config.actor_pretrain_steps == 0 and config.actor_pretrain_checkpoint:
+        trainer.load_actor_pretrain(config.actor_pretrain_checkpoint)
 
     # Create environment via pluggable factory.
     if not config.env_factory:

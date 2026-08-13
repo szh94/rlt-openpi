@@ -45,9 +45,34 @@ PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (
 LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
 # Actor BC pre-training (before warmup)
-# Set ACTOR_PRETRAIN_STEPS=0 to skip, or provide a dataset name for REPO_ID.
-ACTOR_PRETRAIN_STEPS=1000              # Number of BC pre-training steps (0 = skip)
-ACTOR_PRETRAIN_BATCH_SIZE=16          # Batch size for actor pre-training
+# true: run BC pre-training and save <save_dir>/<run_name>/actor_pretrain.pt
+# false: skip dataset loading and restore actor from ACTOR_PRETRAIN_CHECKPOINT
+ACTOR_PRETRAIN_ENABLED=${ACTOR_PRETRAIN_ENABLED:-true}
+ACTOR_PRETRAIN_STEPS=${ACTOR_PRETRAIN_STEPS:-1000}
+ACTOR_PRETRAIN_BATCH_SIZE=${ACTOR_PRETRAIN_BATCH_SIZE:-16}
+# Example: checkpoints/stage2_ac_online/run_YYYYMMDD_HHMMSS/actor_pretrain.pt
+ACTOR_PRETRAIN_CHECKPOINT=${ACTOR_PRETRAIN_CHECKPOINT:-""}  # Required when disabled
+
+case "$ACTOR_PRETRAIN_ENABLED" in
+    true)
+        ACTOR_PRETRAIN_EFFECTIVE_STEPS="$ACTOR_PRETRAIN_STEPS"
+        ;;
+    false)
+        ACTOR_PRETRAIN_EFFECTIVE_STEPS=0
+        if [[ -z "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+            echo "ERROR: ACTOR_PRETRAIN_CHECKPOINT is required when ACTOR_PRETRAIN_ENABLED=false"
+            exit 1
+        fi
+        if [[ ! -f "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+            echo "ERROR: Actor pretrain checkpoint not found: $ACTOR_PRETRAIN_CHECKPOINT"
+            exit 1
+        fi
+        ;;
+    *)
+        echo "ERROR: ACTOR_PRETRAIN_ENABLED must be true or false"
+        exit 1
+        ;;
+esac
 
 # adapt_to_pi: true=真实ALOHA硬件, false=模拟环境
 ADAPT_TO_PI=true
@@ -76,6 +101,10 @@ echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Adapt to PI     = $ADAPT_TO_PI"
 echo "   Obs source      = $OBS_SOURCE"
+echo "   Actor pretrain  = $ACTOR_PRETRAIN_ENABLED"
+if [[ "$ACTOR_PRETRAIN_ENABLED" == "false" ]]; then
+    echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
+fi
 echo "========================================"
 
 # Build env-kwargs JSON
@@ -104,8 +133,9 @@ python scripts/train_online_rl_jax.py \
     --dry-run $DRY_RUN \
     --obs-source "$OBS_SOURCE" \
     --repo-id "$HF_LEROBOT_HOME" \
-    --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
+    --actor-pretrain-steps "$ACTOR_PRETRAIN_EFFECTIVE_STEPS" \
     --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
+    --actor-pretrain-checkpoint "$ACTOR_PRETRAIN_CHECKPOINT" \
     --save-every 40 \
     $(
     # === 默认参数，必要时取消注释修改 ===
