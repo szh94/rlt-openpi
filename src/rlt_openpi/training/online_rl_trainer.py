@@ -344,7 +344,7 @@ class OnlineRLTrainer:
                 )
 
             # Diagnostic prints (first 3 steps + every 100 steps)
-            if step < 3 or (step + 1) % 100 == 0:
+            if step == 0 or (step + 1) % 100 == 0:
                 with torch.no_grad():
                     diff = a_actor - a_demo
                     self._print_vla_demo_difference_stats(
@@ -394,7 +394,7 @@ class OnlineRLTrainer:
                             f"  s_p:  mean={s_p.mean().item():.4f} std={s_p.std().item():.4f} "
                             f"norm_mean={s_p.norm(dim=-1).mean().item():.2f}"
                         )
-            elif (step + 1) % 10 == 0:
+            elif (step + 1) % 100 == 0:
                 print(
                     f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
                     f"loss={loss.item():.6f}"
@@ -415,7 +415,19 @@ class OnlineRLTrainer:
             ckpt_path,
         )
         print(f"[Actor Pretrain] Saved checkpoint to {ckpt_path}")
-        print(f"[Actor Pretrain] Done. Final loss={loss.item():.6f}\n")
+        print("[Actor Pretrain] Summary")
+        print(f"  loss:      {loss_value:.6f}")
+        print(f"  grad_norm: {grad_norm:.6f}")
+        print(f"  lr:        {actor_lr:.8g}")
+        print(f"  step:      {step_num}\n")
+
+    def pretrain_actor(
+        self,
+        data_iter: Any,
+        log_fn: Any | None = None,
+    ) -> None:
+        """Run actor pre-training without entering the online RL pipeline."""
+        self._pretrain_actor(data_iter, log_fn=log_fn)
 
     def train(
         self,
