@@ -39,23 +39,11 @@ class DatasetObsSource(ObsSource):
 
     def _build_iterator(self, vla_config_name: str):
         """Build an infinite cyclic iterator over dataset frames (ALOHA schema)."""
-        import dataclasses
-
-        from lerobot.common.datasets.lerobot_dataset import LeRobotDatasetMetadata
-        from openpi.training.config import get_config
         from openpi.training.data_loader import create_torch_dataset
 
-        from rlt_openpi.training.data_loader import _patch_repack_action_key
+        from rlt_openpi.training.data_loader import build_data_config
 
-        openpi_config = get_config(vla_config_name)
-        data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
-        data_config = dataclasses.replace(data_config, repo_id=self._repo_id)
-
-        # Auto-detect action column name (same as stage-1 / BC pre-training).
-        meta = LeRobotDatasetMetadata(self._repo_id)
-        if "action" in meta.features and "actions" not in meta.features:
-            data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
-            data_config = _patch_repack_action_key(data_config, "action")
+        openpi_config, data_config = build_data_config(vla_config_name, self._repo_id)
 
         dataset = create_torch_dataset(
             data_config,

@@ -1,20 +1,29 @@
-"""Data loader for RLT training, delegating to OpenPI's pipeline.
+"""RLT data adapters built on top of OpenPI's dataset pipeline.
 
 Reuses OpenPI's full transform chain so that normalization, action
 chunking, and camera layout exactly match the pretrained VLA config.
 
-Custom hardware setups can override the default data transforms by
-passing a ``data_transforms`` :class:`~openpi.transforms.Group`.  See
-``rlt_openpi/policies/franka/`` for a concrete example.
+This module owns the small amount of adaptation that is specific to RLT:
+
+* selecting a dataset at runtime instead of from an OpenPI train config;
+* accepting both LeRobot ``action`` and OpenPI ``actions`` columns;
+* overriding data transforms and checkpoint-provided normalization stats;
+* producing either PyTorch-native or JAX-native ``Observation`` batches.
+
+Dataset reading and the transform chain themselves remain owned by OpenPI.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import multiprocessing
 import typing
+from collections.abc import Iterator
+from typing import Any, Literal
 
 import jax
+import jax.numpy as jnp
 import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
@@ -27,14 +36,14 @@ from openpi.training.data_loader import (
 import openpi.transforms as _transforms
 
 
-
-def _collate_fn(items):
+def _numpy_collate(items):
+    """Collate without converting arrays to Torch tensors."""
     return jax.tree.map(
         lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items
     )
 
 
-def _patch_repack_action_key(data_config, action_key: str):
+def patch_repack_action_key(data_config, action_key: str):
     """Rewrite the repack transform so `"actions"` reads from *action_key*."""
     new_inputs = []
     for t in data_config.repack_transforms.inputs:
@@ -45,6 +54,71 @@ def _patch_repack_action_key(data_config, action_key: str):
         new_inputs.append(t)
     repack = _transforms.Group(inputs=new_inputs)
     return dataclasses.replace(data_config, repack_transforms=repack)
+
+
+def resolve_data_transforms(
+    dotted_path: str | None,
+    openpi_config_name: str,
+) -> _transforms.Group | None:
+    """Resolve a ``(ModelConfig) -> transforms.Group`` factory."""
+    if dotted_path is None:
+        return None
+
+    module_path, func_name = dotted_path.rsplit(".", 1)
+    factory_fn = getattr(importlib.import_module(module_path), func_name)
+    return factory_fn(get_config(openpi_config_name).model)
+
+
+def build_data_config(
+    openpi_config_name: str,
+    repo_id: str,
+    *,
+    data_transforms: _transforms.Group | None = None,
+    norm_stats: dict[str, _transforms.NormStats] | None = None,
+):
+    """Create an OpenPI data config with the RLT dataset adaptations."""
+    openpi_config = get_config(openpi_config_name)
+    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+    data_config = dataclasses.replace(data_config, repo_id=repo_id)
+
+    # JAX checkpoints are the authoritative source of normalization stats for
+    # configs which deliberately do not embed them.
+    if norm_stats is not None:
+        data_config = dataclasses.replace(data_config, norm_stats=norm_stats)
+
+    # Standard LeRobot datasets use "action" while some OpenPI conversions use
+    # "actions". Keep this compatibility policy in one place.
+    metadata = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+    if "action" in metadata.features and "actions" not in metadata.features:
+        data_config = dataclasses.replace(data_config, action_sequence_keys=("action",))
+        data_config = patch_repack_action_key(data_config, "action")
+
+    if data_transforms is not None:
+        print("Overriding data_transforms with custom Group")
+        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
+
+    return openpi_config, data_config
+
+
+def _build_transformed_dataset(
+    openpi_config_name: str,
+    repo_id: str,
+    *,
+    data_transforms: _transforms.Group | None = None,
+    norm_stats: dict[str, _transforms.NormStats] | None = None,
+):
+    openpi_config, data_config = build_data_config(
+        openpi_config_name,
+        repo_id,
+        data_transforms=data_transforms,
+        norm_stats=norm_stats,
+    )
+    dataset = create_torch_dataset(
+        data_config,
+        openpi_config.model.action_horizon,
+        openpi_config.model,
+    )
+    return openpi_config, data_config, transform_dataset(dataset, data_config), len(dataset)
 
 
 def build_data_loader(
@@ -81,29 +155,11 @@ def build_data_loader(
         ``observation`` is an :class:`Observation` with torch tensors;
         ``actions`` is ``[B, action_horizon, action_dim]`` float32.
     """
-    config = get_config(openpi_config_name)
-    data_config = config.data.create(config.assets_dirs, config.model)
-
-    data_config = dataclasses.replace(data_config, repo_id=repo_id)
-
-    # Auto-detect the action column name in the LeRobot dataset.
-    # Standard LeRobot datasets use "action" (singular), while OpenPI's
-    # DROID conversion produces "actions" (plural).  Patch both
-    # action_sequence_keys and the repack transform so users don't have
-    # to rename anything.
-    meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    if "action" in meta.features and "actions" not in meta.features:
-        data_config = dataclasses.replace(
-            data_config, action_sequence_keys=("action",)
-        )
-        data_config = _patch_repack_action_key(data_config, "action")
-
-    if data_transforms is not None:
-        print("Overriding data_transforms with custom Group")
-        data_config = dataclasses.replace(data_config, data_transforms=data_transforms)
-
-    dataset = create_torch_dataset(data_config, config.model.action_horizon, config.model)
-    dataset = transform_dataset(dataset, data_config)
+    _, _, dataset, _ = _build_transformed_dataset(
+        openpi_config_name,
+        repo_id,
+        data_transforms=data_transforms,
+    )
 
     mp_context = None
     if num_workers > 0:
@@ -116,11 +172,101 @@ def build_data_loader(
         num_workers=num_workers,
         multiprocessing_context=mp_context,
         persistent_workers=num_workers > 0,
-        collate_fn=_collate_fn,
+        collate_fn=_numpy_collate,
         drop_last=True,
     )
 
     return _InfiniteLoader(torch_loader)
+
+
+def build_jax_data_loader(
+    openpi_config_name: str,
+    repo_id: str,
+    batch_size: int,
+    *,
+    num_workers: int = 0,
+    shuffle: bool = True,
+    data_transforms: _transforms.Group | None = None,
+    norm_stats: dict[str, _transforms.NormStats] | None = None,
+    action_target_space: Literal["normalized", "model"] = "normalized",
+    output_action_dim: int | None = None,
+    dataset_label: str | None = None,
+) -> Iterator[tuple[Observation, Any]]:
+    """Build an infinite iterator whose observations are native JAX arrays.
+
+    OpenPI's input transforms run before batching. Batches are deliberately
+    collated as NumPy and then converted with :func:`jax.numpy.asarray`; this
+    makes ``Observation.from_dict`` take its JAX/NumPy path and preserves the
+    NHWC image layout expected by native JAX Pi models.
+
+    ``action_target_space="normalized"`` returns the transformed dataset
+    actions. ``"model"`` undoes only normalization, producing targets in the
+    same action space as ``JaxVLAWrapper`` inference, and optionally slices the
+    final dimension with ``output_action_dim``.
+    """
+    if action_target_space not in {"normalized", "model"}:
+        raise ValueError(f"Unsupported action_target_space: {action_target_space!r}")
+
+    openpi_config, data_config, dataset, dataset_size = _build_transformed_dataset(
+        openpi_config_name,
+        repo_id,
+        data_transforms=data_transforms,
+        norm_stats=norm_stats,
+    )
+    if dataset_label:
+        print(
+            f"[Data] {dataset_label}: {dataset_size:,} observation/action-window samples "
+            f"(action horizon={openpi_config.model.action_horizon})"
+        )
+
+    # OpenPI ALOHA transforms may create JAX arrays. Running them in spawned
+    # workers can create extra CUDA contexts and reserve GPU memory.
+    if num_workers > 0:
+        print(
+            "[Data] JAX data loading forces num_workers=0 to prevent "
+            "DataLoader workers from creating extra JAX CUDA contexts."
+        )
+        num_workers = 0
+
+    raw_loader = torch.utils.data.DataLoader(
+        typing.cast(torch.utils.data.Dataset, dataset),
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        persistent_workers=False,
+        collate_fn=_numpy_collate,
+        drop_last=True,
+    )
+
+    unnormalize = None
+    if action_target_space == "model":
+        if data_config.norm_stats is None:
+            raise ValueError("action_target_space='model' requires normalization stats")
+        unnormalize = _transforms.Unnormalize(
+            data_config.norm_stats,
+            use_quantiles=data_config.use_quantile_norm,
+        )
+
+    target_dim = (
+        output_action_dim
+        if output_action_dim is not None
+        else openpi_config.model.action_dim
+    )
+
+    def _iterator():
+        while True:
+            for batch in raw_loader:
+                batch = jax.tree.map(jnp.asarray, batch)
+                actions = batch["actions"]
+                if unnormalize is not None:
+                    # Unnormalize is strict for stats selecting both fields.
+                    actions = unnormalize(
+                        {"state": batch["state"], "actions": actions}
+                    )["actions"]
+                    actions = actions[..., :target_dim]
+                yield Observation.from_dict(batch), actions
+
+    return _iterator()
 
 
 class _InfiniteLoader:

@@ -27,12 +27,11 @@ Usage::
 from __future__ import annotations
 
 import dataclasses
-import importlib
 
 import tyro
 
 from rlt_openpi.training.config import RLTokenTrainConfig
-from rlt_openpi.training.data_loader import build_data_loader
+from rlt_openpi.training.data_loader import build_data_loader, resolve_data_transforms
 from rlt_openpi.training.rl_token_trainer import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
@@ -62,23 +61,6 @@ class TrainConfig:
 
 
 # ------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------
-
-
-def _resolve_data_transforms(dotted_path: str | None, openpi_config_name: str):
-    """Dynamically import and call a data-transforms factory."""
-    if dotted_path is None:
-        return None
-
-    from openpi.training.config import get_config
-
-    module_path, func_name = dotted_path.rsplit(".", 1)
-    factory_fn = getattr(importlib.import_module(module_path), func_name)
-    return factory_fn(get_config(openpi_config_name).model)
-
-
-# ------------------------------------------------------------------
 # Main
 # ------------------------------------------------------------------
 
@@ -97,7 +79,7 @@ def main(config: TrainConfig) -> None:
     # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha}")
     print("-" * 60)
 
-    data_transforms = _resolve_data_transforms(
+    data_transforms = resolve_data_transforms(
         config.data_transforms_fn, config.train.vla_config_name
     )
 
