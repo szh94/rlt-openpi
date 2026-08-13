@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.critic import TwinQCritic
@@ -271,7 +272,8 @@ class OnlineRLTrainer:
         # this phase is deterministic supervised regression to demo actions.
         self.actor.eval()
 
-        for step in range(config.actor_pretrain_steps):
+        pbar = tqdm(range(config.actor_pretrain_steps), desc="Actor Pretrain")
+        for step in pbar:
             observation, demo_actions = next(data_iter)
 
             # Single VLA forward pass: embeddings + reference actions
@@ -318,20 +320,20 @@ class OnlineRLTrainer:
 
             step_num = step + 1
             loss_value = loss.item()
-            print(
-                f"[Actor Pretrain] step {step_num}/{config.actor_pretrain_steps}  "
-                f"loss={loss_value:.6f}"
-            )
+            pbar.set_postfix(loss=f"{loss_value:.6f}")
 
             if log_fn is not None and (
                 step_num == 1
                 or step_num % config.log_every == 0
                 or step_num == config.actor_pretrain_steps
             ):
-                log_fn({
-                    "pretrain/actor_bc_loss": loss_value,
-                    "pretrain/step": step_num,
-                })
+                log_fn(
+                    {
+                        "pretrain/actor_bc_loss": loss_value,
+                        "pretrain/step": step_num,
+                    },
+                    step=step_num,
+                )
 
             # Diagnostic prints (first 3 steps + every 100 steps)
             if step < 3 or (step + 1) % 100 == 0:
