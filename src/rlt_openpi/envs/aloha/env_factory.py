@@ -10,9 +10,8 @@ ALOHA is a bimanual setup:
 - 3 cameras: cam_high, cam_left_wrist, cam_right_wrist (no cam_low)
 - Action type: **joint position** (absolute, not velocity)
 
-**Unit conversions**: The RL pipeline works in radians + normalized [0,1]
-gripper, while hansrobot expects degrees + raw gripper values.  This factory
-handles both conversions transparently in ``step_fn`` and ``get_obs_fn``.
+The environment passes the 14-dimensional action directly to
+``hansrobot.send_action_safe`` and converts camera images from HWC to CHW.
 
 Observations follow the ALOHA schema:
 ``{"state": [14] float32, "images": {cam_name: (3,H,W) uint8}, "prompt": str}``
@@ -62,7 +61,7 @@ def make_aloha_env(
     reset_position_right: list[float] | None = None,
     image_size: tuple[int, int] = (224, 224),
     camera_names: list[str] | None = None,
-    dry_run: bool = False,
+    dry_run: bool = True,
     print_actions: bool = False,
     live_image_dir: str = "",
     joint_override: dict[str, float] | None = None,
@@ -82,8 +81,12 @@ def make_aloha_env(
         control_hz: Control-loop frequency in Hz.
         max_episode_chunks: Maximum chunks per episode before forced
             termination.
-        reset_position: Optional 6-joint reset pose for both arms
-            (in **radians**).  Used by ``hansrobot.move()`` if set.
+        reset_position_left: Optional left-arm reset pose containing six
+            joint values in degrees. Must be provided with
+            ``reset_position_right``.
+        reset_position_right: Optional right-arm reset pose containing six
+            joint values in degrees. Must be provided with
+            ``reset_position_left``.
         image_size: ``(height, width)`` to which camera frames are resized.
         camera_names: Camera names to include in observations.  Defaults to
             ``["cam_high", "cam_left_wrist", "cam_right_wrist"]``.
@@ -93,17 +96,12 @@ def make_aloha_env(
         live_image_dir: Optional directory to save camera frames
             periodically (throttled, ~1 Hz).  Images are saved as PNG
             to ``<live_image_dir>/<timestamp>/<cam_name>.png``.
-        joint_override: Optional mapping of joint index → target angle
-            in **degrees** (not radians).  Applied directly in degree
-            space before sending to hansrobot.
-            Indices: 0-5 = left arm, 6-11 = right arm.
-            Example: ``{"0": 0, "6": 90}`` locks left joint0 at 0° and
-            right joint0 at 90°.
+        joint_override: Optional mapping of action index → joint target in
+            **degrees**. Valid indices are 0-5 for the left arm and 7-12
+            for the right arm; 6 and 13 are grippers and cannot be overridden.
         speed_deg_s: Joint movement speed in degrees/second (for
             blocking operations like reset).
-        adapt_to_pi: If True, apply PI-style joint-flip and gripper-space
-            conversion in ``AlohaInputs`` / ``AlohaOutputs``.  Set to
-            True for real ALOHA hardware, False for mock/simulated envs.
+        adapt_to_pi: Whether to enable PI-style coordinate adaptation.
         obs_source: Optional :class:`~rlt_openpi.envs.obs_source.ObsSource`
             to inject as the obs black box.  When ``None`` (default), obs
             come from the real hansrobot hardware.  When provided (e.g.
@@ -126,7 +124,6 @@ def make_aloha_env(
 
     if camera_names is None:
         camera_names = ["cam_high", "cam_left_wrist", "cam_right_wrist"]
-
     # ------------------------------------------------------------------
     # 黑盒 obs 来源注入（mock / dataset / 自定义 ObsSource）：
     # 非 None 时跳过机器人初始化，obs 全部来自 obs_source.get_obs()。
@@ -161,25 +158,23 @@ def make_aloha_env(
     # ------------------------------------------------------------------
     # step_fn — send one action to both arms via hansrobot
     #
-    # The RL pipeline produces actions in **radians** for joints and
-    # **[0,1]** for grippers.  hansrobot expects **degrees** and raw
-    # gripper values (0 ~ 1100).  We convert here.
+    # The RL pipeline and hansrobot both use degrees for arm joint positions.
     # ------------------------------------------------------------------
     def step_fn(action: np.ndarray) -> None:
         """Send joint position + gripper targets to both arms.
 
         Args:
             action: ``[14]`` —
-                action[0:6]   = left arm joint positions (rad)
+                action[0:6]   = left arm joint positions (degrees)
                 action[6]     = left gripper (0=close, 1=open)
-                action[7:13]  = right arm joint positions (rad)
+                action[7:13]  = right arm joint positions (degrees)
                 action[13]    = right gripper (0=close, 1=open)
         """
-        if dry_run:
-            return
+        if print_actions:
+            print("Send action", action)
 
-        print("=========\nSend action", action)
-        # robot.send_action_safe(action)
+        if not dry_run:
+            robot.send_action_safe(action)
 
     # ------------------------------------------------------------------
     # reset_fn — reset robot via hansrobot.move() (if reset_position set)
@@ -190,19 +185,18 @@ def make_aloha_env(
         Uses ``hansrobot.move()`` if ``reset_position`` was provided,
         otherwise logs a message (hansrobot has no built-in reset).
         """
-        if dry_run:
-            print("[dry-run] reset() called (no robot action)")
-            return
-
         if reset_position_left is not None:
             # reset_position_left is in degrees
             left_joints_deg = reset_position_left
             right_joints_deg = reset_position_right
-            print(
-                f"Moving to reset position: left={[f'{v:.1f}' for v in left_joints_deg]}, "
-                f"right={[f'{v:.1f}' for v in right_joints_deg]}",
-            )
-            # robot.move(left_joints_deg, right_joints_deg)
+            if not dry_run:
+                print(
+                    f"Moving to reset position: left={[f'{v:.1f}' for v in left_joints_deg]}, "
+                    f"right={[f'{v:.1f}' for v in right_joints_deg]}",
+                )
+                robot.move(left_joints_deg, right_joints_deg)
+            else:
+                print("[dry-run] robot.move() skipped")
         else:
             print("No reset_position set — skipping hardware reset")
 
@@ -220,24 +214,11 @@ def make_aloha_env(
         print(f"Live images will be saved to {_live_dir} (every {_save_interval:.1f}s)")
 
     # ------------------------------------------------------------------
-    # Camera name mapping: hansrobot keys → ALOHA standard names
-    #
-    # hansrobot.get_observation() returns images under
-    # ``observation.images.{cam_key}`` where ``cam_key`` comes from the
-    # camera config.  We map these to ALOHA standard names used by the
-    # downstream pipeline (AlohaInputs).
-    # ------------------------------------------------------------------
-    _CAMERA_MAP = {
-        "head_image": "cam_high",
-        "left_wrist_image": "cam_left_wrist",
-        "right_wrist_image": "cam_right_wrist",
-    }
-
     # ------------------------------------------------------------------
     # obs_source — black-box obs access (RobotObsSource wraps the robot)
     #
     # read_obs_fn 读取 hansrobot 原始数据（degrees + raw gripper）；
-    # _build_aloha_obs 把原始数据转换成 ALOHA schema（radians + [0,1]）。
+    # _build_aloha_obs 只整理字段和图像格式，state 中的关节角度原样保持 degrees。
     # obs_source 对外统一提供 get_obs()。
     # ------------------------------------------------------------------
     _frame_stats = [0, 0]  # [ok_count, fail_count]
@@ -249,7 +230,7 @@ def make_aloha_env(
     def convert_image_hwc_to_chw(img):
         # img: [H, W, 3] -> [3, H, W]
         return np.transpose(img, (2, 0, 1))
-    
+
     def _build_aloha_obs(raw_obs: dict[str, Any]) -> dict[str, Any]:
         """Convert a raw hansrobot observation to ALOHA schema.
 
@@ -261,7 +242,8 @@ def make_aloha_env(
                 "observation.images.<cam_key>": ...,
             }
 
-        to the ALOHA standard schema (radians + normalized gripper).
+        Arm joint values remain in degrees; this function performs no angular
+        unit conversion.
 
         Args:
             raw_obs: Raw dict from ``hansrobot.get_observation()``.
@@ -270,94 +252,16 @@ def make_aloha_env(
             Dict with keys ``"state"`` (float32[14]), ``"images"``
             (dict of cam_name → (3, H, W) uint8), and ``"prompt"`` (str).
         """
-        # # ------------------------------------------------------------------
-        # # original
-        # # ------------------------------------------------------------------
-        # # State: convert degrees → radians, raw gripper → [0, 1]
-        # # ------------------------------------------------------------------
-        # raw_state = raw_obs.get("observation.state")
-        # if raw_state is None:
-        #     state = np.zeros(14, dtype=np.float32)
-        # else:
-        #     raw_state = np.asarray(raw_state, dtype=np.float64)
-        #     # Joints: deg → rad  (indices 0-5 and 7-12)
-        #     joints_rad = np.radians(
-        #         np.concatenate([raw_state[:6], raw_state[7:13]]),
-        #     )
-        #     # Grippers: raw → [0, 1]  (indices 6 and 13)
-        #     gripper_norm = np.clip(
-        #         np.array([raw_state[6], raw_state[13]]) / _HANSROBOT_GRIPPER_MAX,
-        #         0.0, 1.0,
-        #     )
-        #     # Reassemble: [left_j(6), left_g(1), right_j(6), right_g(1)]
-        #     state = np.zeros(14, dtype=np.float32)
-        #     state[:6] = joints_rad[:6]
-        #     state[6] = gripper_norm[0]
-        #     state[7:13] = joints_rad[6:]
-        #     state[13] = gripper_norm[1]
-
-        # # ------------------------------------------------------------------
-        # # Images: map hansrobot camera keys to ALOHA standard names
-        # # ------------------------------------------------------------------
-        # images: dict[str, np.ndarray] = {}
-        # for cam_name in camera_names:
-        #     # Find hansrobot key for this ALOHA cam name
-        #     hr_key = None
-        #     for hr_suffix, aloha_name in _CAMERA_MAP.items():
-        #         if aloha_name == cam_name:
-        #             hr_key = f"observation.images.{hr_suffix}"
-        #             break
-
-        #     if hr_key is None or hr_key not in raw_obs:
-        #         print(f"[WARNING] Camera '{cam_name}' missing from hansrobot observation — using zero image")
-        #         images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
-        #         continue
-
-        #     img = raw_obs[hr_key]
-        #     if img is None:
-        #         images[cam_name] = np.zeros((3, *image_size), dtype=np.uint8)
-        #         _frame_stats[1] += 1
-        #         continue
-
-        #     _frame_stats[0] += 1
-        #     if _frame_stats[0] == 1:  # only on first successful read
-        #         print(
-        #             f"Camera '{cam_name}' first frame: shape={img.shape}, dtype={img.dtype}, "
-        #             f"min={img.min():.1f} max={img.max():.1f} mean={img.mean():.1f}",
-        #         )
-
-        #     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        #     img = image_tools.convert_to_uint8(
-        #         image_tools.resize_with_pad(img, *image_size),
-        #     )
-        #     img = einops.rearrange(img, "h w c -> c h w")
-        #     images[cam_name] = img
-
-        # result: dict[str, Any] = {
-        #     "state": state,
-        #     "images": images,
-        #     "prompt": task_prompt,
-        # }
-
-        # ------------------------------------------------------------------
-        # hansrobot
-        # ------------------------------------------------------------------
-        # # [H, W, 3] -> [3, H, W]
-        # head_img = convert_image_hwc_to_chw(raw_observation['observation.images.head_image'])
-        # left_img = convert_image_hwc_to_chw(raw_observation['observation.images.left_wrist_image'])
-        # right_img = convert_image_hwc_to_chw(raw_observation['observation.images.right_wrist_image'])
-
         images: dict[str, np.ndarray] = {}
-        images["cam_high"] = convert_image_hwc_to_chw(raw_obs['observation.images.head_image'])
-        images["cam_left_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.left_wrist_image'])
-        images["cam_right_wrist"] = convert_image_hwc_to_chw(raw_obs['observation.images.right_wrist_image'])
-        
+        images["cam_high"] = convert_image_hwc_to_chw(raw_obs["observation.images.head_image"])
+        images["cam_left_wrist"] = convert_image_hwc_to_chw(raw_obs["observation.images.left_wrist_image"])
+        images["cam_right_wrist"] = convert_image_hwc_to_chw(raw_obs["observation.images.right_wrist_image"])
+
         result = {
-            'images': images,
-            "state" : raw_obs['observation.state'],
+            "images": images,
+            "state": raw_obs["observation.state"],
             "prompt": "place phone",
         }
-        
         # Save live images (throttled: every _save_interval seconds)
         if _live_dir:
             now = time.time()
@@ -383,20 +287,6 @@ def make_aloha_env(
         return obs_source.get_obs()
 
     # ------------------------------------------------------------------
-    # print_actions_fn — log action values (wrapped by RobotEnv if print_actions=True)
-    # ------------------------------------------------------------------
-    def _log_action(action: np.ndarray) -> None:
-        """Log a single action step."""
-        if not print_actions:
-            return
-        left = ", ".join(f"{action[i]:+.4f}" for i in range(6))
-        right = ", ".join(f"{action[i]:+.4f}" for i in range(7, 13))
-        print(
-            f"action | L:[{left}] Lg:{action[6]:.3f} | R:[{right}] Rg:{action[13]:.3f}"
-            f"{' [DRY-RUN]' if dry_run else ''}",
-        )
-
-    # ------------------------------------------------------------------
     # Build RobotEnv
     # ------------------------------------------------------------------
     env = RobotEnv(
@@ -407,6 +297,9 @@ def make_aloha_env(
         chunk_length=chunk_length,
         control_hz=control_hz,
         max_episode_chunks=max_episode_chunks,
+        # ALOHA dry-run is enforced only at the two hardware motion calls in
+        # step_fn/reset_fn, so the rest of the control path still executes.
+        dry_run=False,
         print_actions=print_actions,
         **kwargs,
     )
@@ -417,10 +310,6 @@ def make_aloha_env(
     env.aloha_cameras = camera_names  # type: ignore[attr-defined]
     env.aloha_dry_run = dry_run  # type: ignore[attr-defined]
     env.obs_source = obs_source  # type: ignore[attr-defined]
-
-    # Attach action logger so RobotEnv can call it after each step
-    if print_actions:
-        env._log_action_fn = _log_action  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # close — disconnect hansrobot

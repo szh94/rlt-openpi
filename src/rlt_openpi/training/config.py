@@ -103,7 +103,7 @@ class OnlineRLTrainConfig:
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
     env_kwargs: str = "{}"  # JSON string of extra kwargs forwarded to the env factory
     dry_run: Annotated[str, tyro.conf.arg(metavar="{true,false}")] = (
-        "false"  # If True, print actions instead of sending to hardware
+        "true"  # If True, print actions instead of sending to hardware
     )
     obs_source: str = "robot"  # 黑盒 obs 来源: "robot"=真实硬件 | "mock"=随机假obs | "dataset"=从数据集加载
 
