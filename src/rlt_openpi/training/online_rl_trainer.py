@@ -316,11 +316,17 @@ class OnlineRLTrainer:
 
             self.actor_optimizer.zero_grad()
             loss.backward()
+            grad_norm = sum(
+                p.grad.norm().item() ** 2
+                for p in self.actor.parameters()
+                if p.grad is not None
+            ) ** 0.5
             self.actor_optimizer.step()
 
             step_num = step + 1
             loss_value = loss.item()
-            pbar.set_postfix(loss=f"{loss_value:.6f}")
+            actor_lr = self.actor_optimizer.param_groups[0]["lr"]
+            pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
 
             if log_fn is not None and (
                 step_num == 1
@@ -330,6 +336,8 @@ class OnlineRLTrainer:
                 log_fn(
                     {
                         "pretrain/actor_bc_loss": loss_value,
+                        "pretrain/actor_grad_norm": grad_norm,
+                        "pretrain/actor_lr": actor_lr,
                         "pretrain/step": step_num,
                     },
                     step=step_num,
@@ -342,9 +350,6 @@ class OnlineRLTrainer:
                     self._print_vla_demo_difference_stats(
                         a_tilde_raw, a_demo_raw, config.action_dim
                     )
-                    grad_norm = sum(
-                        p.grad.norm().item() ** 2 for p in self.actor.parameters() if p.grad is not None
-                    ) ** 0.5
                     weight_norm = sum(
                         p.norm().item() ** 2 for p in self.actor.parameters()
                     ) ** 0.5

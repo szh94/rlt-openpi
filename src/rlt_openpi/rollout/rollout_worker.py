@@ -166,7 +166,7 @@ class RolloutWorker:
 
         return (
             x.squeeze(0).cpu().numpy(),
-            a_tilde_flat.squeeze(0).cpu().numpy(),
+            a_tilde_flat.squeeze(0),
             action_chunk,
         )
 
