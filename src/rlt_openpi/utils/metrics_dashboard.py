@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import threading
+import time
 from collections import deque
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,12 +21,21 @@ _AXIS_KEYS = ("step", "pretrain/step", "total_env_steps", "total_episodes")
 class MetricsMarkdownDashboard:
     """Maintain a VS Code-friendly Markdown view of recent metrics."""
 
-    def __init__(self, path: Path, max_points: int = 100) -> None:
+    def __init__(
+        self,
+        path: Path,
+        max_points: int = 100,
+        refresh_interval_seconds: float = 10.0,
+    ) -> None:
         self.path = path
         self.max_points = max_points
+        self.refresh_interval_seconds = refresh_interval_seconds
         self._latest: dict[str, object] = {}
         self._series: dict[str, deque[float]] = {}
+        self._last_write_time = -math.inf
         self._write()
+        # The first metrics record should replace the initial waiting page immediately.
+        self._last_write_time = -math.inf
 
     def update(self, record: dict[str, object]) -> None:
         """Add one metrics record and refresh the Markdown file."""
@@ -39,7 +49,13 @@ class MetricsMarkdownDashboard:
             if not math.isfinite(numeric_value):
                 continue
             self._series.setdefault(key, deque(maxlen=self.max_points)).append(numeric_value)
-        self._write()
+        if time.monotonic() - self._last_write_time >= self.refresh_interval_seconds:
+            self._write()
+
+    def flush(self) -> None:
+        """Write the latest collected metrics regardless of the refresh interval."""
+        if self._latest:
+            self._write()
 
     def _write(self) -> None:
         timestamp = self._latest.get("timestamp", "waiting for metrics")
@@ -53,6 +69,7 @@ class MetricsMarkdownDashboard:
             f"- Last update: `{_markdown_text(timestamp)}`",
             f"- Step: `{_markdown_text(step)}`",
             f"- Trend window: last `{self.max_points}` logged points per metric",
+            f"- File refresh interval: `{self.refresh_interval_seconds:g}` seconds",
             "",
             "## Latest values",
             "",
@@ -86,6 +103,7 @@ class MetricsMarkdownDashboard:
         temporary_path = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         temporary_path.replace(self.path)
+        self._last_write_time = time.monotonic()
 
 
 def _sparkline(values: deque[float]) -> str:

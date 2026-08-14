@@ -62,11 +62,13 @@ OBS_SOURCE=${OBS_SOURCE:-mock}
 # OBS_SOURCE=${OBS_SOURCE:-dataset}
 
 TASK_PROMPT="place phone"
+LOG_EVERY=${LOG_EVERY:-100}
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
 export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
 export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
+export RLT_METRICS_LIVE="${RLT_METRICS_LIVE:-0}"
 
 echo "========================================"
 echo " Stage 2 Online RL (ALOHA Dual-Arm)"
@@ -82,7 +84,8 @@ echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Obs source      = $OBS_SOURCE"
 echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
-echo "   Live metrics    = $STAGE2_AC_CHECKPOINT_DIR/<run_name>/metrics_live.md"
+echo "   Log every       = $LOG_EVERY"
+echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 
@@ -113,4 +116,5 @@ python scripts/train_online_rl_jax.py \
     --obs-source "$OBS_SOURCE" \
     --repo-id "$HF_LEROBOT_HOME" \
     --actor-pretrain-checkpoint "$ACTOR_PRETRAIN_CHECKPOINT" \
-    --save-every 40
+    --save-every 40 \
+    --log-every "$LOG_EVERY"

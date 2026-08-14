@@ -23,12 +23,14 @@ class LoggerConfig:
     Args:
         project: wandb project name.
         enabled: Whether wandb logging is active.
+        live_metrics_enabled: Whether to maintain ``metrics_live.md``.
         dashboard_host: Host interface for the optional live dashboard.
         dashboard_port: Dashboard port, or zero to disable it.
     """
 
     project: str = "rlt-openpi"
     enabled: bool = True
+    live_metrics_enabled: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 0
 
@@ -65,12 +67,13 @@ class Logger:
                 buffering=1,
             )
             print(f"Local metrics log: {resolved_metrics_path}")
-            markdown_path = resolved_metrics_path.parent / "metrics_live.md"
-            try:
-                self._markdown_dashboard = MetricsMarkdownDashboard(markdown_path)
-                print(f"Live metrics file: {markdown_path}")
-            except OSError as exc:
-                print(f"[WARNING] live metrics file failed to initialize: {exc}")
+            if config.live_metrics_enabled:
+                markdown_path = resolved_metrics_path.parent / "metrics_live.md"
+                try:
+                    self._markdown_dashboard = MetricsMarkdownDashboard(markdown_path)
+                    print(f"Live metrics file: {markdown_path}")
+                except OSError as exc:
+                    print(f"[WARNING] live metrics file failed to initialize: {exc}")
 
             if config.dashboard_port > 0:
                 if config.dashboard_host not in ("127.0.0.1", "localhost"):
@@ -141,6 +144,12 @@ class Logger:
 
     def finish(self) -> None:
         """Flush local metrics and finalize the wandb run."""
+        if self._markdown_dashboard is not None:
+            try:
+                self._markdown_dashboard.flush()
+            except OSError as exc:
+                print(f"[WARNING] final live metrics file update failed: {exc}")
+            self._markdown_dashboard = None
         if self._dashboard is not None:
             self._dashboard.close()
             self._dashboard = None
@@ -161,6 +170,7 @@ class Logger:
         logger_config = LoggerConfig(
             project=getattr(train_config, "wandb_project", "rlt-openpi"),
             enabled=getattr(train_config, "wandb_enabled", True),
+            live_metrics_enabled=_env_flag("RLT_METRICS_LIVE", default=True),
             dashboard_host=os.environ.get("RLT_METRICS_HOST", "127.0.0.1"),
             dashboard_port=_dashboard_port_from_env(),
         )
@@ -217,3 +227,17 @@ def _dashboard_port_from_env() -> int:
         print(f"[WARNING] RLT_METRICS_PORT must be 0-65535; dashboard disabled")
         return 0
     return port
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    """Read a conventional boolean environment variable."""
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    normalized = raw_value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+        return True
+    if normalized in ("0", "false", "no", "off"):
+        return False
+    print(f"[WARNING] invalid {name}={raw_value!r}; using default {default}")
+    return default

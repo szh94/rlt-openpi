@@ -17,7 +17,9 @@ export WANDB_MODE=offline
 # export WANDB_MODE=disabled
 export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
 export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
+export RLT_METRICS_LIVE="${RLT_METRICS_LIVE:-0}"
 NUM_WORKERS=${NUM_WORKERS:-2}
+LOG_EVERY=${LOG_EVERY:-100}
 
 echo "========================================"
 echo " Stage 1 RL Token Training (JAX VLA)"
@@ -25,7 +27,8 @@ echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   HF Dataset      = $S1_HF_LEROBOT_HOME"
 echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
 echo "   Num workers     = $NUM_WORKERS"
-echo "   Live metrics    = $STAGE1_RLT_CHECKPOINT_DIR/<run_name>/metrics_live.md"
+echo "   Log every       = $LOG_EVERY"
+echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 echo ""
@@ -38,6 +41,7 @@ python scripts/train_rl_token_jax.py \
     --train.batch-size 8 \
     --train.num-train-steps 20000 \
     --train.save-every 10000 \
+    --train.log-every "$LOG_EVERY" \
     --repo-id "$S1_HF_LEROBOT_HOME" \
     --num-workers "$NUM_WORKERS"
 
