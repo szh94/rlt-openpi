@@ -3,8 +3,8 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.venv/bin/activate"
-# shellcheck source=./keyPara.sh
-source "$SCRIPT_DIR/keyPara.sh"
+# shellcheck source=../keyPara.sh
+source "$SCRIPT_DIR/../keyPara.sh"
 
 python scripts/evaluate.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \

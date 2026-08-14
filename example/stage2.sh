@@ -8,8 +8,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../.venv/bin/activate"
-# shellcheck source=./keyPara.sh
-source "$SCRIPT_DIR/keyPara.sh"
+# shellcheck source=../keyPara.sh
+source "$SCRIPT_DIR/../keyPara.sh"
 
 TASK_PROMPT="stack the three blocks on the tray"
 

@@ -11,7 +11,7 @@ from openpi.training import config as _config
 from openpi.policies import policy_config
 from openpi.shared import download
 from openpi.policies import aloha_policy
-from examples.hansrobot.hansrobot import *
+from hansrobot.hansrobot import *
 
 obs_example = aloha_policy.make_aloha_example()
 # print(obs_example)

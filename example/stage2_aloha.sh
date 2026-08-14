@@ -17,8 +17,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 echo "日志文件: $LOG_FILE"
 
 # source "$SCRIPT_DIR/../.venv/bin/activate"
-# shellcheck source=./keyPara.sh
-source "$SCRIPT_DIR/keyPara.sh"
+# shellcheck source=../keyPara.sh
+source "$SCRIPT_DIR/../keyPara.sh"
 
 # --- ALOHA hardware parameters ---
 # Update these for your machine.

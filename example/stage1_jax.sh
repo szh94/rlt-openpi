@@ -10,7 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # echo "日志文件: $LOG_FILE"
 
 # source "$SCRIPT_DIR/../.venv/bin/activate"
-source "$SCRIPT_DIR/keyPara.sh"
+# shellcheck source=../keyPara.sh
+source "$SCRIPT_DIR/../keyPara.sh"
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled

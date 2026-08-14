@@ -9,8 +9,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=./keyPara.sh
-source "$SCRIPT_DIR/keyPara.sh"
+# shellcheck source=../keyPara.sh
+source "$SCRIPT_DIR/../keyPara.sh"
 
 VLA_CONFIG_NAME=${VLA_CONFIG_NAME:-pi05_jax_full}
 ACTION_DIM=${ACTION_DIM:-14}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Example template for keyPara.sh — copy this file to keyPara.sh and fill in your values.
+# Shared parameters for the training and evaluation scripts under example/.
 #
 # Expected variables (all must be set to non-empty before running any example script):
 #
