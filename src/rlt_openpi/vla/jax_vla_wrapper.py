@@ -171,7 +171,7 @@ class JaxVLAWrapper:
             sharding=model_sharding,
         )
         self._pi0_model = self.train_config.model.load(params)
-        print("JAX Pi0 model loaded successfully.")
+        print("JAX Pi0 model loaded successfully.\n")
 
         self.extractor = JaxEmbeddingExtractor(self._pi0_model)
         self.action_dim = self.train_config.model.action_dim

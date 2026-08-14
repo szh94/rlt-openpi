@@ -14,6 +14,7 @@ source "$SCRIPT_DIR/keyPara.sh"
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
+NUM_WORKERS=${NUM_WORKERS:-2}
 
 echo "========================================"
 echo " Stage 1 RL Token Training (JAX VLA)"
@@ -32,5 +33,5 @@ python scripts/train_rl_token_jax.py \
     --train.num-train-steps 20000 \
     --train.save-every 10000 \
     --repo-id "$S1_HF_LEROBOT_HOME" \
-    --num-workers 0
+    --num-workers "$NUM_WORKERS"
 

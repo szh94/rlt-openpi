@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import multiprocessing
+import os
 import typing
 from collections.abc import Iterator
 from typing import Any, Literal
@@ -41,6 +42,12 @@ def _numpy_collate(items):
     return jax.tree.map(
         lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items
     )
+
+
+def _jax_worker_init_fn(worker_id: int) -> None:
+    """Prevent JAX DataLoader workers from preallocating GPU memory."""
+    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 
 def patch_repack_action_key(data_config, action_key: str):
@@ -217,22 +224,19 @@ def build_jax_data_loader(
             f"(action horizon={openpi_config.model.action_horizon})"
         )
 
-    # OpenPI ALOHA transforms may create JAX arrays. Running them in spawned
-    # workers can create extra CUDA contexts and reserve GPU memory.
-    # if num_workers > 0:
-    #     print(
-    #         "[Data] JAX data loading forces num_workers=0 to prevent "
-    #         "DataLoader workers from creating extra JAX CUDA contexts."
-    #     )
-    #     num_workers = 0
+    mp_context = None
+    if num_workers > 0:
+        mp_context = multiprocessing.get_context("spawn")
 
     raw_loader = torch.utils.data.DataLoader(
         typing.cast(torch.utils.data.Dataset, dataset),
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        persistent_workers=False,
+        multiprocessing_context=mp_context,
+        persistent_workers=num_workers > 0,
         collate_fn=_numpy_collate,
+        worker_init_fn=_jax_worker_init_fn,
         drop_last=True,
     )
 

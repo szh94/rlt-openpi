@@ -91,12 +91,12 @@ def main(config: TrainConfig) -> None:
         config_name=config.train.vla_config_name,
         device="cuda",
     )
-    print("  JAX VLA model loaded successfully.")
+    print("JAX VLA model loaded successfully.\n")
 
     print("[2/4] Creating RL token trainer...")
     trainer = RLTokenTrainer(config.train, device="cuda")
     rl_logger = Logger.from_train_config(config.train)
-    print("  Trainer created (RLTokenModel + optimizer).")
+    print("Trainer created.\n")
 
     print("[3/4] Loading demonstration dataset...")
 
@@ -110,14 +110,14 @@ def main(config: TrainConfig) -> None:
         action_target_space="normalized",
         dataset_label="RL token training dataset",
     )
-    print("  Data loader ready.")
+    print("Data loaded.\n")
 
     print("[4/4] Starting training loop...")
     print("-" * 60)
     trainer.train(vla, data_loader, log_fn=rl_logger.log)
 
     print("-" * 60)
-    print("Training complete.")
+    print("Training complete.\n")
     print("=" * 60)
     rl_logger.finish()
 

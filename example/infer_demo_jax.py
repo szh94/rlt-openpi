@@ -60,14 +60,15 @@ for i in range(4):
     policy._rng, sample_rng = jax.random.split(policy._rng)
 
     t0 = time.monotonic()
-    actions = policy._sample_actions(
+    sample_outputs = policy._sample_actions(
         sample_rng,
         observation,
         **policy._sample_kwargs,
     )
-    jax.block_until_ready(actions)
+    jax.block_until_ready(sample_outputs)
     t1 = time.monotonic()
 
+    _, actions = sample_outputs
     actions_np = np.asarray(jax.device_get(actions))
     state_np = np.asarray(jax.device_get(observation.state))
     action = policy._output_transform(

@@ -243,7 +243,7 @@ class RLTokenTrainer:
         t_total = (t6 - t0) * 1000
 
         print(
-            f"[train_step] {self._global_step}] "
+            f"[train_step] {self._global_step} | "
             f"obs_to_device={t_obs_to_device:.1f}ms | "
             f"vla_embed={t_vla_embed:.1f}ms | "
             f"rl_forward={t_rl_forward:.1f}ms | "
