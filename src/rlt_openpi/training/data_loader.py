@@ -219,12 +219,12 @@ def build_jax_data_loader(
 
     # OpenPI ALOHA transforms may create JAX arrays. Running them in spawned
     # workers can create extra CUDA contexts and reserve GPU memory.
-    if num_workers > 0:
-        print(
-            "[Data] JAX data loading forces num_workers=0 to prevent "
-            "DataLoader workers from creating extra JAX CUDA contexts."
-        )
-        num_workers = 0
+    # if num_workers > 0:
+    #     print(
+    #         "[Data] JAX data loading forces num_workers=0 to prevent "
+    #         "DataLoader workers from creating extra JAX CUDA contexts."
+    #     )
+    #     num_workers = 0
 
     raw_loader = torch.utils.data.DataLoader(
         typing.cast(torch.utils.data.Dataset, dataset),
