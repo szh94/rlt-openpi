@@ -98,7 +98,7 @@ def main(config: TrainConfig) -> None:
     rl_logger = Logger.from_train_config(config.train)
     print("Trainer created.\n")
 
-    print("[3/4] Loading demonstration dataset...")
+    print("[3/4] Loading Dataset...")
 
     data_loader = build_jax_data_loader(
         openpi_config_name=config.train.vla_config_name,

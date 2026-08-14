@@ -19,7 +19,7 @@ import numpy as np
 config = _config.get_config("pi05_jax_full")
 # checkpoint_dir = "/home/zhike/model/openpi-jax/full/1414-60000"
 checkpoint_dir = "/home/zhike/model/openpi-jax/full/160-3w/models (1)/models/pretrained_model"
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "8"))
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "16"))
 
 
 # Create a trained policy.

@@ -90,7 +90,7 @@ def main(config: TrainConfig) -> None:
         device="cuda",
         data_transforms=data_transforms,
     )
-    print("  VLA model loaded successfully.")
+    print("VLA model loaded successfully.\n")
 
     print("[2/4] Creating RL token trainer...")
     trainer = RLTokenTrainer(config.train, device="cuda")

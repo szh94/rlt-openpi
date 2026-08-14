@@ -21,6 +21,7 @@ echo " Stage 1 RL Token Training (JAX VLA)"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   HF Dataset      = $S1_HF_LEROBOT_HOME"
 echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
+echo "   Num workers     = $NUM_WORKERS"
 echo "========================================"
 echo ""
 
