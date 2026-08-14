@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
+from collections import deque
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,6 +13,96 @@ from urllib.parse import parse_qs, urlparse
 
 
 _MAX_RECORDS_PER_REQUEST = 2000
+_SPARKLINE_CHARS = "▁▂▃▄▅▆▇█"
+_AXIS_KEYS = ("step", "pretrain/step", "total_env_steps", "total_episodes")
+
+
+class MetricsMarkdownDashboard:
+    """Maintain a VS Code-friendly Markdown view of recent metrics."""
+
+    def __init__(self, path: Path, max_points: int = 100) -> None:
+        self.path = path
+        self.max_points = max_points
+        self._latest: dict[str, object] = {}
+        self._series: dict[str, deque[float]] = {}
+        self._write()
+
+    def update(self, record: dict[str, object]) -> None:
+        """Add one metrics record and refresh the Markdown file."""
+        self._latest.update(record)
+        for key, value in record.items():
+            if key == "timestamp" or key in _AXIS_KEYS:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            numeric_value = float(value)
+            if not math.isfinite(numeric_value):
+                continue
+            self._series.setdefault(key, deque(maxlen=self.max_points)).append(numeric_value)
+        self._write()
+
+    def _write(self) -> None:
+        timestamp = self._latest.get("timestamp", "waiting for metrics")
+        step = next(
+            (self._latest[key] for key in _AXIS_KEYS if key in self._latest),
+            "-",
+        )
+        lines = [
+            "# RLT OpenPI live metrics",
+            "",
+            f"- Last update: `{_markdown_text(timestamp)}`",
+            f"- Step: `{_markdown_text(step)}`",
+            f"- Trend window: last `{self.max_points}` logged points per metric",
+            "",
+            "## Latest values",
+            "",
+            "| Metric | Value |",
+            "|---|---:|",
+        ]
+        if self._latest:
+            lines.extend(
+                f"| `{_markdown_text(key)}` | `{_markdown_text(value)}` |"
+                for key, value in sorted(self._latest.items())
+            )
+        else:
+            lines.append("| status | `Waiting for the first logged metrics...` |")
+
+        lines.extend(["", "## Recent trends", ""])
+        if self._series:
+            for key, values in sorted(self._series.items()):
+                lines.extend(
+                    [
+                        f"### {_markdown_text(key)}",
+                        "",
+                        f"Latest: `{values[-1]:.6g}`",
+                        "",
+                        f"`{_sparkline(values)}`",
+                        "",
+                    ]
+                )
+        else:
+            lines.append("Waiting for numeric metrics...")
+
+        temporary_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        temporary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        temporary_path.replace(self.path)
+
+
+def _sparkline(values: deque[float]) -> str:
+    points = list(values)
+    low = min(points)
+    span = max(points) - low
+    if span == 0:
+        return _SPARKLINE_CHARS[len(_SPARKLINE_CHARS) // 2] * len(points)
+    last_index = len(_SPARKLINE_CHARS) - 1
+    return "".join(
+        _SPARKLINE_CHARS[round((value - low) / span * last_index)] for value in points
+    )
+
+
+def _markdown_text(value: object) -> str:
+    text = str(value).replace("|", "\\|").replace("`", "'")
+    return text if len(text) <= 200 else text[:197] + "..."
 
 
 class MetricsDashboard:

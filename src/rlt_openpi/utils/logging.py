@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from rlt_openpi.utils.metrics_dashboard import MetricsDashboard
+from rlt_openpi.utils.metrics_dashboard import MetricsDashboard, MetricsMarkdownDashboard
 
 
 @dataclass
@@ -54,6 +54,7 @@ class Logger:
         self._wandb_run = None
         self._metrics_file: TextIO | None = None
         self._dashboard: MetricsDashboard | None = None
+        self._markdown_dashboard: MetricsMarkdownDashboard | None = None
 
         if metrics_path is not None:
             resolved_metrics_path = Path(metrics_path)
@@ -64,6 +65,12 @@ class Logger:
                 buffering=1,
             )
             print(f"Local metrics log: {resolved_metrics_path}")
+            markdown_path = resolved_metrics_path.parent / "metrics_live.md"
+            try:
+                self._markdown_dashboard = MetricsMarkdownDashboard(markdown_path)
+                print(f"Live metrics file: {markdown_path}")
+            except OSError as exc:
+                print(f"[WARNING] live metrics file failed to initialize: {exc}")
 
             if config.dashboard_port > 0:
                 if config.dashboard_host not in ("127.0.0.1", "localhost"):
@@ -115,10 +122,19 @@ class Logger:
             }
             if step is not None:
                 record["step"] = step
+            json_record = {
+                str(key): _to_json_value(value) for key, value in record.items()
+            }
             self._metrics_file.write(
-                json.dumps(_to_json_value(record), ensure_ascii=False) + "\n"
+                json.dumps(json_record, ensure_ascii=False) + "\n"
             )
             self._metrics_file.flush()
+            if self._markdown_dashboard is not None:
+                try:
+                    self._markdown_dashboard.update(json_record)
+                except OSError as exc:
+                    print(f"[WARNING] live metrics file update failed: {exc}")
+                    self._markdown_dashboard = None
 
         if self._wandb_run is not None:
             self._wandb_run.log(metrics, step=step)

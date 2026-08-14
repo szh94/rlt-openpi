@@ -66,7 +66,7 @@ TASK_PROMPT="place phone"
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
 export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
-export RLT_METRICS_PORT="${RLT_METRICS_PORT:-8765}"
+export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
 
 echo "========================================"
 echo " Stage 2 Online RL (ALOHA Dual-Arm)"
@@ -82,7 +82,8 @@ echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Obs source      = $OBS_SOURCE"
 echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
-echo "   Dashboard       = http://$RLT_METRICS_HOST:$RLT_METRICS_PORT"
+echo "   Live metrics    = $STAGE2_AC_CHECKPOINT_DIR/<run_name>/metrics_live.md"
+echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 
 # Build env-kwargs JSON

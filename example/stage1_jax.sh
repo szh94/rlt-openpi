@@ -16,7 +16,7 @@ source "$SCRIPT_DIR/../keyPara.sh"
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
 export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
-export RLT_METRICS_PORT="${RLT_METRICS_PORT:-8765}"
+export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
 NUM_WORKERS=${NUM_WORKERS:-2}
 
 echo "========================================"
@@ -25,7 +25,8 @@ echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   HF Dataset      = $S1_HF_LEROBOT_HOME"
 echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
 echo "   Num workers     = $NUM_WORKERS"
-echo "   Dashboard       = http://$RLT_METRICS_HOST:$RLT_METRICS_PORT"
+echo "   Live metrics    = $STAGE1_RLT_CHECKPOINT_DIR/<run_name>/metrics_live.md"
+echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 echo ""
 
