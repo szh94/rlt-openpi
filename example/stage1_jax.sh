@@ -18,8 +18,8 @@ export WANDB_MODE=offline
 echo "========================================"
 echo " Stage 1 RL Token Training (JAX VLA)"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
+echo "   HF Dataset      = $S1_HF_LEROBOT_HOME"
 echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
-echo "   HF dataset      = $HF_LEROBOT_HOME"
 echo "========================================"
 echo ""
 
@@ -31,5 +31,6 @@ python scripts/train_rl_token_jax.py \
     --train.batch-size 8 \
     --train.num-train-steps 20000 \
     --train.save-every 10000 \
-    --repo-id "$HF_LEROBOT_HOME"
+    --repo-id "$S1_HF_LEROBOT_HOME" \
+    --num-workers 0
 

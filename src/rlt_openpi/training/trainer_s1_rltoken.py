@@ -122,23 +122,39 @@ class RLTokenTrainer:
 
         pbar = tqdm(range(1, self.config.num_train_steps + 1), desc="Stage 1")
         for step_idx in pbar:
+            t0 = time.monotonic()
             try:
                 observations, actions = next(dataloader)
             except StopIteration:
                 print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
+            t1 = time.monotonic()
 
             metrics = self._step_frozen(vla, observations)
+            t2 = time.monotonic()
 
             # Progress bar (VLA joint training disabled)
             pbar.set_postfix(loss=f"{metrics['loss']:.4f}")
+            t3 = time.monotonic()
 
             # wandb logging (every log_every steps)
             if step_idx % self.config.log_every == 0 and log_fn is not None:
                 log_fn(metrics, step=metrics.get("step"))
+            t4 = time.monotonic()
 
             if step_idx % self.config.save_every == 0:
                 self.save()
+            t5 = time.monotonic()
+
+            print(
+                f"[DEBUG] step={step_idx} | "
+                f"data_load={(t1 - t0) * 1000:.1f}ms | "
+                f"train_step={(t2 - t1) * 1000:.1f}ms | "
+                f"progress={(t3 - t2) * 1000:.1f}ms | "
+                f"logging={(t4 - t3) * 1000:.1f}ms | "
+                f"checkpoint={(t5 - t4) * 1000:.1f}ms | "
+                f"total={(t5 - t0) * 1000:.1f}ms"
+            )
 
         if self._global_step % self.config.save_every != 0:
             self.save()

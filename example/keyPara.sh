@@ -23,6 +23,9 @@
 # export HF_LEROBOT_HOME="/home/zhike/data/openpi/train/1414"
 # jax data 160 groups
 VLA_CHECKPOINT_DIR_JAX="/home/zhike/model/openpi-jax/full/160-3w/models (1)/models/pretrained_model"
+
+export S1_HF_LEROBOT_HOME="/home/zhike/data/openpi/150/data_allforce_all"
+
 export HF_LEROBOT_HOME="/home/zhike/data/openpi/150/data_allforce_all"
 
 STAGE1_RLT_CHECKPOINT_DIR="checkpoints/stage1_rlt_encoder"
