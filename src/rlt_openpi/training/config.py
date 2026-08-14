@@ -150,8 +150,6 @@ class ActorPretrainConfig:
     chunk_length: int = 10
     mlp_hidden_dim: int = 256
     mlp_num_hidden_layers: int = 2
-    actor_noise_sigma: float = 0.1
-    ref_action_dropout: float = 0.5
     actor_lr: float = 3e-4
 
     repo_id: str = ""

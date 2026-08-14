@@ -41,8 +41,8 @@ class ActorPretrainTrainer:
             action_chunk_dim=config.action_chunk_dim,
             hidden_dim=config.mlp_hidden_dim,
             num_hidden_layers=config.mlp_num_hidden_layers,
-            sigma=config.actor_noise_sigma,
-            ref_dropout=config.ref_action_dropout,
+            sigma=0.0,
+            ref_dropout=0.0,
         ).to(self.device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr)
 
@@ -144,22 +144,32 @@ class ActorPretrainTrainer:
             loss.backward()
             t6 = time.monotonic()
 
-            grad_norm = sum(
-                param.grad.norm().item() ** 2
-                for param in self.actor.parameters()
-                if param.grad is not None
-            ) ** 0.5
-            self.actor_optimizer.step()
-            t7 = time.monotonic()
-
             step_num = step + 1
-            loss_value = loss.item()
-            pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
-            if log_fn is not None and (
+            is_log_step = (
                 step_num == 1
                 or step_num % config.log_every == 0
                 or step_num == config.steps
-            ):
+            )
+            is_checkpoint_step = (
+                step_num % config.save_every == 0 and step_num < config.steps
+            )
+            grad_norm = None
+            if is_log_step or is_checkpoint_step:
+                grad_norm = sum(
+                    param.grad.norm().item() ** 2
+                    for param in self.actor.parameters()
+                    if param.grad is not None
+                ) ** 0.5
+            self.actor_optimizer.step()
+            t7 = time.monotonic()
+
+            loss_value = loss.item()
+            if grad_norm is None:
+                pbar.set_postfix(loss=f"{loss_value:.6f}")
+            else:
+                pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
+            if log_fn is not None and is_log_step:
+                assert grad_norm is not None
                 log_fn(
                     {
                         "pretrain/actor_bc_loss": loss_value,
@@ -176,7 +186,7 @@ class ActorPretrainTrainer:
             #         f"loss={loss_value:.6f} grad={grad_norm:.4f}"
             #     )
 
-            if step_num % config.save_every == 0:
+            if is_checkpoint_step:
                 self._save_checkpoint(
                     save_dir / f"actor_pretrain_step{step_num}.pt",
                     step_num,
