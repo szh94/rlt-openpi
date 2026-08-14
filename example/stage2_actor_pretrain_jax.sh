@@ -23,8 +23,6 @@ LOG_EVERY=${LOG_EVERY:-100}
 RUN_NAME=${RUN_NAME:-"actor_pretrain_$(date +%Y%m%d_%H%M%S)"}
 
 export WANDB_MODE=${WANDB_MODE:-offline}
-export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
-export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
 export RLT_METRICS_LIVE="${RLT_METRICS_LIVE:-0}"
 
 echo "========================================"
@@ -39,7 +37,6 @@ echo "   Log every       = $LOG_EVERY"
 echo "   Save dir        = $STAGE2_AC_CHECKPOINT_DIR"
 echo "   Run name        = $RUN_NAME"
 echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
-echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 
 python scripts/train_actor_pretrain_jax.py \

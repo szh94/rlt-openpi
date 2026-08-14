@@ -15,8 +15,6 @@ source "$SCRIPT_DIR/../keyPara.sh"
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
-export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
-export RLT_METRICS_PORT="${RLT_METRICS_PORT:-0}"
 export RLT_METRICS_LIVE="${RLT_METRICS_LIVE:-0}"
 NUM_WORKERS=${NUM_WORKERS:-2}
 LOG_EVERY=${LOG_EVERY:-100}
@@ -29,7 +27,6 @@ echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
 echo "   Num workers     = $NUM_WORKERS"
 echo "   Log every       = $LOG_EVERY"
 echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
-echo "   HTTP port       = $RLT_METRICS_PORT (0=disabled)"
 echo "========================================"
 echo ""
 

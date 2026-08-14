@@ -86,26 +86,6 @@ class ActorPretrainTrainer:
         )
         print(f"[Actor Pretrain] Saved checkpoint to {checkpoint_path}")
 
-    @staticmethod
-    def _print_reference_target_stats(
-        reference_raw: torch.Tensor,
-        target_raw: torch.Tensor,
-        action_dim: int,
-    ) -> None:
-        diff = (reference_raw - target_raw).reshape(-1, action_dim)
-        dim_indices = torch.arange(action_dim, device=diff.device)
-        gripper_mask = (dim_indices + 1) % 7 == 0
-        for name, mask in (("joint", ~gripper_mask), ("gripper", gripper_mask)):
-            values = diff[:, mask].reshape(-1)
-            if values.numel() == 0:
-                continue
-            print(
-                f"  VLA - demo [{name}] (raw): "
-                f"mae={values.abs().mean().item():.4f} "
-                f"rmse={values.square().mean().sqrt().item():.4f} "
-                f"min={values.min().item():.4f} max={values.max().item():.4f}"
-            )
-
     def train(self, data_iter: Any, log_fn: Any | None = None) -> Path:
         """Run BC pre-training and return the saved checkpoint path."""
         config = self.config
@@ -190,25 +170,11 @@ class ActorPretrainTrainer:
                     step=step_num,
                 )
 
-            if step == 0 or step_num % 100 == 0:
-                with torch.no_grad():
-                    self._print_reference_target_stats(
-                        vla_actions[:, : config.chunk_length, : config.action_dim],
-                        torch.as_tensor(
-                            np.asarray(
-                                demo_actions[
-                                    :, : config.chunk_length, : config.action_dim
-                                ]
-                            ),
-                            dtype=torch.float32,
-                            device=self.device,
-                        ),
-                        config.action_dim,
-                    )
-                    print(
-                        f"[Actor Pretrain] step {step_num}/{config.steps} "
-                        f"loss={loss_value:.6f} grad={grad_norm:.4f}"
-                    )
+            # if step == 0 or step_num % 100 == 0:
+            #     print(
+            #         f"[Actor Pretrain] step {step_num}/{config.steps} "
+            #         f"loss={loss_value:.6f} grad={grad_norm:.4f}"
+            #     )
 
             if step_num % config.save_every == 0:
                 self._save_checkpoint(
