@@ -109,6 +109,7 @@ class JaxEmbeddingExtractor:
         t1 = time.monotonic()
 
         prefix_out, prefix_mask = self._extract_prefix(observation)
+        jax.block_until_ready((prefix_out, prefix_mask))
         t2 = time.monotonic()
 
         # Share JAX device buffers with PyTorch through DLPack.
@@ -251,6 +252,8 @@ class JaxVLAWrapper:
         t1 = time.monotonic()
         z = z.to(self.device)
         pad_mask = pad_mask.to(self.device)
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
         t2 = time.monotonic()
 
         t_extract = (t1 - t0) * 1000
