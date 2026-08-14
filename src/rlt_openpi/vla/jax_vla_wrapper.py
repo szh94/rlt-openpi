@@ -122,13 +122,13 @@ class JaxEmbeddingExtractor:
         t_dlpack_to_torch = (t3 - t2) * 1000
         t_total = (t3 - t0) * 1000
 
-        print(
-            f"[JaxEmbeddingExtractor] "
-            f"obs_to_jax={t_obs_to_jax:.1f}ms | "
-            f"extract_prefix(JIT)={t_extract_prefix:.1f}ms | "
-            f"dlpack_to_torch={t_dlpack_to_torch:.1f}ms | "
-            f"total={t_total:.1f}ms"
-        )
+        # print(
+        #     f"[extract_emb] "
+        #     f"obs_to_jax={t_obs_to_jax:.1f}ms | "
+        #     f"extract_prefix(JIT)={t_extract_prefix:.1f}ms | "
+        #     f"dlpack_to_torch={t_dlpack_to_torch:.1f}ms | "
+        #     f"total={t_total:.1f}ms"
+        # )
 
         return z, pad_mask
 
@@ -171,7 +171,7 @@ class JaxVLAWrapper:
             sharding=model_sharding,
         )
         self._pi0_model = self.train_config.model.load(params)
-        print("JAX Pi0 model loaded successfully.\n")
+        # print("JAX Pi0 model loaded successfully.\n")
 
         self.extractor = JaxEmbeddingExtractor(self._pi0_model)
         self.action_dim = self.train_config.model.action_dim
@@ -259,12 +259,12 @@ class JaxVLAWrapper:
         t_extract = (t1 - t0) * 1000
         t_to_device = (t2 - t1) * 1000
         t_total = (t2 - t0) * 1000
-        print(
-            f"[DEBUG] extract_emb | "
-            f"extract={t_extract:.1f}ms | "
-            f"to_device={t_to_device:.1f}ms | "
-            f"total={t_total:.1f}ms"
-        )
+        # print(
+        #     f"[DEBUG] extract_emb | "
+        #     f"extract={t_extract:.1f}ms | "
+        #     f"to_device={t_to_device:.1f}ms | "
+        #     f"total={t_total:.1f}ms"
+        # )
 
         return z, pad_mask
 

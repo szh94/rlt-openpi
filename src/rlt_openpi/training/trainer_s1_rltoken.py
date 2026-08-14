@@ -115,15 +115,15 @@ class RLTokenTrainer:
                 self.save()
             t5 = time.monotonic()
 
-            print(
-                f"[Train] step = {step_idx} | "
-                f"data_load={(t1 - t0) * 1000:.1f}ms | "
-                f"train_step={(t2 - t1) * 1000:.1f}ms | "
-                f"progress={(t3 - t2) * 1000:.1f}ms | "
-                f"logging={(t4 - t3) * 1000:.1f}ms | "
-                f"checkpoint={(t5 - t4) * 1000:.1f}ms | "
-                f"total={(t5 - t0) * 1000:.1f}ms"
-            )
+            # print(
+            #     f"[Train] step = {step_idx} | "
+            #     f"data_load={(t1 - t0) * 1000:.1f}ms | "
+            #     f"train_step={(t2 - t1) * 1000:.1f}ms | "
+            #     f"progress={(t3 - t2) * 1000:.1f}ms | "
+            #     f"logging={(t4 - t3) * 1000:.1f}ms | "
+            #     f"checkpoint={(t5 - t4) * 1000:.1f}ms | "
+            #     f"total={(t5 - t0) * 1000:.1f}ms"
+            # )
 
         if self._global_step % self.config.save_every != 0:
             self.save()
@@ -242,16 +242,16 @@ class RLTokenTrainer:
         t_metrics = (t6 - t5) * 1000
         t_total = (t6 - t0) * 1000
 
-        print(
-            f"[train_step] {self._global_step} | "
-            f"obs_to_device={t_obs_to_device:.1f}ms | "
-            f"vla_embed={t_vla_embed:.1f}ms | "
-            f"rlt_forward={t_rl_forward:.1f}ms | "
-            f"rlt_backward={t_backward:.1f}ms | "
-            f"optimizer={t_optimizer:.1f}ms | "
-            f"metrics={t_metrics:.1f}ms | "
-            f"total={t_total:.1f}ms"
-        )
+        # print(
+        #     f"[train_step] {self._global_step} | "
+        #     f"obs_to_device={t_obs_to_device:.1f}ms | "
+        #     f"vla_embed={t_vla_embed:.1f}ms | "
+        #     f"rlt_forward={t_rl_forward:.1f}ms | "
+        #     f"rlt_backward={t_backward:.1f}ms | "
+        #     f"optimizer={t_optimizer:.1f}ms | "
+        #     f"metrics={t_metrics:.1f}ms | "
+        #     f"total={t_total:.1f}ms"
+        # )
 
         return {
             "loss": loss_value,
