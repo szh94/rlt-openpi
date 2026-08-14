@@ -4,53 +4,17 @@ from __future__ import annotations
 
 import warnings
 
-import openpi.training.data_loader as openpi_data_loader
-import openpi.transforms as openpi_transforms
 import tyro
 
 from rlt_openpi.training.trainer_s2_actorPretrain import ActorPretrainTrainer
 from rlt_openpi.training.config import ActorPretrainConfig
-from rlt_openpi.training.data_loader import build_data_config
+from rlt_openpi.training.data_loader import build_jax_data_loader
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
 
 warnings.filterwarnings("ignore", message="To copy construct from a tensor.*")
-
-
-def _build_openpi_data_iter(config: ActorPretrainConfig, vla: JaxVLAWrapper):
-    """Build actor-pretrain batches with OpenPI's native JAX loader."""
-    openpi_config, data_config = build_data_config(
-        config.vla_config_name,
-        config.repo_id,
-        norm_stats=vla.norm_stats,
-    )
-    if data_config.norm_stats is None:
-        raise ValueError("Actor pretraining requires normalization stats")
-
-    data_loader = openpi_data_loader.create_torch_data_loader(
-        data_config=data_config,
-        model_config=openpi_config.model,
-        action_horizon=openpi_config.model.action_horizon,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=config.num_workers,
-        framework="jax",
-    )
-    unnormalize = openpi_transforms.Unnormalize(
-        data_config.norm_stats,
-        use_quantiles=data_config.use_quantile_norm,
-    )
-
-    def _iterator():
-        for observation, actions in data_loader:
-            actions = unnormalize(
-                {"state": observation.state, "actions": actions}
-            )["actions"]
-            yield observation, actions[..., : config.action_dim]
-
-    return _iterator()
 
 
 def main(config: ActorPretrainConfig) -> None:
@@ -74,14 +38,17 @@ def main(config: ActorPretrainConfig) -> None:
         )
         rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device="cuda")
 
-        print(
-            f"[Data] Building actor pretrain data loader with OpenPI: "
-            f"repo={config.repo_id} batch_size={config.batch_size} "
-            f"num_workers={config.num_workers}"
+        print(f"[Data] Building actor pretrain data loader: {config.repo_id}")
+        pretrain_data_iter = build_jax_data_loader(
+            openpi_config_name=config.vla_config_name,
+            repo_id=config.repo_id,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            output_action_dim=config.action_dim,
+            norm_stats=vla.norm_stats,
+            action_target_space="model",
+            dataset_label="Actor pretrain dataset",
         )
-        pretrain_data_iter = _build_openpi_data_iter(
-            config,
-            vla)
 
         trainer = ActorPretrainTrainer(
             config=config,
