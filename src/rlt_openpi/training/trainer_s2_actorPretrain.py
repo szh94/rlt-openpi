@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -98,12 +99,18 @@ class ActorPretrainTrainer:
 
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
+            t0 = time.monotonic()
             observation, demo_actions = next(data_iter)
+            t1 = time.monotonic()
+
             z, pad_mask, vla_actions = self.vla.extract_both(observation)
+            t2 = time.monotonic()
 
             z_rl = self.rl_token_model.encode(
                 z.to(self.device), pad_mask.to(self.device)
             )
+            t3 = time.monotonic()
+
             state = torch.as_tensor(
                 np.asarray(observation.state[:, : config.action_dim]),
                 dtype=torch.float32,
@@ -125,17 +132,23 @@ class ActorPretrainTrainer:
 
             reference = self._normalize_action(reference)
             target = self._normalize_action(target)
+            t4 = time.monotonic()
+
             prediction = self.actor(actor_state, reference)
             loss = F.mse_loss(prediction, target)
+            t5 = time.monotonic()
 
             self.actor_optimizer.zero_grad()
             loss.backward()
+            t6 = time.monotonic()
+
             grad_norm = sum(
                 param.grad.norm().item() ** 2
                 for param in self.actor.parameters()
                 if param.grad is not None
             ) ** 0.5
             self.actor_optimizer.step()
+            t7 = time.monotonic()
 
             step_num = step + 1
             loss_value = loss.item()
@@ -174,6 +187,20 @@ class ActorPretrainTrainer:
                         f"[Actor Pretrain] step {step_num}/{config.steps} "
                         f"loss={loss_value:.6f} grad={grad_norm:.4f}"
                     )
+
+            t8 = time.monotonic()
+            print(
+                f"[DEBUG] step={step_num} | "
+                f"data_load={(t1 - t0) * 1000:.1f}ms | "
+                f"vla_extract={(t2 - t1) * 1000:.1f}ms | "
+                f"rl_encode={(t3 - t2) * 1000:.1f}ms | "
+                f"batch_prepare={(t4 - t3) * 1000:.1f}ms | "
+                f"actor_forward={(t5 - t4) * 1000:.1f}ms | "
+                f"backward={(t6 - t5) * 1000:.1f}ms | "
+                f"optimizer={(t7 - t6) * 1000:.1f}ms | "
+                f"logging={(t8 - t7) * 1000:.1f}ms | "
+                f"total={(t8 - t0) * 1000:.1f}ms"
+            )
 
         save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)

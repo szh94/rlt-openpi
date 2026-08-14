@@ -28,7 +28,7 @@ from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.envs.obs_source import make_obs_source
 from rlt_openpi.training.config import OnlineRLTrainConfig
-from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
+from rlt_openpi.training.trainer_s2_onlinerl import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper

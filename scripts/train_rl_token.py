@@ -32,7 +32,7 @@ import tyro
 
 from rlt_openpi.training.config import RLTokenTrainConfig
 from rlt_openpi.training.data_loader import build_data_loader, resolve_data_transforms
-from rlt_openpi.training.rl_token_trainer import RLTokenTrainer
+from rlt_openpi.training.trainer_s1_rltoken import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 

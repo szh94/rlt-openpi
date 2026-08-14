@@ -128,7 +128,7 @@ class RLTokenTrainer:
                 print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
 
-            metrics = self.step(vla, observations, actions)
+            metrics = self._step_frozen(vla, observations)
 
             # Progress bar (VLA joint training disabled)
             pbar.set_postfix(loss=f"{metrics['loss']:.4f}")

@@ -6,7 +6,7 @@ import warnings
 
 import tyro
 
-from rlt_openpi.training.actor_pretrain_trainer import ActorPretrainTrainer
+from rlt_openpi.training.trainer_s2_actorPretrain import ActorPretrainTrainer
 from rlt_openpi.training.config import ActorPretrainConfig
 from rlt_openpi.training.data_loader import build_jax_data_loader
 from rlt_openpi.utils.checkpoint import load_rl_token_model
