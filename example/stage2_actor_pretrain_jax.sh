@@ -22,6 +22,8 @@ NUM_WORKERS=${NUM_WORKERS:-0}
 RUN_NAME=${RUN_NAME:-"actor_pretrain_$(date +%Y%m%d_%H%M%S)"}
 
 export WANDB_MODE=${WANDB_MODE:-offline}
+export RLT_METRICS_HOST="${RLT_METRICS_HOST:-127.0.0.1}"
+export RLT_METRICS_PORT="${RLT_METRICS_PORT:-8765}"
 
 echo "========================================"
 echo " Stage 2 Actor Pretrain [JAX VLA]"
@@ -33,6 +35,7 @@ echo "   Batch size      = $ACTOR_PRETRAIN_BATCH_SIZE"
 echo "   Save every      = $ACTOR_PRETRAIN_SAVE_EVERY"
 echo "   Save dir        = $STAGE2_AC_CHECKPOINT_DIR"
 echo "   Run name        = $RUN_NAME"
+echo "   Dashboard       = http://$RLT_METRICS_HOST:$RLT_METRICS_PORT"
 echo "========================================"
 
 python scripts/train_actor_pretrain_jax.py \
