@@ -42,6 +42,6 @@ python scripts/train_actor_pretrain_jax.py \
     --run-name "$RUN_NAME" \
     --action-dim "$ACTION_DIM" \
     --chunk-length "$CHUNK_LENGTH" \
-    --actor-pretrain-steps "$ACTOR_PRETRAIN_STEPS" \
-    --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
+    --steps "$ACTOR_PRETRAIN_STEPS" \
+    --batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --num-workers "$NUM_WORKERS"

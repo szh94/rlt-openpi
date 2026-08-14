@@ -39,22 +39,28 @@ class _SliceAction:
         return data
 
 
-def _observation_to_numpy(obs: Observation) -> Observation:
-    """Convert an Observation containing torch/jnp tensors to numpy arrays for JAX."""
+def _observation_to_jax(obs: Observation) -> Observation:
+    """Convert observation leaves to JAX arrays without staging JAX data on CPU.
 
-    def _to_np(x):
+    ``preprocess_obs`` already returns device-backed JAX arrays.  Keeping those
+    leaves unchanged avoids a JAX device -> NumPy host -> JAX device round trip
+    immediately before the JIT-compiled model call.  Torch inputs still need to
+    pass through CPU because PyTorch and JAX do not share them here.
+    """
+
+    def _to_jax(x):
+        if isinstance(x, jax.Array):
+            return x
         if isinstance(x, torch.Tensor):
-            return x.detach().cpu().numpy()
-        if isinstance(x, jnp.ndarray):
-            return np.array(x)
-        return x
+            x = x.detach().cpu().numpy()
+        return jnp.asarray(x)
 
-    images = {k: _to_np(v) for k, v in obs.images.items()}
-    image_masks = {k: _to_np(v) for k, v in obs.image_masks.items()}
-    state = _to_np(obs.state)
-    tokenized_prompt = _to_np(obs.tokenized_prompt) if obs.tokenized_prompt is not None else None
+    images = {k: _to_jax(v) for k, v in obs.images.items()}
+    image_masks = {k: _to_jax(v) for k, v in obs.image_masks.items()}
+    state = _to_jax(obs.state)
+    tokenized_prompt = _to_jax(obs.tokenized_prompt) if obs.tokenized_prompt is not None else None
     tokenized_prompt_mask = (
-        _to_np(obs.tokenized_prompt_mask) if obs.tokenized_prompt_mask is not None else None
+        _to_jax(obs.tokenized_prompt_mask) if obs.tokenized_prompt_mask is not None else None
     )
 
     return Observation(
@@ -72,21 +78,13 @@ def _observation_to_numpy(obs: Observation) -> Observation:
 
 
 class JaxEmbeddingExtractor:
-    """Wraps a JAX Pi0 model for embedding extraction.
-
-    ``extract_embeddings`` goes through the single JIT-compiled
-    :meth:`pi0_model.sample_actions`, which returns
-    ``((prefix_out, prefix_mask), actions)`` — the prefix embeddings
-    are kept and actions discarded.  This follows the same JIT strategy
-    as :class:`openpi.policies.policy.Policy`.
-    """
+    """JIT-compiled JAX Pi0 embedding extractor."""
 
     def __init__(self, pi0_model) -> None:
         self.pi0 = pi0_model
         self._rng = jax.random.key(0)
 
-        # JIT-compile: extract_prefix_embeddings runs only 1 LLM pass (prefix only,
-        # no diffusion). ~11x faster than sample_actions for embedding extraction.
+        # Prefix-only embedding extraction skips diffusion sampling.
         self._extract_prefix = nnx_utils.module_jit(pi0_model.extract_prefix_embeddings)
 
         # sample_actions kept for extract_both (needs actions too).
@@ -107,26 +105,25 @@ class JaxEmbeddingExtractor:
             pad_mask: [B, M] bool.
         """
         t0 = time.monotonic()
-        obs_np = _observation_to_numpy(observation)
+        observation = _observation_to_jax(observation)
         t1 = time.monotonic()
 
-        prefix_out, prefix_mask = self._extract_prefix(obs_np)
+        prefix_out, prefix_mask = self._extract_prefix(observation)
         t2 = time.monotonic()
 
-        # DLPack zero-copy: JAX GPU → PyTorch GPU, avoids ~945ms GPU→CPU roundtrip.
-        # .clone() ensures the PyTorch tensor owns its memory independently from JAX.
+        # Share JAX device buffers with PyTorch through DLPack.
         z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(dtype=torch.float32)
         pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(dtype=torch.bool)
         t3 = time.monotonic()
 
-        t_obs_to_numpy = (t1 - t0) * 1000
+        t_obs_to_jax = (t1 - t0) * 1000
         t_extract_prefix = (t2 - t1) * 1000
         t_dlpack_to_torch = (t3 - t2) * 1000
         t_total = (t3 - t0) * 1000
 
         print(
             f"[JaxEmbeddingExtractor] "
-            f"obs_to_numpy={t_obs_to_numpy:.1f}ms | "
+            f"obs_to_jax={t_obs_to_jax:.1f}ms | "
             f"extract_prefix(JIT)={t_extract_prefix:.1f}ms | "
             f"dlpack_to_torch={t_dlpack_to_torch:.1f}ms | "
             f"total={t_total:.1f}ms"
@@ -142,38 +139,10 @@ class JaxEmbeddingExtractor:
 
 
 class JaxVLAWrapper:
-    """Loads and wraps a **JAX** VLA model for use by RLT components.
+    """Frozen JAX Pi0 adapter for RLT training and rollout.
 
-    Public interface mirrors :class:`VLAWrapper` exactly so that
-    ``RolloutWorker`` and training scripts can use either wrapper
-    interchangeably (duck-typing).
-
-    Supported operations:
-    * ``preprocess_obs`` — raw env obs → batched Observation
-    * ``extract_embeddings`` — post-transformer prefix embeddings z_{1:M}
-    * ``extract_both`` — single forward pass returning both embeddings and robot-space actions
-
-    **Unsupported** (VLA joint training disabled — no stubs remain):
-    * ``compute_vla_loss``
-    * ``compute_vla_loss_with_embeddings``
-    * ``unfreeze``
-    * ``trainable_parameters``
-
-    Args:
-        checkpoint_dir: Path to the Orbax checkpoint directory (the
-            directory containing ``params/`` and optionally ``assets/``).
-        config_name: Registered openpi config name (e.g. ``"pi05_droid_finetune"``).
-        device: Torch device where output tensors are placed.
-        data_transforms: Optional override for the config's default
-            ``data_transforms``.
-        repack_transforms: Optional transforms applied **first** to remap raw
-            env/dataset keys into the standardized observation schema (mirrors
-            ``create_trained_policy`` in ``openpi.policies.policy_config``).
-            Defaults to empty (no repack) since RLT envs already emit the
-            ALOHA/DROID schema directly.
-        default_prompt: If set, injected into inputs that lack a ``prompt`` key.
-        output_action_dim: If set, slices output actions to this dimension
-            instead of using the default ``DroidOutputs`` transform.
+    Raw environment observations use the OpenPI transform chain. Model outputs
+    are exposed as PyTorch tensors for downstream RLT components.
     """
 
     def __init__(
@@ -181,7 +150,6 @@ class JaxVLAWrapper:
         checkpoint_dir: str,
         config_name: str,
         device: torch.device | str = "cuda",
-        data_transforms: _transforms.Group | None = None,
         repack_transforms: _transforms.Group | None = None,
         default_prompt: str | None = None,
         output_action_dim: int | None = None,
@@ -218,7 +186,7 @@ class JaxVLAWrapper:
         self.norm_stats = norm_stats
         self.use_quantile_norm = use_q
 
-        dt = data_transforms or data_config.data_transforms
+        dt = data_config.data_transforms
 
         # Output transform chain, same order as create_trained_policy:
         # model_transforms.outputs → Unnormalize → data_transforms.outputs
@@ -237,15 +205,7 @@ class JaxVLAWrapper:
             output_transforms.extend(dt.outputs)
         output_transforms.extend(repack_transforms.outputs)
 
-        # 直接拷贝 create_trained_policy (openpi/policies/policy_config.py) 的写法：
-        #   transforms=[
-        #       *repack_transforms.inputs,
-        #       transforms.InjectDefaultPrompt(default_prompt),
-        #       *data_config.data_transforms.inputs,
-        #       transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
-        #       *data_config.model_transforms.inputs,
-        #   ],
-        # 与 policy.py 中 self._input_transform = _transforms.compose(transforms) 完全一致。
+        # Match the input transform order used by create_trained_policy().
         transforms: list[_transforms.DataTransformFn] = [
             *repack_transforms.inputs,
             InjectDefaultPrompt(default_prompt),
@@ -275,18 +235,12 @@ class JaxVLAWrapper:
         transformed = self._input_transform(obs)
         print(f"[DEBUG] obs.state after trans = {transformed['state']}")
 
-        # Use jnp (NOT torch) so Observation.from_dict keeps images in NHWC
-        # format, matching JAX model expectations (same as policy.py JAX path).
+        # Preserve the NHWC layout expected by the JAX model.
         batched = jax.tree.map(lambda x: jnp.asarray(x)[None, ...], transformed,)
         return Observation.from_dict(batched)
 
     def extract_embeddings(self, observation: Observation) -> tuple[Tensor, Tensor]:
-        """Extract post-transformer prefix embeddings from the frozen VLA.
-
-        Returns:
-            z: [B, M, embedding_dim] post-transformer prefix embeddings.
-            pad_mask: [B, M] boolean mask (True = valid token).
-        """
+        """Return prefix embeddings and their padding mask as PyTorch tensors."""
         t0 = time.monotonic()
         z, pad_mask = self.extractor.extract_embeddings(observation)
         t1 = time.monotonic()
@@ -310,22 +264,12 @@ class JaxVLAWrapper:
         self,
         observation: Observation,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        """Single VLA forward pass returning embeddings, pad_mask, and robot-space actions.
-
-        Combines ``extract_embeddings`` and ``sample_reference_actions``
-        into one JIT-compiled forward pass, avoiding a redundant second
-        call to the Pi0 model.
-
-        Returns:
-            z: [B, M, embedding_dim] post-transformer prefix embeddings.
-            pad_mask: [B, M] boolean mask (True = valid token).
-            actions: [B, H, output_action_dim] unnormalized robot-space actions.
-        """
-        obs_np = _observation_to_numpy(observation)
+        """Return prefix embeddings, padding mask, and robot-space actions."""
+        observation = _observation_to_jax(observation)
         rng = self.extractor._next_rng()
-        (prefix_out, prefix_mask), raw_actions = self.extractor._sample_actions(rng, obs_np)
+        (prefix_out, prefix_mask), raw_actions = self.extractor._sample_actions(rng, observation)
 
-        # DLPack zero-copy: JAX GPU → PyTorch GPU (avoid GPU→CPU roundtrip).
+        # Share JAX device buffers with PyTorch through DLPack.
         z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
             dtype=torch.float32, device=self.device
         )
@@ -336,7 +280,9 @@ class JaxVLAWrapper:
         # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
         raw_t = torch.utils.dlpack.from_dlpack(raw_actions.__dlpack__()).to(dtype=torch.float32)
         actions_np = raw_t.cpu().numpy()
-        state_np = obs_np.state  # already numpy from _observation_to_numpy
+        # Output transforms are NumPy/Python based.  Copy only state to the host
+        # here, after the model call; it is not fed back into JAX.
+        state_np = np.asarray(jax.device_get(observation.state))
 
         out = []
         for i in range(actions_np.shape[0]):
@@ -355,12 +301,7 @@ class JaxVLAWrapper:
         checkpoint_dir: pathlib.Path,
         data_config,
     ) -> dict[str, _transforms.NormStats]:
-        """Load norm stats, preferring checkpoint-embedded assets over config assets.
-        Mirrors OpenPI's ``create_trained_policy`` which loads from
-        ``checkpoint_dir/assets/<asset_id>/`` to guarantee the stats
-        match training.  Falls back to the config's ``norm_stats`` for
-        checkpoints that don't bundle assets.
-        """
+        """Load checkpoint norm stats, falling back to the data config."""
         asset_id = data_config.asset_id
         try:
             norm_stats = _checkpoints.load_norm_stats(

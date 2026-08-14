@@ -13,7 +13,6 @@
 # Derived (auto-computed, no need to edit):
 #
 #   VLA_CHECKPOINT   = ${VLA_CHECKPOINT_DIR}/model.safetensors
-#   DATA_TRANSFORMS_FN = rlt_openpi.policies.franka.config.three_camera_droid
 
 # --- Expected variables: user must fill in the paths below ---
 
@@ -27,5 +26,3 @@ export HF_LEROBOT_HOME=""
 
 # --- Derived: these usually don't need to be changed ---
 VLA_CHECKPOINT="${VLA_CHECKPOINT_DIR}/model.safetensors"
-# DATA_TRANSFORMS_FN="rlt_openpi.policies.franka.config.three_camera_droid"
-DATA_TRANSFORMS_FN="rlt_openpi.policies.aloha.config.aloha_data_transforms"

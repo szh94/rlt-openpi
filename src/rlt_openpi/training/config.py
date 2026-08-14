@@ -87,14 +87,9 @@ class OnlineRLTrainConfig:
     batch_size: int = 256
     warmup_steps: int = 1000
 
-    # Actor BC pre-training (before warmup)
-    repo_id: str = ""  # LeRobot dataset repo ID (e.g. "aloha_phone"). Empty = skip pre-training.
-    actor_pretrain_steps: int = 1000  # Number of BC pre-training steps. 0 = skip.
-    actor_pretrain_batch_size: int = 64  # Batch size for actor pre-training.
-    # Actor-only checkpoint loaded when pre-training is skipped.
+    # Actor initialization
     actor_pretrain_checkpoint: str = ""
-    num_workers: int = 4  # DataLoader worker processes for BC pre-training.
-    data_transforms_fn: str | None = None  # Dotted path to data-transforms factory (same as Stage 1).
+    repo_id: str = ""  # LeRobot dataset ID used only when obs_source="dataset".
 
     # Environment
     env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
@@ -143,4 +138,45 @@ class OnlineRLTrainConfig:
     @property
     def action_chunk_dim(self) -> int:
         """Flattened action chunk dimension: C * d."""
+        return self.chunk_length * self.action_dim
+
+
+@dataclass
+class ActorPretrainConfig:
+    """Standalone actor BC pre-training configuration."""
+
+    embedding_dim: int = 2048
+    action_dim: int = 14
+    chunk_length: int = 10
+    mlp_hidden_dim: int = 256
+    mlp_num_hidden_layers: int = 2
+    actor_noise_sigma: float = 0.1
+    ref_action_dropout: float = 0.5
+    actor_lr: float = 3e-4
+
+    repo_id: str = ""
+    steps: int = 1000
+    batch_size: int = 64
+    num_workers: int = 4
+
+    rl_token_checkpoint: str = ""
+    vla_checkpoint_dir: str = ""
+    vla_config_name: str = "pi05_jax_full"
+    save_dir: str = "checkpoints/stage2_ac_online"
+    run_name: str = ""
+    log_every: int = 1
+
+    wandb_project: str = "rlt-openpi"
+    wandb_enabled: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.run_name:
+            self.run_name = datetime.now().strftime("actor_pretrain_%Y%m%d_%H%M%S")
+
+    @property
+    def state_dim(self) -> int:
+        return self.embedding_dim + self.action_dim
+
+    @property
+    def action_chunk_dim(self) -> int:
         return self.chunk_length * self.action_dim

@@ -14,8 +14,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-from tqdm import tqdm
 
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.critic import TwinQCritic
@@ -139,39 +137,6 @@ class OnlineRLTrainer:
         """Map flattened robot-space chunks to the actor/critic action space."""
         return (action - self._action_center_flat) / self._action_scale_flat
 
-    @staticmethod
-    def _print_vla_demo_difference_stats(
-        a_tilde_raw: torch.Tensor,
-        a_demo_raw: torch.Tensor,
-        action_dim: int,
-    ) -> None:
-        """Print raw-space VLA/demo errors for joints and grippers separately.
-
-        The robot convention places a gripper at one-based dimensions 7, 14,
-        ... (zero-based indices 6, 13, ...).  Keeping this diagnostic in raw
-        robot units makes gripper errors directly interpretable.
-        """
-        diff = (a_tilde_raw - a_demo_raw).reshape(-1, action_dim)
-        dim_indices = torch.arange(action_dim, device=diff.device)
-        gripper_mask = (dim_indices + 1) % 7 == 0
-
-        for name, mask in (
-            ("joint", ~gripper_mask),
-            ("gripper", gripper_mask),
-        ):
-            values = diff[:, mask].reshape(-1)
-            if values.numel() == 0:
-                continue
-            print(
-                f"  a_tilde - a_demo [{name}] (raw): "
-                f"mean={values.mean().item():.4f} "
-                f"std={values.std(unbiased=False).item():.4f} "
-                f"mae={values.abs().mean().item():.4f} "
-                f"rmse={values.square().mean().sqrt().item():.4f} "
-                f"min={values.min().item():.4f} "
-                f"max={values.max().item():.4f}"
-            )
-
     def _update_step(self, update_idx: int) -> dict[str, float]:
         """Run one TD3 update step.
 
@@ -241,201 +206,11 @@ class OnlineRLTrainer:
         self._total_updates += 1
         return metrics
 
-    def _pretrain_actor(
-        self,
-        data_iter: Any,
-        log_fn: Any | None = None,
-    ) -> None:
-        """Phase 0: pre-train the actor against dataset action sequences.
-
-        Uses a pre-built iterator yielding ``(Observation, demo_actions)``.
-        Observations follow the usual frozen-VLA → RL-token → state path;
-        the Actor receives VLA reference actions as its second input and is
-        supervised against the corresponding future actions from the dataset.
-        Skipped when *data_iter* is ``None``.
-
-        Args:
-            data_iter: Infinite iterator yielding ``(Observation, actions)``
-                tuples, or ``None`` to skip pre-training.
-            log_fn: Optional callable used to report pre-training metrics to
-                the configured logger (including W&B).
-        """
-        config = self.config
-        if data_iter is None:
-            return
-
-        print(f"\n[Actor Pretrain] Starting BC pre-training: {config.actor_pretrain_steps} steps")
-        print(f"  Dataset: {config.repo_id}")
-        print(f"  Batch size: {config.actor_pretrain_batch_size}")
-
-        # Keep gradients enabled but disable exploration noise/reference dropout:
-        # this phase is deterministic supervised regression to demo actions.
-        self.actor.eval()
-
-        pbar = tqdm(range(config.actor_pretrain_steps), desc="Actor Pretrain")
-        for step in pbar:
-            observation, demo_actions = next(data_iter)
-
-            # Single VLA forward pass: embeddings + reference actions
-            z, pad_mask, actions = self.vla.extract_both(observation)
-
-            # Move to device (VLA outputs are on CPU)
-            z = z.to(self.device)
-            pad_mask = pad_mask.to(self.device)
-            actions = actions.to(device=self.device, dtype=torch.float32)
-
-            # RL token encode
-            z_rl = self.rl_token_model.encode(z, pad_mask)  # [B, 2048]
-
-            # Proprioceptive state
-            # JAX path: observation.state is jnp, need np.array() before torch.as_tensor()
-            # torch path: s_p = observation.state[:, :config.action_dim].to(self.device)
-            s_p = torch.as_tensor(np.array(
-                observation.state[:, :config.action_dim]),
-                dtype=torch.float32, device=self.device,
-            )
-
-            # Build RL state
-            x = torch.cat([z_rl, s_p], dim=-1)  # [B, 2062]
-
-            # VLA and dataset actions are robot-space values.  Convert both to
-            # the normalized actor space before supervised regression.
-            a_tilde_raw = actions[:, :config.chunk_length, :].reshape(z_rl.shape[0], -1)
-            a_demo_raw = torch.as_tensor(
-                np.array(demo_actions[:, :config.chunk_length, :config.action_dim]),
-                dtype=torch.float32,
-                device=self.device,
-            ).reshape(z_rl.shape[0], -1)
-            a_tilde = self._normalize_action(a_tilde_raw)
-            a_demo = self._normalize_action(a_demo_raw)
-
-            # Actor produces the VLA-action correction; train its final action
-            # against the dataset action sequence rather than against a_tilde.
-            a_actor = self.actor(x, a_tilde)  # [B, C*d]
-            loss = F.mse_loss(a_actor, a_demo)
-
-            self.actor_optimizer.zero_grad()
-            loss.backward()
-            grad_norm = sum(
-                p.grad.norm().item() ** 2
-                for p in self.actor.parameters()
-                if p.grad is not None
-            ) ** 0.5
-            self.actor_optimizer.step()
-
-            step_num = step + 1
-            loss_value = loss.item()
-            actor_lr = self.actor_optimizer.param_groups[0]["lr"]
-            pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
-
-            if log_fn is not None and (
-                step_num == 1
-                or step_num % config.log_every == 0
-                or step_num == config.actor_pretrain_steps
-            ):
-                log_fn(
-                    {
-                        "pretrain/actor_bc_loss": loss_value,
-                        "pretrain/actor_grad_norm": grad_norm,
-                        "pretrain/actor_lr": actor_lr,
-                        "pretrain/step": step_num,
-                    },
-                    step=step_num,
-                )
-
-            # Diagnostic prints (first 3 steps + every 100 steps)
-            if step == 0 or (step + 1) % 100 == 0:
-                with torch.no_grad():
-                    diff = a_actor - a_demo
-                    self._print_vla_demo_difference_stats(
-                        a_tilde_raw, a_demo_raw, config.action_dim
-                    )
-                    weight_norm = sum(
-                        p.norm().item() ** 2 for p in self.actor.parameters()
-                    ) ** 0.5
-                    print(
-                        f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
-                        f"loss={loss.item():.6f}  "
-                        f"|z_rl|={z_rl.norm(dim=-1).mean().item():.2f}  "
-                        f"|s_p|={s_p.norm(dim=-1).mean().item():.2f}  "
-                        f"|a_vla|={a_tilde.norm(dim=-1).mean().item():.3f}  "
-                        f"|a_raw|={a_demo.norm(dim=-1).mean().item():.3f}  "
-                        f"|a_act|={a_actor.norm(dim=-1).mean().item():.3f}  "
-                        f"|diff|={diff.norm(dim=-1).mean().item():.3f}  "
-                        f"|grad|={grad_norm:.4f}  "
-                        f"|w|={weight_norm:.2f}"
-                    )
-                    print(f"[DEBUG] a_raw[0]: {a_demo[0][:14]}")
-                    print(f"[DEBUG] a_vla[0]: {a_tilde[0][:14]}")
-                    print(f"[DEBUG] a_act[0]: {a_actor[0][:14]}")
-                    # Extra detail on first step
-                    if step == 0:
-                        print(
-                            f"  a_vla:  mean={a_tilde.mean().item():.4f} std={a_tilde.std().item():.4f} "
-                            f"min={a_tilde.min().item():.4f} max={a_tilde.max().item():.4f}"
-                        )
-                        print(
-                            f"  a_raw:   mean={a_demo.mean().item():.4f} std={a_demo.std().item():.4f} "
-                            f"min={a_demo.min().item():.4f} max={a_demo.max().item():.4f}"
-                        )
-                        print(
-                            f"  a_act:  mean={a_actor.mean().item():.4f} std={a_actor.std().item():.4f} "
-                            f"min={a_actor.min().item():.4f} max={a_actor.max().item():.4f}"
-                        )
-                        print(
-                            f"  diff:  mean={diff.mean().item():.4f} std={diff.std().item():.4f} "
-                            f"min={diff.min().item():.4f} max={diff.max().item():.4f}"
-                        )
-                        print(
-                            f"  z_rl:  mean={z_rl.mean().item():.4f} std={z_rl.std().item():.4f} "
-                            f"norm_mean={z_rl.norm(dim=-1).mean().item():.2f}"
-                        )
-                        print(
-                            f"  s_p:  mean={s_p.mean().item():.4f} std={s_p.std().item():.4f} "
-                            f"norm_mean={s_p.norm(dim=-1).mean().item():.2f}"
-                        )
-            elif (step + 1) % 100 == 0:
-                print(
-                    f"[Actor Pretrain] step {step + 1}/{config.actor_pretrain_steps}  "
-                    f"loss={loss.item():.6f}"
-                )
-
-        # Save pretrain checkpoint
-        save_dir = Path(config.save_dir) / config.run_name
-        save_dir.mkdir(parents=True, exist_ok=True)
-        ckpt_path = save_dir / "actor_pretrain.pt"
-        torch.save(
-            {
-                "actor": self.actor.state_dict(),
-                "actor_optimizer": self.actor_optimizer.state_dict(),
-                "pretrain_steps": config.actor_pretrain_steps,
-                "repo_id": config.repo_id,
-                "final_loss": loss.item(),
-            },
-            ckpt_path,
-        )
-        print(f"[Actor Pretrain] Saved checkpoint to {ckpt_path}")
-        print("[Actor Pretrain] Summary")
-        print(f"  loss:      {loss_value:.6f}")
-        print(f"  grad_norm: {grad_norm:.6f}")
-        print(f"  lr:        {actor_lr:.8g}")
-        print(f"  step:      {step_num}\n")
-
-    def pretrain_actor(
-        self,
-        data_iter: Any,
-        log_fn: Any | None = None,
-    ) -> None:
-        """Run actor pre-training without entering the online RL pipeline."""
-        self._pretrain_actor(data_iter, log_fn=log_fn)
-
     def train(
         self,
         env: Any,
         intervention_mgr: InterventionManager | None = None,
         log_fn: Any | None = None,
-        *,
-        pretrain_data_iter: Any = None,
     ) -> None:
         """Run the full online RL training loop (Algorithm 1).
 
@@ -443,8 +218,6 @@ class OnlineRLTrainer:
             env: Chunk-level environment wrapper.
             intervention_mgr: Optional human intervention manager.
             log_fn: Optional callable ``log_fn(metrics_dict)`` for logging.
-            pretrain_data_iter: Optional infinite iterator yielding
-                ``(Observation, demo_actions)`` tuples for actor pre-training.
         """
         cfg = self.config
         worker = self._create_rollout_worker(env, intervention_mgr)
@@ -459,10 +232,6 @@ class OnlineRLTrainer:
             "Action dim": str(cfg.action_dim),
             "Run name": cfg.run_name,
         })
-
-        # Phase 0: actor pre-training from --repo-id.  This is deliberately
-        # independent of --obs-source, which only controls online rollouts.
-        self._pretrain_actor(pretrain_data_iter, log_fn=log_fn)
 
         # NOTE: Warmup runs through RolloutWorker.collect_warmup() on the real env.
         # Phase 1: Warmup with VLA-only policy (skip if buffer already has data)

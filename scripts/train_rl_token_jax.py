@@ -14,11 +14,6 @@ Usage::
         --train.vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --repo-id local/stack_the_blocks
 
-    # With 3-camera override:
-    uv run python scripts/train_rl_token_jax.py \\
-        --train.vla-checkpoint-dir /path/to/orbax_checkpoint \\
-        --repo-id local/stack_the_blocks \\
-        --data-transforms-fn rlt_openpi.policies.franka.config.three_camera_droid
 """
 
 from __future__ import annotations
@@ -38,7 +33,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 import tyro
 
 from rlt_openpi.training.config import RLTokenTrainConfig
-from rlt_openpi.training.data_loader import build_jax_data_loader, resolve_data_transforms
+from rlt_openpi.training.data_loader import build_jax_data_loader
 from rlt_openpi.training.rl_token_trainer import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
@@ -53,9 +48,6 @@ class TrainConfig:
 
     repo_id: str = "local/stack_the_blocks"
     """LeRobot dataset repo ID (local or HuggingFace)."""
-
-    data_transforms_fn: str | None = None
-    """Dotted import path to a ``(ModelConfig) -> transforms.Group`` factory."""
 
     num_workers: int = 4
     """DataLoader worker processes."""
@@ -88,16 +80,11 @@ def main(config: TrainConfig) -> None:
     # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha} (frozen)")
     print("-" * 60)
 
-    data_transforms = resolve_data_transforms(
-        config.data_transforms_fn, config.train.vla_config_name
-    )
-
     print("[1/4] Loading JAX VLA model...")
     vla = JaxVLAWrapper(
         checkpoint_dir=config.train.vla_checkpoint_dir,
         config_name=config.train.vla_config_name,
         device="cuda",
-        data_transforms=data_transforms,
     )
     print("  JAX VLA model loaded successfully.")
 
@@ -114,7 +101,6 @@ def main(config: TrainConfig) -> None:
         batch_size=config.train.batch_size,
         num_workers=config.num_workers,
         shuffle=True,
-        data_transforms=data_transforms,
         norm_stats=vla.norm_stats,
         action_target_space="normalized",
         dataset_label="RL token training dataset",

@@ -44,35 +44,17 @@ JOINT_OVERRIDE='{}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
-# Actor BC pre-training (before warmup)
-# true: run BC pre-training and save <save_dir>/<run_name>/actor_pretrain.pt
-# false: skip dataset loading and restore actor from ACTOR_PRETRAIN_CHECKPOINT
-ACTOR_PRETRAIN_ENABLED=${ACTOR_PRETRAIN_ENABLED:-true}
-ACTOR_PRETRAIN_STEPS=${ACTOR_PRETRAIN_STEPS:-1000}
-ACTOR_PRETRAIN_BATCH_SIZE=${ACTOR_PRETRAIN_BATCH_SIZE:-16}
-# Example: checkpoints/stage2_ac_online/run_YYYYMMDD_HHMMSS/actor_pretrain.pt
-ACTOR_PRETRAIN_CHECKPOINT=${ACTOR_PRETRAIN_CHECKPOINT:-""}  # Required when disabled
-
-case "$ACTOR_PRETRAIN_ENABLED" in
-    true)
-        ACTOR_PRETRAIN_EFFECTIVE_STEPS="$ACTOR_PRETRAIN_STEPS"
-        ;;
-    false)
-        ACTOR_PRETRAIN_EFFECTIVE_STEPS=0
-        if [[ -z "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
-            echo "ERROR: ACTOR_PRETRAIN_CHECKPOINT is required when ACTOR_PRETRAIN_ENABLED=false"
-            exit 1
-        fi
-        if [[ ! -f "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
-            echo "ERROR: Actor pretrain checkpoint not found: $ACTOR_PRETRAIN_CHECKPOINT"
-            exit 1
-        fi
-        ;;
-    *)
-        echo "ERROR: ACTOR_PRETRAIN_ENABLED must be true or false"
-        exit 1
-        ;;
-esac
+# Run example/stage2_actor_pretrain_jax.sh first, then point this variable at
+# its <save_dir>/<run_name>/actor_pretrain.pt output.
+ACTOR_PRETRAIN_CHECKPOINT=${ACTOR_PRETRAIN_CHECKPOINT:-""}
+if [[ -z "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+    echo "ERROR: ACTOR_PRETRAIN_CHECKPOINT is required"
+    exit 1
+fi
+if [[ ! -f "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+    echo "ERROR: Actor pretrain checkpoint not found: $ACTOR_PRETRAIN_CHECKPOINT"
+    exit 1
+fi
 
 # 黑盒 obs 来源: robot=真实机械臂硬件(默认) | mock=随机假obs(测试) | dataset=从数据集加载
 OBS_SOURCE=${OBS_SOURCE:-mock}
@@ -97,10 +79,7 @@ echo "   Dry run         = $DRY_RUN"
 echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Obs source      = $OBS_SOURCE"
-echo "   Actor pretrain  = $ACTOR_PRETRAIN_ENABLED"
-if [[ "$ACTOR_PRETRAIN_ENABLED" == "false" ]]; then
-    echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
-fi
+echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
 echo "========================================"
 
 # Build env-kwargs JSON
@@ -129,33 +108,5 @@ python scripts/train_online_rl_jax.py \
     --dry-run $DRY_RUN \
     --obs-source "$OBS_SOURCE" \
     --repo-id "$HF_LEROBOT_HOME" \
-    --actor-pretrain-steps "$ACTOR_PRETRAIN_EFFECTIVE_STEPS" \
-    --actor-pretrain-batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --actor-pretrain-checkpoint "$ACTOR_PRETRAIN_CHECKPOINT" \
-    --save-every 40 \
-    $(
-    # === 默认参数，必要时取消注释修改 ===
-    # --intervention-factory rlt_openpi.envs.aloha.intervention.make_aloha_intervention \
-    # --data-transforms-fn "$DATA_TRANSFORMS_FN" \
-    # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
-    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
-    # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)
-    # --batch-size 256                    # 训练 minibatch 大小
-    # --buffer-capacity 100000            # ReplayBuffer 最大容量
-    # --embedding-dim 2048                # RL token 嵌入维度 (需与 Stage1 一致)
-    # --mlp-hidden-dim 256                # Actor/Critic MLP 隐藏层宽度
-    # --mlp-num-hidden-layers 2           # Actor/Critic MLP 层数
-    # --gamma 0.99                        # 折扣因子
-    # --tau 0.005                         # 目标网络 Polyak 软更新系数
-    # --actor-lr 3e-4                     # Actor 学习率
-    # --critic-lr 3e-4                    # Critic 学习率
-    # --bc-regularizer-beta 0.5           # BC 正则化强度
-    # --actor-noise-sigma 0.1             # Actor 探索噪声标准差
-    # --ref-action-dropout 0.5            # VLA 参考动作 dropout 概率
-    # --target-noise-sigma 0.2            # TD3 目标平滑噪声标准差
-    # --target-noise-clip 0.5             # TD3 目标噪声裁剪范围
-    # --critic-updates-per-actor 2        # Actor 延迟更新间隔
-    # --dry-run                           # 空跑模式: 打印action数值, 不驱动机械臂
-    # --resume-checkpoint ""              # 中断恢复: Stage2 checkpoint 路径
-    # --warmup-buffer ""                  # 跳过 warmup: 预填充 buffer 路径
-    )
+    --save-every 40

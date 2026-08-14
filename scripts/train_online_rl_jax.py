@@ -8,11 +8,12 @@ because JAX NNX models do not use ``load_state_dict``.
 
 Usage::
 
-    uv run python scripts/train_online_rl_jax.py --help
-    uv run python scripts/train_online_rl_jax.py \\
+    python scripts/train_online_rl_jax.py --help
+    python scripts/train_online_rl_jax.py \\
         --vla-config-name pi0_aloha_sim \\
         --vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --rl-token-checkpoint /path/to/rl_token.pt \\
+        --actor-pretrain-checkpoint /path/to/actor_pretrain.pt \\
         --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
 """
 
@@ -27,7 +28,6 @@ from rlt_openpi.envs.factory import make_env, make_intervention
 from rlt_openpi.envs.intervention import InterventionManager
 from rlt_openpi.envs.obs_source import make_obs_source
 from rlt_openpi.training.config import OnlineRLTrainConfig
-from rlt_openpi.training.data_loader import build_jax_data_loader, resolve_data_transforms
 from rlt_openpi.training.online_rl_trainer import OnlineRLTrainer
 from rlt_openpi.utils.checkpoint import load_rl_token_model
 from rlt_openpi.utils.logging import Logger
@@ -43,18 +43,12 @@ def main(config: OnlineRLTrainConfig) -> None:
     # Set up logger
     rl_logger = Logger.from_train_config(config)
 
-    # Resolve data transforms (same pattern as Stage 1 JAX)
-    data_transforms = resolve_data_transforms(
-        config.data_transforms_fn, config.vla_config_name
-    )
-
     # Load frozen JAX VLA
     vla = JaxVLAWrapper(
         checkpoint_dir=config.vla_checkpoint_dir,
         config_name=config.vla_config_name,
         device="cuda",
         output_action_dim=config.action_dim,
-        data_transforms=data_transforms,
     )
 
     # Load frozen RL token model from Stage 1
@@ -64,24 +58,6 @@ def main(config: OnlineRLTrainConfig) -> None:
     # The JAX NNX model does not use load_state_dict, and Stage 1 with
     # JaxVLAWrapper cannot fine-tune the VLA (vla_finetune_alpha must be 0).
     # The base JAX VLA loaded above is used as-is.
-
-    # Build actor pre-training data independently of --obs-source.  The
-    # dataset provides current observations plus future action sequences;
-    # it is only used for this pre-warmup supervised phase.
-    pretrain_data_iter = None
-    if config.repo_id and config.actor_pretrain_steps > 0 and not config.resume_checkpoint:
-        print(f"[Data] Building actor pretrain data loader: {config.repo_id}")
-        pretrain_data_iter = build_jax_data_loader(
-            openpi_config_name=config.vla_config_name,
-            repo_id=config.repo_id,
-            batch_size=config.actor_pretrain_batch_size,
-            num_workers=config.num_workers,
-            data_transforms=data_transforms,
-            output_action_dim=config.action_dim,
-            norm_stats=vla.norm_stats,
-            action_target_space="model",
-            dataset_label="Actor pretrain dataset",
-        )
 
     # Create trainer
     trainer = OnlineRLTrainer(
@@ -95,8 +71,12 @@ def main(config: OnlineRLTrainConfig) -> None:
     if config.resume_checkpoint:
         print(f"Resuming from checkpoint: {config.resume_checkpoint}")
         trainer.load(config.resume_checkpoint)
-    elif config.actor_pretrain_steps == 0 and config.actor_pretrain_checkpoint:
+    elif config.actor_pretrain_checkpoint:
         trainer.load_actor_pretrain(config.actor_pretrain_checkpoint)
+    else:
+        raise ValueError(
+            "--actor-pretrain-checkpoint is required unless --resume-checkpoint is provided"
+        )
 
     # Create environment via pluggable factory.
     if not config.env_factory:
@@ -153,7 +133,6 @@ def main(config: OnlineRLTrainConfig) -> None:
         env=env,
         intervention_mgr=intervention_mgr,
         log_fn=rl_logger.log,
-        pretrain_data_iter=pretrain_data_iter,
     )
 
     rl_logger.finish()

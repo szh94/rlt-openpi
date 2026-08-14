@@ -13,7 +13,6 @@
 # Derived (auto-computed, no need to edit):
 #
 #   VLA_CHECKPOINT   = ${VLA_CHECKPOINT_DIR}/model.safetensors
-#   DATA_TRANSFORMS_FN = rlt_openpi.policies.franka.config.three_camera_droid
 
 # --- Expected variables: user must fill in the paths below ---
 
@@ -41,8 +40,6 @@ STAGE2_AC_CHECKPOINT="${STAGE2_AC_CHECKPOINT_DIR}/run_xxxx_xxxx/online_rl_epxxx.
 # VLA_CHECKPOINT="${VLA_CHECKPOINT_DIR}/model.safetensors"
 # jax
 VLA_CHECKPOINT_JAX="${VLA_CHECKPOINT_DIR_JAX}"
-# DATA_TRANSFORMS_FN="rlt_openpi.policies.franka.config.three_camera_droid"
-DATA_TRANSFORMS_FN="rlt_openpi.policies.aloha.config.aloha_data_transforms"
 
 # 重置位姿 (可选): 
 ALOHA_RESET_POSITION_LEFT="[164.70703, -30.7578125, 55.32031, 36.982422, 92.15625, 72.361328]"

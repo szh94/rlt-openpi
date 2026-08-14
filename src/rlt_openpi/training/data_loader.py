@@ -186,7 +186,6 @@ def build_jax_data_loader(
     *,
     num_workers: int = 0,
     shuffle: bool = True,
-    data_transforms: _transforms.Group | None = None,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
     action_target_space: Literal["normalized", "model"] = "normalized",
     output_action_dim: int | None = None,
@@ -210,7 +209,6 @@ def build_jax_data_loader(
     openpi_config, data_config, dataset, dataset_size = _build_transformed_dataset(
         openpi_config_name,
         repo_id,
-        data_transforms=data_transforms,
         norm_stats=norm_stats,
     )
     if dataset_label:
