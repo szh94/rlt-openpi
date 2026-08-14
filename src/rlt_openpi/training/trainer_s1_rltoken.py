@@ -116,7 +116,7 @@ class RLTokenTrainer:
             t5 = time.monotonic()
 
             print(
-                f"[DEBUG] step={step_idx} | "
+                f"[Train] step = {step_idx} | "
                 f"data_load={(t1 - t0) * 1000:.1f}ms | "
                 f"train_step={(t2 - t1) * 1000:.1f}ms | "
                 f"progress={(t3 - t2) * 1000:.1f}ms | "
@@ -243,7 +243,7 @@ class RLTokenTrainer:
         t_total = (t6 - t0) * 1000
 
         print(
-            f"[Step {self._global_step}] "
+            f"[train_step] {self._global_step}] "
             f"obs_to_device={t_obs_to_device:.1f}ms | "
             f"vla_embed={t_vla_embed:.1f}ms | "
             f"rl_forward={t_rl_forward:.1f}ms | "

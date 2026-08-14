@@ -260,7 +260,7 @@ class JaxVLAWrapper:
         t_to_device = (t2 - t1) * 1000
         t_total = (t2 - t0) * 1000
         print(
-            f"[JaxVLAWrapper.extract_embeddings] "
+            f"[DEBUG] extract_emb | "
             f"extract={t_extract:.1f}ms | "
             f"to_device={t_to_device:.1f}ms | "
             f"total={t_total:.1f}ms"
@@ -326,19 +326,19 @@ class JaxVLAWrapper:
             torch.cuda.synchronize(actions.device)
         t9 = time.monotonic()
 
-        print(
-            f"[DEBUG] extract_both | "
-            f"obs_to_jax={(t1 - t0) * 1000:.1f}ms | "
-            f"rng={(t2 - t1) * 1000:.1f}ms | "
-            f"vla_sample={(t3 - t2) * 1000:.1f}ms | "
-            f"embedding_dlpack={(t4 - t3) * 1000:.1f}ms | "
-            f"action_dlpack={(t5 - t4) * 1000:.1f}ms | "
-            f"action_to_host={(t6 - t5) * 1000:.1f}ms | "
-            f"state_to_host={(t7 - t6) * 1000:.1f}ms | "
-            f"output_transform={(t8 - t7) * 1000:.1f}ms | "
-            f"action_to_device={(t9 - t8) * 1000:.1f}ms | "
-            f"total={(t9 - t0) * 1000:.1f}ms"
-        )
+        # print(
+        #     f"[DEBUG] extract_both | "
+        #     f"obs_to_jax={(t1 - t0) * 1000:.1f}ms | "
+        #     f"rng={(t2 - t1) * 1000:.1f}ms | "
+        #     f"vla_sample={(t3 - t2) * 1000:.1f}ms | "
+        #     f"embedding_dlpack={(t4 - t3) * 1000:.1f}ms | "
+        #     f"action_dlpack={(t5 - t4) * 1000:.1f}ms | "
+        #     f"action_to_host={(t6 - t5) * 1000:.1f}ms | "
+        #     f"state_to_host={(t7 - t6) * 1000:.1f}ms | "
+        #     f"output_transform={(t8 - t7) * 1000:.1f}ms | "
+        #     f"action_to_device={(t9 - t8) * 1000:.1f}ms | "
+        #     f"total={(t9 - t0) * 1000:.1f}ms"
+        # )
 
         return z, pad_mask, actions
 

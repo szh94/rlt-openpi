@@ -182,8 +182,8 @@ class RLTokenModel(nn.Module):
         # Denormalize z_hat back to original space for comparison with z
         z_hat_denorm = self._denorm(z_hat)
 
-        print(f"z_norm  min={z_norm.min().item():.4f} max={z_norm.max().item():.4f} mean={z_norm.mean().item():.4f}")
-        print(f"z_hat   min={z_hat.min().item():.4f} max={z_hat.max().item():.4f} mean={z_hat.mean().item():.4f}")
+        # print(f"z_norm  min={z_norm.min().item():.4f} max={z_norm.max().item():.4f} mean={z_norm.mean().item():.4f}")
+        # print(f"z_hat   min={z_hat.min().item():.4f} max={z_hat.max().item():.4f} mean={z_hat.mean().item():.4f}")
 
         # Masked MSE: only compute loss on valid (non-padded) positions
         # mse = (z_hat - z).pow(2).mean(dim=-1)  # [B, M]
@@ -206,7 +206,7 @@ class RLTokenModel(nn.Module):
         # loss_denorm = masked_mse_denorm.sum() / num_valid
         loss_denorm = (masked_mse_denorm.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
 
-        print(f"loss (norm)={loss.item():.6f}  loss (denorm)={loss_denorm.item():.6f}")
+        # print(f"loss (norm)={loss.item():.6f}  loss (denorm)={loss_denorm.item():.6f}")
         
         return loss, z_rl, z_hat
 

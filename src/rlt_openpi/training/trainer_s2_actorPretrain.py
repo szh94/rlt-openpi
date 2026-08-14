@@ -189,18 +189,18 @@ class ActorPretrainTrainer:
                     )
 
             t8 = time.monotonic()
-            print(
-                f"[DEBUG] step={step_num} | "
-                f"data_load={(t1 - t0) * 1000:.1f}ms | "
-                f"vla_extract={(t2 - t1) * 1000:.1f}ms | "
-                f"rl_encode={(t3 - t2) * 1000:.1f}ms | "
-                f"batch_prepare={(t4 - t3) * 1000:.1f}ms | "
-                f"actor_forward={(t5 - t4) * 1000:.1f}ms | "
-                f"backward={(t6 - t5) * 1000:.1f}ms | "
-                f"optimizer={(t7 - t6) * 1000:.1f}ms | "
-                f"logging={(t8 - t7) * 1000:.1f}ms | "
-                f"total={(t8 - t0) * 1000:.1f}ms"
-            )
+            # print(
+            #     f"[DEBUG] step = {step_num} | "
+            #     f"data_load={(t1 - t0) * 1000:.1f}ms | "
+            #     f"vla_extract={(t2 - t1) * 1000:.1f}ms | "
+            #     f"rl_encode={(t3 - t2) * 1000:.1f}ms | "
+            #     f"batch_prepare={(t4 - t3) * 1000:.1f}ms | "
+            #     f"actor_forward={(t5 - t4) * 1000:.1f}ms | "
+            #     f"backward={(t6 - t5) * 1000:.1f}ms | "
+            #     f"optimizer={(t7 - t6) * 1000:.1f}ms | "
+            #     f"logging={(t8 - t7) * 1000:.1f}ms | "
+            #     f"total={(t8 - t0) * 1000:.1f}ms"
+            # )
 
         save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)

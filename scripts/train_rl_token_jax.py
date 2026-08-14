@@ -31,6 +31,7 @@ import os
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 
 import tyro
+import warnings
 
 from rlt_openpi.training.config import RLTokenTrainConfig
 from rlt_openpi.training.data_loader import build_jax_data_loader
@@ -38,6 +39,10 @@ from rlt_openpi.training.trainer_s1_rltoken import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
+# 屏蔽 lerobot 内部 torch.tensor(tensor) 触发的无害 UserWarning
+# ("To copy construct from a tensor...")
+warnings.filterwarnings("ignore", message="To copy construct from a tensor.*")
+warnings.filterwarnings("ignore", message="Support for mismatched key_padding_mask.*")
 
 @dataclasses.dataclass
 class TrainConfig:
