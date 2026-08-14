@@ -170,17 +170,10 @@ class RLTokenModel(nn.Module):
         z = z.detach()
         z_norm = self.norm(z)  # LayerNorm across D dim
 
-        # Save stats for potential denormalization
-        self._last_mean = z.mean(dim=-1, keepdim=True)      # [B, M, 1]
-        self._last_var = z.var(dim=-1, unbiased=False, keepdim=True)  # [B, M, 1]
-
         # z_rl = self.encoder(z, pad_mask)
         z_rl = self.encoder(z_norm, pad_mask)
         # z_hat = self.decoder(z_rl, z, pad_mask)
         z_hat = self.decoder(z_rl, z_norm, pad_mask)
-
-        # Denormalize z_hat back to original space for comparison with z
-        z_hat_denorm = self._denorm(z_hat)
 
         # print(f"z_norm  min={z_norm.min().item():.4f} max={z_norm.max().item():.4f} mean={z_norm.mean().item():.4f}")
         # print(f"z_hat   min={z_hat.min().item():.4f} max={z_hat.max().item():.4f} mean={z_hat.mean().item():.4f}")
@@ -188,10 +181,8 @@ class RLTokenModel(nn.Module):
         # Masked MSE: only compute loss on valid (non-padded) positions
         # mse = (z_hat - z).pow(2).mean(dim=-1)  # [B, M]
         mse = (z_hat - z_norm).pow(2).mean(dim=-1)  # [B, M]
-        mse_denorm = (z_hat_denorm - z).pow(2).mean(dim=-1)  # [B, M]
 
         masked_mse = mse * pad_mask.float()  # zero out padded positions
-        masked_mse_denorm = mse_denorm * pad_mask.float()  # zero out padded positions
 
         # Masked cosine similarity loss: 1 - cos(z_hat, z_norm), direction alignment
         cos_sim = F.cosine_similarity(z_hat, z_norm, dim=-1)  # [B, M], range [-1, 1]
@@ -203,25 +194,7 @@ class RLTokenModel(nn.Module):
         # loss = masked_mse.sum() / num_valid
         loss = (masked_mse.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
 
-        # loss_denorm = masked_mse_denorm.sum() / num_valid
-        loss_denorm = (masked_mse_denorm.sum() + self.cosine_weight * loss_cos.sum()) / num_valid
-
-        # print(f"loss (norm)={loss.item():.6f}  loss (denorm)={loss_denorm.item():.6f}")
-        
         return loss, z_rl, z_hat
-
-    def _denorm(self, z_norm: Tensor) -> Tensor:
-        """Inverse of LayerNorm: map z_norm back to original space.
-
-        z_norm = (z - mean) / sqrt(var + eps) * gamma + beta
-        => z = (z_norm - beta) / gamma * sqrt(var + eps) + mean
-        """
-        mean = self._last_mean      # [B, M, 1]
-        var = self._last_var        # [B, M, 1]
-        eps = self.norm.eps
-        gamma = self.norm.weight    # [D]
-        beta = self.norm.bias       # [D]
-        return (z_norm - beta) / gamma * torch.sqrt(var + eps) + mean
 
     @torch.no_grad()
     def encode(self, z: Tensor, pad_mask: Tensor) -> Tensor:
