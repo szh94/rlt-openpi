@@ -164,6 +164,7 @@ class ActorPretrainConfig:
     vla_config_name: str = "pi05_jax_full"
     save_dir: str = "checkpoints/stage2_ac_online"
     run_name: str = ""
+    save_every: int = 1000
     log_every: int = 1
 
     wandb_project: str = "rlt-openpi"

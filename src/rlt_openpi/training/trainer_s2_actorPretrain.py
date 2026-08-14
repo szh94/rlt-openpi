@@ -68,6 +68,24 @@ class ActorPretrainTrainer:
     def _normalize_action(self, action: torch.Tensor) -> torch.Tensor:
         return (action - self._action_center) / self._action_scale
 
+    def _save_checkpoint(
+        self,
+        checkpoint_path: Path,
+        step: int,
+        loss_value: float,
+    ) -> None:
+        torch.save(
+            {
+                "actor": self.actor.state_dict(),
+                "actor_optimizer": self.actor_optimizer.state_dict(),
+                "pretrain_steps": step,
+                "repo_id": self.config.repo_id,
+                "final_loss": loss_value,
+            },
+            checkpoint_path,
+        )
+        print(f"[Actor Pretrain] Saved checkpoint to {checkpoint_path}")
+
     @staticmethod
     def _print_reference_target_stats(
         reference_raw: torch.Tensor,
@@ -96,6 +114,10 @@ class ActorPretrainTrainer:
         print(f"\n[Actor Pretrain] Starting: {config.steps} steps")
         print(f"  Dataset: {config.repo_id}")
         print(f"  Batch size: {config.batch_size}")
+        print(f"  Save every: {config.save_every} steps")
+
+        save_dir = Path(config.save_dir) / config.run_name
+        save_dir.mkdir(parents=True, exist_ok=True)
 
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
@@ -188,6 +210,13 @@ class ActorPretrainTrainer:
                         f"loss={loss_value:.6f} grad={grad_norm:.4f}"
                     )
 
+            if step_num % config.save_every == 0:
+                self._save_checkpoint(
+                    save_dir / f"actor_pretrain_step{step_num}.pt",
+                    step_num,
+                    loss_value,
+                )
+
             t8 = time.monotonic()
             # print(
             #     f"[DEBUG] step = {step_num} | "
@@ -202,18 +231,6 @@ class ActorPretrainTrainer:
             #     f"total={(t8 - t0) * 1000:.1f}ms"
             # )
 
-        save_dir = Path(config.save_dir) / config.run_name
-        save_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_path = save_dir / "actor_pretrain.pt"
-        torch.save(
-            {
-                "actor": self.actor.state_dict(),
-                "actor_optimizer": self.actor_optimizer.state_dict(),
-                "pretrain_steps": config.steps,
-                "repo_id": config.repo_id,
-                "final_loss": loss_value,
-            },
-            checkpoint_path,
-        )
-        print(f"[Actor Pretrain] Saved checkpoint to {checkpoint_path}")
+        self._save_checkpoint(checkpoint_path, config.steps, loss_value)
         return checkpoint_path

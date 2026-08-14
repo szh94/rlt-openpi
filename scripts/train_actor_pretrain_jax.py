@@ -23,6 +23,8 @@ def main(config: ActorPretrainConfig) -> None:
         raise ValueError("--repo-id is required for actor pre-training")
     if config.steps <= 0:
         raise ValueError("--steps must be greater than 0")
+    if config.save_every <= 0:
+        raise ValueError("--save-every must be greater than 0")
     if not config.vla_checkpoint_dir:
         raise ValueError("--vla-checkpoint-dir is required")
     if not config.rl_token_checkpoint:
