@@ -265,9 +265,18 @@ class JaxVLAWrapper:
         observation: Observation,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Return prefix embeddings, padding mask, and robot-space actions."""
+        t0 = time.monotonic()
         observation = _observation_to_jax(observation)
+        jax.block_until_ready(observation)
+        t1 = time.monotonic()
+
         rng = self.extractor._next_rng()
+        jax.block_until_ready(rng)
+        t2 = time.monotonic()
+
         (prefix_out, prefix_mask), raw_actions = self.extractor._sample_actions(rng, observation)
+        jax.block_until_ready((prefix_out, prefix_mask, raw_actions))
+        t3 = time.monotonic()
 
         # Share JAX device buffers with PyTorch through DLPack.
         z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
@@ -276,13 +285,23 @@ class JaxVLAWrapper:
         pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(
             dtype=torch.bool, device=self.device
         )
+        if self.device.type == "cuda":
+            torch.cuda.synchronize(self.device)
+        t4 = time.monotonic()
 
         # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
         raw_t = torch.utils.dlpack.from_dlpack(raw_actions.__dlpack__()).to(dtype=torch.float32)
+        if raw_t.is_cuda:
+            torch.cuda.synchronize(raw_t.device)
+        t5 = time.monotonic()
+
         actions_np = raw_t.cpu().numpy()
+        t6 = time.monotonic()
+
         # Output transforms are NumPy/Python based.  Copy only state to the host
         # here, after the model call; it is not fed back into JAX.
         state_np = np.asarray(jax.device_get(observation.state))
+        t7 = time.monotonic()
 
         out = []
         for i in range(actions_np.shape[0]):
@@ -292,7 +311,26 @@ class JaxVLAWrapper:
                 "actions": actions_in,
             })
             out.append(t["actions"])
+        t8 = time.monotonic()
+
         actions = torch.as_tensor(np.stack(out), device=self.device, dtype=torch.float32)
+        if actions.is_cuda:
+            torch.cuda.synchronize(actions.device)
+        t9 = time.monotonic()
+
+        print(
+            f"[DEBUG] extract_both | "
+            f"obs_to_jax={(t1 - t0) * 1000:.1f}ms | "
+            f"rng={(t2 - t1) * 1000:.1f}ms | "
+            f"vla_sample={(t3 - t2) * 1000:.1f}ms | "
+            f"embedding_dlpack={(t4 - t3) * 1000:.1f}ms | "
+            f"action_dlpack={(t5 - t4) * 1000:.1f}ms | "
+            f"action_to_host={(t6 - t5) * 1000:.1f}ms | "
+            f"state_to_host={(t7 - t6) * 1000:.1f}ms | "
+            f"output_transform={(t8 - t7) * 1000:.1f}ms | "
+            f"action_to_device={(t9 - t8) * 1000:.1f}ms | "
+            f"total={(t9 - t0) * 1000:.1f}ms"
+        )
 
         return z, pad_mask, actions
 
