@@ -128,7 +128,7 @@ def _build_transformed_dataset(
     return openpi_config, data_config, transform_dataset(dataset, data_config), len(dataset)
 
 
-def build_data_loader(
+def build_torch_data_loader(
     openpi_config_name: str,
     repo_id: str,
     batch_size: int,
@@ -191,7 +191,7 @@ def build_jax_data_loader(
     repo_id: str,
     batch_size: int,
     *,
-    num_workers: int = 0,
+    num_workers: int = 2,
     shuffle: bool = True,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
     action_target_space: Literal["normalized", "model"] = "normalized",

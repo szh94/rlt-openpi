@@ -31,7 +31,7 @@ import dataclasses
 import tyro
 
 from rlt_openpi.training.config import RLTokenTrainConfig
-from rlt_openpi.training.data_loader import build_data_loader, resolve_data_transforms
+from rlt_openpi.training.data_loader import build_torch_data_loader, resolve_data_transforms
 from rlt_openpi.training.trainer_s1_rltoken import RLTokenTrainer
 from rlt_openpi.utils.logging import Logger
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
@@ -98,7 +98,7 @@ def main(config: TrainConfig) -> None:
     print("  Trainer created (RLTokenModel + optimizer).")
 
     print("[3/4] Loading demonstration dataset...")
-    data_loader = build_data_loader(
+    data_loader = build_torch_data_loader(
         openpi_config_name=config.train.vla_config_name,
         repo_id=config.repo_id,
         batch_size=config.train.batch_size,
