@@ -13,12 +13,12 @@ the pretrained model.
 Usage::
 
     # Default (2-camera, frozen VLA):
-    uv run python scripts/train_rl_token.py \\
+    uv run python scripts/train_torch_s1_rltoken.py \\
         --train.vla-checkpoint-dir /path/to/model.safetensors \\
         --repo-id local/stack_the_blocks
 
     # With 3-camera override:
-    uv run python scripts/train_rl_token.py \\
+    uv run python scripts/train_torch_s1_rltoken.py \\
         --train.vla-checkpoint-dir /path/to/model.safetensors \\
         --repo-id local/stack_the_blocks \\
         --data-transforms-fn rlt_openpi.policies.franka.config.three_camera_droid

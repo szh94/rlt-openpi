@@ -1,6 +1,6 @@
 """Stage 2 with JAX VLA: Online RL training with frozen VLA + RL token.
 
-Same as ``train_online_rl.py`` but loads the native JAX Pi0 model via
+Same as ``train_torch_s2_onlinerl.py`` but loads the native JAX Pi0 model via
 :class:`JaxVLAWrapper` instead of the PyTorch port.
 
 Key difference: Skips VLA weight restoration from the Stage 1 checkpoint
@@ -8,8 +8,8 @@ because JAX NNX models do not use ``load_state_dict``.
 
 Usage::
 
-    python scripts/train_online_rl_jax.py --help
-    python scripts/train_online_rl_jax.py \\
+    python scripts/train_jax_s2_onlinerl.py --help
+    python scripts/train_jax_s2_onlinerl.py \\
         --vla-config-name pi0_aloha_sim \\
         --vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --rl-token-checkpoint /path/to/rl_token.pt \\

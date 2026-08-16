@@ -19,7 +19,7 @@ Observations follow the ALOHA schema:
 Usage::
 
     # Training
-    python scripts/train_online_rl.py \\
+    python scripts/train_torch_s2_onlinerl.py \\
         --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
         --task-prompt "pick up the cup" \\
         --action-dim 14 --chunk-length 10 \\

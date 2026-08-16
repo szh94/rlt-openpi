@@ -30,7 +30,7 @@ echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "========================================"
 echo ""
 
-python scripts/train_rl_token_jax.py \
+python scripts/train_jax_s1_rltoken.py \
     --train.vla-config-name pi05_jax_full \
     --train.vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --train.save-dir "$STAGE1_RLT_CHECKPOINT_DIR" \

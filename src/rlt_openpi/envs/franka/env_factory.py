@@ -8,7 +8,7 @@ The Franka robot is accessed via zerorpc (set ``nuc_ip`` in
 Usage::
 
     # Training
-    python scripts/train_online_rl.py \\
+    python scripts/train_torch_s2_onlinerl.py \\
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --task-prompt "pick up the cup" \\
         --action-dim 7 --chunk-length 10 \\

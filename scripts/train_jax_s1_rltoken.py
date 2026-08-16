@@ -1,6 +1,6 @@
 """Stage 1 with JAX VLA: Train the RL token encoder-decoder on demonstration data.
 
-Same as ``train_rl_token.py`` but loads the native JAX Pi0 model via
+Same as ``train_torch_s1_rltoken.py`` but loads the native JAX Pi0 model via
 :class:`JaxVLAWrapper` instead of the PyTorch port.
 
 **Joint training is not supported** — ``--train.vla-finetune-alpha``
@@ -10,7 +10,7 @@ PyTorch optimizer.
 Usage::
 
     # Default (2-camera, frozen VLA):
-    uv run python scripts/train_rl_token_jax.py \\
+    uv run python scripts/train_jax_s1_rltoken.py \\
         --train.vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --repo-id local/stack_the_blocks
 
@@ -69,7 +69,7 @@ def main(config: TrainConfig) -> None:
         raise ValueError(
             f"vla_finetune_alpha={config.train.vla_finetune_alpha} is not supported "
             f"with JaxVLAWrapper. Joint training requires the PyTorch VLAWrapper. "
-            f"Use scripts/train_rl_token.py for joint training."
+            f"Use scripts/train_torch_s1_rltoken.py for joint training."
         )
 
     print("=" * 60)

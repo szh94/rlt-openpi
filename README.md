@@ -22,9 +22,12 @@ src/rlt_openpi/
   policies/franka/ Example three-camera DROID data transforms
   utils/           Checkpoint I/O, wandb logger, rich terminal UI
 scripts/
-  train_rl_token.py    Stage 1 entry point
-  train_online_rl.py   Stage 2 entry point
-  evaluate.py          Unified Stage 1 / Stage 2 evaluation
+  train_torch_s1_rltoken.py   Stage 1 entry point (PyTorch VLA)
+  train_torch_s2_onlinerl.py  Stage 2 entry point (PyTorch VLA)
+  train_jax_s1_rltoken.py     Stage 1 entry point (JAX VLA)
+  train_jax_s2_onlinerl.py    Stage 2 entry point (JAX VLA)
+  train_jax_s2_actorPretrain.py  Stage 2 actor BC pretrain (JAX VLA)
+  evaluate.py                 Unified Stage 1 / Stage 2 evaluation
 exp/
   stage1.sh, stage2.sh, eval_vla.sh, eval_full.sh   Example run commands
 tests/               Unit tests for models, buffers, and training loop
@@ -98,7 +101,7 @@ Example command (see `exp/stage1.sh`):
 ```bash
 CHECKPOINT_DIR="$HOME/.cache/openpi/openpi-assets/checkpoints/pi05_droid_pytorch/model.safetensors"
 
-python scripts/train_rl_token.py \
+python scripts/train_torch_s1_rltoken.py \
     --train.vla-config-name pi05_droid_finetune \
     --train.vla-checkpoint-dir "$CHECKPOINT_DIR" \
     --train.vla-finetune-alpha 1.0 \
@@ -144,7 +147,7 @@ To run against a different robot or simulator, implement your own `make_env` / `
 ### Example command (see `exp/stage2.sh`)
 
 ```bash
-python scripts/train_online_rl.py \
+python scripts/train_torch_s2_onlinerl.py \
     --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
     --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \
     --vla-config-name pi05_droid_finetune \

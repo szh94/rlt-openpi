@@ -39,7 +39,7 @@ echo "   Run name        = $RUN_NAME"
 echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "========================================"
 
-python scripts/train_actor_pretrain_jax.py \
+python scripts/train_jax_s2_actorPretrain.py \
     --vla-config-name "$VLA_CONFIG_NAME" \
     --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \

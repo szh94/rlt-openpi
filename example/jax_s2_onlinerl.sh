@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Stage 2 online RL training for ALOHA dual-arm robot.
-# Sources keyPara.sh for shared checkpoint paths.
+# Stage 2 online RL training for ALOHA dual-arm robot with JAX VLA model.
+# Uses JaxVLAWrapper to load the native JAX Pi0 model from an Orbax checkpoint.
+#
+# Key difference from stage2_aloha.sh: VLA weight restoration from the
+# Stage 1 checkpoint is skipped because JAX NNX models do not use
+# load_state_dict.
 #
 # Usage:
-#   bash example/stage2_aloha.sh
+#   bash example/stage2_aloha_jax.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # === 自动保存终端输出到带时间戳的日志文件 ===
-LOG_DIR="$SCRIPT_DIR/../log_action"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/stage2_aloha_$(date +%Y%m%d_%H%M%S).log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "日志文件: $LOG_FILE"
+# LOG_DIR="$SCRIPT_DIR/../log_action"
+# mkdir -p "$LOG_DIR"
+# LOG_FILE="$LOG_DIR/stage2_aloha_jax_$(date +%Y%m%d_%H%M%S).log"
+# exec > >(tee -a "$LOG_FILE") 2>&1
+# echo "日志文件: $LOG_FILE"
 
 # source "$SCRIPT_DIR/../.venv/bin/activate"
 # shellcheck source=../keyPara.sh
@@ -30,7 +34,6 @@ DRY_RUN=true                        # true=打印action不驱动机器人, false
 
 # 相机列表: 3个相机 (不再使用 cam_low)
 # 默认: cam_high, cam_left_wrist, cam_right_wrist
-# ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 
 # 关节安全过滤: {} 表示不过滤, 指定关节索引和角度值(°)来锁定特定关节
@@ -41,17 +44,34 @@ JOINT_OVERRIDE='{}'
 PRINT_ACTIONS=true                  # true=打印action数值, false=不打印 (独立于dry-run)
 LIVE_IMAGE_DIR="$SCRIPT_DIR/../live_image"
 
-# 黑盒 obs 来源: robot=真实机械臂硬件(默认) | mock=随机假obs(测试) | dataset=从数据集加载
-OBS_SOURCE=${OBS_SOURCE:-robot}
+# Run example/stage2_actor_pretrain_jax.sh first, then point this variable at
+# its <save_dir>/<run_name>/actor_pretrain.pt output.
+ACTOR_PRETRAIN_CHECKPOINT=${ACTOR_PRETRAIN_CHECKPOINT:-""}
+if [[ -z "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+    echo "ERROR: ACTOR_PRETRAIN_CHECKPOINT is required"
+    exit 1
+fi
+if [[ ! -f "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
+    echo "ERROR: Actor pretrain checkpoint not found: $ACTOR_PRETRAIN_CHECKPOINT"
+    exit 1
+fi
 
-TASK_PROMPT="pick up the cup"
+# 黑盒 obs 来源: robot=真实机械臂硬件(默认) | mock=随机假obs(测试) | dataset=从数据集加载
+OBS_SOURCE=${OBS_SOURCE:-mock}
+# OBS_SOURCE=${OBS_SOURCE:-robot}
+# OBS_SOURCE=${OBS_SOURCE:-dataset}
+
+TASK_PROMPT="place phone"
+LOG_EVERY=${LOG_EVERY:-100}
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
+export RLT_METRICS_LIVE="${RLT_METRICS_LIVE:-0}"
 
 echo "========================================"
 echo " Stage 2 Online RL (ALOHA Dual-Arm)"
-echo "   VLA checkpoint  = $VLA_CHECKPOINT"
+echo " [JAX VLA]"
+echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
 echo "   Control Hz      = $ALOHA_CONTROL_HZ"
 echo "   Chunk length    = $ALOHA_CHUNK_LENGTH"
@@ -61,57 +81,37 @@ echo "   Dry run         = $DRY_RUN"
 echo "   Print actions   = $PRINT_ACTIONS"
 echo "   Joint override  = $JOINT_OVERRIDE"
 echo "   Obs source      = $OBS_SOURCE"
+echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
+echo "   Log every       = $LOG_EVERY"
+echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "========================================"
 
 # Build env-kwargs JSON
 ENV_KWARGS="{\"control_hz\": ${ALOHA_CONTROL_HZ}, \"image_size\": [${ALOHA_IMAGE_SIZE}, ${ALOHA_IMAGE_SIZE}], \"camera_names\": ${ALOHA_CAMERAS}, \"print_actions\": ${PRINT_ACTIONS}, \"live_image_dir\": \"${LIVE_IMAGE_DIR}\", \"joint_override\": ${JOINT_OVERRIDE}"
 
 # Add reset_position if set
-if [[ -n "$ALOHA_RESET_POSITION_LEFT" ]]; then
+if [[ -n "${ALOHA_RESET_POSITION_LEFT:-}" ]]; then
     ENV_KWARGS="${ENV_KWARGS}, \"reset_position_left\": ${ALOHA_RESET_POSITION_LEFT}"
     ENV_KWARGS="${ENV_KWARGS}, \"reset_position_right\": ${ALOHA_RESET_POSITION_RIGHT}"
 fi
 
 ENV_KWARGS="${ENV_KWARGS}}"
 
-python scripts/train_online_rl.py \
+python scripts/train_jax_s2_onlinerl.py \
     --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
-    --vla-config-name pi05_droid_finetune \
-    --vla-checkpoint-dir "$VLA_CHECKPOINT" \
+    --vla-config-name pi05_jax_full \
+    --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
     --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
     --task-prompt "$TASK_PROMPT" \
     --action-dim 14 \
     --chunk-length "$ALOHA_CHUNK_LENGTH" \
-    --warmup-steps 150 \
+    --warmup-steps 50 \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     --env-kwargs "$ENV_KWARGS" \
     --dry-run $DRY_RUN \
     --obs-source "$OBS_SOURCE" \
     --repo-id "$HF_LEROBOT_HOME" \
+    --actor-pretrain-checkpoint "$ACTOR_PRETRAIN_CHECKPOINT" \
     --save-every 40 \
-    $(
-    # === 默认参数，必要时取消注释修改 ===
-    # --intervention-factory rlt_openpi.envs.aloha.intervention.make_aloha_intervention \
-    # --max-env-steps 100000              # 总环境交互步数上限，包含warmup步数
-    # --save-every 50                     # 每 N 个 episode 保存一次 checkpoint, 不计数warmup阶段
-    # --utd-ratio 5                       # 每 episode 梯度更新次数 (G)
-    # --batch-size 256                    # 训练 minibatch 大小
-    # --buffer-capacity 100000            # ReplayBuffer 最大容量
-    # --embedding-dim 2048                # RL token 嵌入维度 (需与 Stage1 一致)
-    # --mlp-hidden-dim 256                # Actor/Critic MLP 隐藏层宽度
-    # --mlp-num-hidden-layers 2           # Actor/Critic MLP 层数
-    # --gamma 0.99                        # 折扣因子
-    # --tau 0.005                         # 目标网络 Polyak 软更新系数
-    # --actor-lr 3e-4                     # Actor 学习率
-    # --critic-lr 3e-4                    # Critic 学习率
-    # --bc-regularizer-beta 0.5           # BC 正则化强度
-    # --actor-noise-sigma 0.1             # Actor 探索噪声标准差
-    # --ref-action-dropout 0.5            # VLA 参考动作 dropout 概率
-    # --target-noise-sigma 0.2            # TD3 目标平滑噪声标准差
-    # --target-noise-clip 0.5             # TD3 目标噪声裁剪范围
-    # --critic-updates-per-actor 2        # Actor 延迟更新间隔
-    # --dry-run                           # 空跑模式: 打印action数值, 不驱动机械臂
-    # --resume-checkpoint ""              # 中断恢复: Stage2 checkpoint 路径
-    # --warmup-buffer ""                  # 跳过 warmup: 预填充 buffer 路径
-    )
+    --log-every "$LOG_EVERY"

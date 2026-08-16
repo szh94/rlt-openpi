@@ -1,8 +1,8 @@
 """Stage 2: Online RL training with frozen VLA + RL token (Algorithm 1).
 
 Usage:
-    uv run python scripts/train_online_rl.py --help
-    uv run python scripts/train_online_rl.py --vla-config-name pi0_aloha_sim \
+    uv run python scripts/train_torch_s2_onlinerl.py --help
+    uv run python scripts/train_torch_s2_onlinerl.py --vla-config-name pi0_aloha_sim \
         --vla-checkpoint-dir /path/to/vla.safetensors \
         --rl-token-checkpoint /path/to/rl_token.pt
 """

@@ -11,7 +11,7 @@ rollout worker skips its own ``env.step()`` call.
 
 Usage::
 
-    python scripts/train_online_rl.py \\
+    python scripts/train_torch_s2_onlinerl.py \\
         --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \\
         --intervention-factory rlt_openpi.envs.franka.intervention.make_vr_intervention \\
         --task-prompt "stack the three blocks on the tray" \\

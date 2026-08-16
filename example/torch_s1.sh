@@ -17,7 +17,7 @@ echo "   HF dataset      = $HF_LEROBOT_HOME"
 echo "========================================"
 echo ""
 
-python scripts/train_rl_token.py \
+python scripts/train_torch_s1_rltoken.py \
     --train.vla-config-name pi05_droid_finetune \
     --train.vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --train.save-dir "$STAGE1_RLT_CHECKPOINT_DIR" \
