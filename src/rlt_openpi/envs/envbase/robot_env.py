@@ -2,42 +2,27 @@
 
 Provides ``RobotEnv``, a chunk-level environment that connects to any
 robot through three user-supplied callables (``step_fn``, ``reset_fn``,
-``get_obs_fn``).  No dependency on any specific robot stack (DROID,
+``get_obs_fn``).  No dependency on any specific robot stack (ALOHA,
 polymetis, ROS, etc.) — the wiring happens in the user's launch script.
 
 Human reward (success/failure) is collected via
 :class:`~rlt_openpi.envs.envbase.reward.HumanReward` using instant
 keypress detection (no Enter needed) during episodes.
 
-Usage (with DROID)::
-
-    from droid.robot_env import RobotEnv as DroidEnv
-
-    droid = DroidEnv(action_space="cartesian_velocity", control_hz=15)
-
-    def get_obs():
-        obs = droid.get_observation()
-        return {
-            "observation/joint_position": np.array(
-                obs["robot_state"]["joint_positions"], dtype=np.float32,
-            ),
-            "observation/gripper_position": np.array(
-                [obs["robot_state"]["gripper_position"]], dtype=np.float32,
-            ),
-            "observation/exterior_image_1_left": obs["image"]["39790647_left"],
-            "observation/wrist_image_left": obs["image"]["15850436_left"],
-            "observation/exterior_image_2_left": obs["image"]["35840217_left"],
-            "prompt": "stack the three blocks on the tray",
-        }
+Usage::
 
     env = RobotEnv(
-        step_fn=droid.step,
-        reset_fn=droid.reset,
+        step_fn=robot.step,
+        reset_fn=robot.reset,
         get_obs_fn=get_obs,
-        action_dim=7,
+        action_dim=14,
         chunk_length=10,
         control_hz=15,
     )
+
+where ``step_fn`` / ``reset_fn`` / ``get_obs_fn`` wrap your robot stack
+(e.g. ALOHA dual-arm via ``hansrobot``).  See
+``rlt_openpi.envs.aloha.env_factory.make_aloha_env`` for a concrete example.
 """
 
 from __future__ import annotations

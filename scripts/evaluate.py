@@ -10,18 +10,18 @@ stage2 eval; otherwise runs stage1 VLA-only eval.
 Usage:
     # Stage 1: evaluate fine-tuned VLA
     uv run python scripts/evaluate.py \
-        --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
+        --vla-checkpoint-dir checkpoints/pi05_aloha_pytorch/model.safetensors \
         --stage1-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
+        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
         --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50
 
     # Stage 2: evaluate full trained model
     uv run python scripts/evaluate.py \
         --checkpoint checkpoints/stage2_ac_online/run_latest/online_rl_ep100.pt \
-        --vla-checkpoint-dir checkpoints/pi05_droid_pytorch/model.safetensors \
+        --vla-checkpoint-dir checkpoints/pi05_aloha_pytorch/model.safetensors \
         --rl-token-checkpoint checkpoints/stage1_rlt_encoder/rl_token_step5000.pt \
-        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
+        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
         --task-prompt "stack the three blocks on the tray" \
         --num-episodes 50
 """
@@ -55,12 +55,12 @@ class EvalConfig:
     # --checkpoint, runs VLA-only eval)
     stage1_checkpoint: str = ""
 
-    vla_config_name: str = "pi05_droid_finetune"
+    vla_config_name: str = "pi05_aloha"
     vla_checkpoint_dir: str = ""
     rl_token_checkpoint: str = ""
     env_factory: str = ""
     task_prompt: str = ""
-    action_dim: int = 8
+    action_dim: int = 14
     chunk_length: int = 10
     num_episodes: int = 50
     save_dir: str = ""

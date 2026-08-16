@@ -67,7 +67,7 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Create environment via pluggable factory.
     # Pass --env-factory to specify a Python import path, e.g.:
-    #   --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env
+    #   --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env
     #   --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
     if not config.env_factory:
         print("[ERROR] --env-factory is required. Provide a Python import path to an env factory function.")

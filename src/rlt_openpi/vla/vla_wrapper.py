@@ -68,7 +68,7 @@ class VLAWrapper:
 
     Args:
         checkpoint_path: Path to model.safetensors weight file.
-        config_name: Registered openpi config name (e.g. "pi05_droid_finetune").
+        config_name: Registered openpi config name (e.g. "pi05_aloha").
         device: Torch device for the model.
         data_transforms: Optional override for the config's default
             ``data_transforms``.  Must match whatever was used during

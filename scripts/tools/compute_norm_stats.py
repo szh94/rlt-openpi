@@ -6,8 +6,8 @@ and saves them to the config assets directory. This is required before training.
 Adapted from openpi/scripts/compute_norm_stats.py to run inside rlt-openpi.
 
 Usage:
-    uv run python scripts/utils/compute_norm_stats.py --config-name pi05_droid_finetune
-    uv run python scripts/utils/compute_norm_stats.py --config-name pi05_droid_finetune --max-frames 5000
+    uv run python scripts/tools/compute_norm_stats.py --config-name pi05_aloha
+    uv run python scripts/tools/compute_norm_stats.py --config-name pi05_aloha --max-frames 5000
 """
 
 from __future__ import annotations

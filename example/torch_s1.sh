@@ -18,7 +18,7 @@ echo "========================================"
 echo ""
 
 python scripts/train_torch_s1_rltoken.py \
-    --train.vla-config-name pi05_droid_finetune \
+    --train.vla-config-name pi05_aloha \
     --train.vla-checkpoint-dir "$VLA_CHECKPOINT" \
     --train.save-dir "$STAGE1_RLT_CHECKPOINT_DIR" \
     --train.vla-finetune-alpha 0.0 \

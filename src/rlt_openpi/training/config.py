@@ -32,7 +32,7 @@ class RLTokenTrainConfig:
 
     # Checkpoints
     vla_checkpoint_dir: str = ""
-    vla_config_name: str = "pi05_droid_finetune"
+    vla_config_name: str = "pi05_aloha"
     resume_checkpoint: str = ""  # Path to Stage 1 checkpoint to resume training from
     save_dir: str = "checkpoints/stage1_rlt_encoder"
     run_name: str = ""  # Subdirectory name for this run (auto-generated if empty)
@@ -92,8 +92,8 @@ class OnlineRLTrainConfig:
     repo_id: str = ""  # LeRobot dataset ID used only when obs_source="dataset".
 
     # Environment
-    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.env_factory.make_franka_env"
-    intervention_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.franka.intervention.make_vr_intervention"
+    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.aloha.env_factory.make_aloha_env"
+    intervention_factory: str = ""  # Python import path, e.g. "my_package.envs.intervention.make_my_intervention"
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination
     env_kwargs: str = "{}"  # JSON string of extra kwargs forwarded to the env factory

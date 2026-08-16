@@ -5,50 +5,25 @@
 #   bash setup_env.sh            # creates env named 'rlt'
 #   bash setup_env.sh myenvname  # creates env with custom name
 #
-# By default only the core dependencies (Stage 1 training, evaluation) are
-# installed. Pass --robot to also install the DROID teleop stack, Oculus
-# reader, ZED bindings, and related fixups needed for Stage 2 on a real
-# Franka rig. Set DROID_DIR to point to your local DROID clone:
-#
-#   DROID_DIR=/path/to/droid bash setup_env.sh --robot
-#   DROID_DIR=/path/to/droid bash setup_env.sh myenvname --robot
-#
 # Set OPENPI_DIR to point to a local openpi clone to skip the GitHub fetch:
 #
 #   OPENPI_DIR=/path/to/openpi bash setup_env.sh
 #
-# Or hardcode your local path below (line 37) so you can just run:
-#   bash setup_env.sh
-#
 # After setup:
 #   conda activate <env_name>
-#   bash exp/stage1.sh   # or stage2.sh, eval_*.sh, etc.
+#   bash example/torch_s1.sh   # or torch_s2.sh, jax_s1.sh, jax_s2_onlinerl.sh, eval_*.sh
 set -euo pipefail
 
 # ── Parse args ──────────────────────────────────────────────────────────
-INSTALL_ROBOT=false
 ENV_NAME="rl_token"
 for arg in "$@"; do
-    case "$arg" in
-        --robot) INSTALL_ROBOT=true ;;
-        *)       ENV_NAME="$arg" ;;
-    esac
+    ENV_NAME="$arg"
 done
 
 OPENPI_REV="fdc03f5"
 # === [必须修改] 设置你的本地 openpi 路径 ===
-# 将下面 /home/path/to/openpi 替换为你的真实 openpi 克隆路径。
-# 脚本启动时会检查该路径是否存在，如果不存在将报错退出。
-#
-# 如果保持为空 ""，则从 GitHub 克隆（需要联网）。
-#
-# 示例:
-#   OPENPI_DIR="${OPENPI_DIR:-/home/user/code/openpi}"   # 改为你的真实路径
-#   运行时仍可用环境变量临时覆盖:
-#     OPENPI_DIR=/other/path bash setup_env.sh
-#
+# 将 /home/path/to/openpi 替换为你的真实 openpi 克隆路径；留空 "" 则从 GitHub 克隆（需联网）。
 OPENPI_DIR="${OPENPI_DIR:-/home/path/to/openpi}"   # ← 修改此路径！
-DROID_DIR="${DROID_DIR:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ -n "$OPENPI_DIR" ]; then
@@ -89,8 +64,7 @@ else
 fi
 
 # ── Install rlt-openpi ────────────────────────────────────────────────
-# 新环境: 用 --overrides 指定 openpi 来源（覆盖 pyproject.toml 中的 openpi 依赖）
-# 已有环境: 直接安装，不碰已装好的 openpi
+# 新环境用 --overrides 覆盖 pyproject.toml 中的 openpi 来源；已有环境直接重装 rlt-openpi
 if [ "$ENV_EXISTS" = true ]; then
     echo "==> Installing rlt-openpi (without touching existing openpi)..."
     conda run -n "${ENV_NAME}" uv pip install -e "${SCRIPT_DIR}[dev]" \
@@ -111,56 +85,6 @@ OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
 TRANSFORMERS_DIR=$(conda run -n "${ENV_NAME}" python -c \
     "import transformers, pathlib; print(pathlib.Path(transformers.__file__).parent)")
 cp -r "${OPENPI_PKG_DIR}/models_pytorch/transformers_replace/"* "${TRANSFORMERS_DIR}/"
-
-# ── Robot-specific dependencies (optional) ─────────────────────────────
-if [ "$INSTALL_ROBOT" = true ]; then
-    if [ -z "$DROID_DIR" ]; then
-        echo "ERROR: --robot requires DROID_DIR to be set."
-        echo "  DROID_DIR=/path/to/droid bash setup_env.sh --robot"
-        exit 1
-    fi
-    if [ ! -d "$DROID_DIR" ]; then
-        echo "ERROR: DROID_DIR=${DROID_DIR} does not exist."
-        exit 1
-    fi
-
-    echo ""
-    echo "==> Installing robot dependencies (DROID, Oculus, ZED, opencv fixups)..."
-
-    echo "==> Installing droid from ${DROID_DIR}..."
-    conda run -n "${ENV_NAME}" uv pip install -e "${DROID_DIR}"
-
-    echo "==> Installing oculus_reader..."
-    conda run -n "${ENV_NAME}" uv pip install -e "${DROID_DIR}/droid/oculus_reader"
-
-    POLYMETIS_DIR="${DROID_DIR}/droid/fairo/polymetis/polymetis/python"
-    if [ -d "$POLYMETIS_DIR" ]; then
-        echo "==> Installing polymetis..."
-        conda run -n "${ENV_NAME}" uv pip install -e "${POLYMETIS_DIR}"
-    fi
-
-    # opencv-python and opencv-contrib-python both install cv2 and conflict.
-    # Ensure only the contrib variant (superset) is present so cv2.aruco works.
-    echo "==> Fixing opencv: ensuring only contrib variant is installed..."
-    conda run -n "${ENV_NAME}" uv pip uninstall opencv-python || true
-    conda run -n "${ENV_NAME}" uv pip install "opencv-contrib-python==4.6.0.66"
-
-    echo "==> Fixing numpy (pin <2.0 for compiled extension compatibility)..."
-    conda run -n "${ENV_NAME}" uv pip install "numpy>=1.22.4,<2.0"
-
-    echo "==> Fixing protobuf/wandb conflict..."
-    conda run -n "${ENV_NAME}" uv pip install "protobuf>=4.21" --upgrade
-    conda run -n "${ENV_NAME}" uv pip install wandb --reinstall
-
-    echo "==> Installing pyzed (ZED camera Python bindings)..."
-    if [ -f "/usr/local/zed/get_python_api.py" ]; then
-        CONDA_PREFIX=$(conda run -n "${ENV_NAME}" python -c "import sys; print(sys.prefix)")
-        "${CONDA_PREFIX}/bin/python" /usr/local/zed/get_python_api.py
-    else
-        echo "    ZED SDK not found at /usr/local/zed — skipping pyzed install."
-        echo "    Install the ZED SDK from https://www.stereolabs.com/developers/release first."
-    fi
-fi
 
 echo ""
 echo "==> Done! Activate with:  conda activate ${ENV_NAME}"

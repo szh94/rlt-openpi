@@ -5,9 +5,9 @@ Adapted from openpi's examples/convert_jax_model_to_pytorch.py.
 
 Usage:
     uv run python scripts/tools/convert_jax_to_pytorch.py \
-        --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid \
-        --config-name pi05_droid_finetune \
-        --output-path checkpoints/pi05_droid_pytorch
+        --checkpoint-dir ~/.cache/openpi/openpi-assets/checkpoints/pi05_aloha \
+        --config-name pi05_aloha \
+        --output-path checkpoints/pi05_aloha_pytorch
 """
 
 from __future__ import annotations
@@ -458,15 +458,15 @@ def convert_pi0_checkpoint(
 
 def main(
     checkpoint_dir: str,
-    config_name: str = "pi05_droid_finetune",
+    config_name: str = "pi05_aloha",
     output_path: str | None = None,
     precision: Literal["float32", "bfloat16", "float16"] = "bfloat16",
 ):
     """Convert JAX checkpoint to PyTorch safetensors format.
 
     Args:
-        checkpoint_dir: Path to the JAX checkpoint directory (e.g. ~/.cache/openpi/openpi-assets/checkpoints/pi05_droid)
-        config_name: OpenPI config name (e.g. pi05_droid_finetune)
+        checkpoint_dir: Path to the JAX checkpoint directory (e.g. ~/.cache/openpi/openpi-assets/checkpoints/pi05_aloha)
+        config_name: OpenPI config name (e.g. pi05_aloha)
         output_path: Path to save converted PyTorch model
         precision: Precision for model conversion
     """

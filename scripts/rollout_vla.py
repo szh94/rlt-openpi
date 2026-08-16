@@ -7,8 +7,8 @@ fine-tuned VLA before or without Stage 2 RL training.
 Usage:
     python scripts/rollout_vla.py --help
     python scripts/rollout_vla.py \
-        --env-factory rlt_openpi.envs.franka.env_factory.make_franka_env \
-        --vla-config-name pi05_droid_finetune \
+        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
+        --vla-config-name pi05_aloha \
         --vla-checkpoint-dir /path/to/model.safetensors \
         --task-prompt "stack the three blocks on the tray" \
         --num-episodes 10
@@ -31,12 +31,12 @@ from rlt_openpi.vla.vla_wrapper import VLAWrapper
 class RolloutConfig:
     """VLA-only rollout configuration."""
 
-    vla_config_name: str = "pi05_droid_finetune"
+    vla_config_name: str = "pi05_aloha"
     vla_checkpoint_dir: str = ""
     stage1_checkpoint: str = ""  # Stage 1 .pt checkpoint with fine-tuned VLA weights
     env_factory: str = ""
     task_prompt: str = ""
-    action_dim: int = 8
+    action_dim: int = 14
     chunk_length: int = 10
     num_episodes: int = 10
     save_dir: str = "results"  # Directory to save results JSON

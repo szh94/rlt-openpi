@@ -146,7 +146,7 @@ def build_torch_data_loader(
 
     Args:
         openpi_config_name: Registered OpenPI config name
-            (e.g. ``"pi05_droid_finetune"``).
+            (e.g. ``"pi05_aloha"``).
         repo_id: LeRobot dataset repo ID (e.g. ``"local/stack_the_blocks"``).
         batch_size: Global batch size.
         num_workers: DataLoader workers.
