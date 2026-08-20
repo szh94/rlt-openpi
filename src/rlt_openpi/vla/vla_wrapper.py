@@ -180,10 +180,7 @@ class VLAWrapper:
         """
         transformed = self._input_transform(dict(obs))
 
-        batched = jax.tree.map(
-            lambda x: torch.from_numpy(np.array(x)).to(self.device)[None, ...],
-            transformed,
-        )
+        batched = jax.tree.map(lambda x: torch.from_numpy(np.array(x)).to(self.device)[None, ...],transformed)
         return Observation.from_dict(batched)
 
     def extract_embeddings(

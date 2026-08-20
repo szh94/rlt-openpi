@@ -112,24 +112,6 @@ class RolloutWorker:
         """Convert actor actions back to robot space for env.step()."""
         return (np.asarray(action, dtype=np.float32) * self.action_scale + self.action_center).astype(np.float32)
 
-    def _obs_to_vla_input(self, obs: dict[str, Any]) -> Any:
-        """Prepare observation dict for VLA inference.
-
-        Uses ``VLAWrapper.preprocess_obs`` if available (real VLA), which
-        applies the full OpenPI transform chain and returns an
-        ``Observation``.  Falls back to simple batch-wrapping for tests
-        with a mock VLA.
-        """
-        if hasattr(self.vla, "preprocess_obs"):
-            return self.vla.preprocess_obs(obs)
-
-        # Fallback: simple batch-wrap (for tests with mock VLA)
-        batched: dict[str, Any] = {}
-        for key, val in obs.items():
-            arr = np.asarray(val)
-            batched[key] = arr[np.newaxis]  # add batch dim
-        return batched
-
     @torch.no_grad()
     def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
         """Extract RL state x = cat(z_rl, s^p), VLA reference, and action chunk.
@@ -142,7 +124,8 @@ class RolloutWorker:
             a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
             action_chunk: VLA reference actions [C, action_dim] as numpy.
         """
-        vla_input = self._obs_to_vla_input(obs)
+        # Convert the raw environment observation dict into a batched OpenPI Observation.
+        vla_input = self.vla.preprocess_obs(obs)
 
         # Single VLA forward pass (JAX) or two calls (PyTorch fallback)
         if hasattr(self.vla, "extract_both"):
