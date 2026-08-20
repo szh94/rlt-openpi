@@ -168,6 +168,7 @@ class ActorPretrainTrainer:
             pbar.set_postfix(loss=f"{loss_value:.6f}")
             # else:
             #     pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
+
             if log_fn is not None and is_log_step:
                 assert grad_norm is not None
                 log_fn(

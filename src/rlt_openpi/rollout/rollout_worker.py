@@ -188,10 +188,6 @@ class RolloutWorker:
 
         # actor forward: input (1, state_dim) & (1, C*d) -> output [1, C*d]
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
-        
-        # 打印前 action_dim 个维度的差值（即第一个时间步的动作调整量）
-        diff = (a_flat[0, :self.action_dim] - a_tilde_t[0, :self.action_dim]).cpu().numpy()
-        print(f"Actor input-output diff (first {self.action_dim} dims): {diff}")
 
         # Actor output is normalized; only the environment receives raw robot
         # actions.
@@ -284,11 +280,11 @@ class RolloutWorker:
         """
         stats = EpisodeStats()
         obs = self.env.reset()
+        is_mock_obs = type(getattr(self.env, "obs_source", None)).__name__ == "MockObsSource"
 
         while True:
             # Extract RL state and VLA reference
-            print(f"[DEBUG] joint_position = {obs.get('observation/joint_position', obs.get('state'))}")
-            x, a_tilde_flat, _ = self._extract_rl_state(obs)
+            x, a_tilde_flat, reference_chunk = self._extract_rl_state(obs)
 
             # Check for human intervention.
             # If the intervention manager stepped the robot internally
@@ -308,7 +304,15 @@ class RolloutWorker:
                 info = intervention.info
                 stats.interventions += 1
             else:
+                if is_mock_obs and stats.num_chunks == 0:
+                    print(f"[Mock] obs.state = {obs.get('state')}")
+                    print(f"[Mock] before actor action[0] = {reference_chunk[0]}")
+
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
+
+                if is_mock_obs and stats.num_chunks == 0:
+                    print(f"[Mock] after actor action[0] = {action_chunk[0]}")
+
                 # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)
 
