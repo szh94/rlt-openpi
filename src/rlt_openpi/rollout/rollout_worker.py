@@ -22,6 +22,15 @@ from rlt_openpi.envs.envbase.reward import HumanReward
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
 
+
+def _format_array_2f(value: Any) -> str:
+    """Format an array with two fixed decimal places."""
+    return np.array2string(
+        np.asarray(value, dtype=np.float64),
+        formatter={"float_kind": lambda x: f"{x:.2f}"},
+    )
+
+
 @dataclass
 class EpisodeStats:
     """Statistics for a single collected episode."""
@@ -305,13 +314,21 @@ class RolloutWorker:
                 stats.interventions += 1
             else:
                 if is_mock_obs and stats.num_chunks == 0:
-                    print(f"[Mock] obs.state = {obs.get('state')}")
-                    print(f"[Mock] before actor action[0] = {reference_chunk[0]}")
+                    print(f"[Mock] obs.state = {_format_array_2f(obs.get('state'))}")
+                    print(
+                        "[Mock] before actor action[0] = "
+                        f"{_format_array_2f(reference_chunk[0])}"
+                    )
+                else:
+                    print(f"Current step = {stats.num_steps}, total_reward = {stats.total_reward:.2f}")
 
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
 
                 if is_mock_obs and stats.num_chunks == 0:
-                    print(f"[Mock] after actor action[0] = {action_chunk[0]}")
+                    print(
+                        "[Mock] after actor action[0] = "
+                        f"{_format_array_2f(action_chunk[0])}"
+                    )
 
                 # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)
