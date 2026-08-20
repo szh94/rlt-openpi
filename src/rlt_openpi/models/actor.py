@@ -1,8 +1,8 @@
-"""Actor network with VLA reference action conditioning.
+"""Actor network with VLA reference-action conditioning.
 
 The actor takes the RL state x = cat(z_rl, s^p) and a VLA reference action
-chunk a_tilde, applies reference dropout during training, and outputs an
-action chunk mu (plus optional Gaussian exploration noise).
+chunk a_tilde, applies reference dropout during training, and directly
+predicts the mean of the final action distribution from those inputs.
 """
 
 import torch
@@ -49,27 +49,21 @@ class Actor(nn.Module):
             num_hidden_layers=num_hidden_layers,
         )
 
-        # Zero-init the last linear layer so the residual starts at zero,
-        # meaning the actor initially reproduces the VLA reference exactly.
-        last_linear = [m for m in self.mlp.net if isinstance(m, nn.Linear)][-1]
-        nn.init.zeros_(last_linear.weight)
-        nn.init.zeros_(last_linear.bias)
-
     def forward(self, x: Tensor, a_tilde: Tensor) -> Tensor:
-        """Compute action chunk as VLA reference + learned residual.
+        """Predict the final action chunk conditioned on the VLA reference.
 
         Args:
             x: RL state [B, state_dim].
             a_tilde: Flattened VLA reference action chunk [B, action_chunk_dim].
 
         Returns:
-            Action chunk [B, action_chunk_dim] = a_tilde + residual (+ noise).
-            During training: a_tilde + residual + noise, with ref dropout.
-            During eval: a_tilde + residual, with full a_tilde.
+            Final action chunk [B, action_chunk_dim]. During training, the
+            reference input may be dropped and Gaussian exploration noise is
+            added. During evaluation, the full reference is used and the
+            predicted mean is returned directly.
         """
         a_tilde_input = self._apply_ref_dropout(a_tilde)
-        residual = self.mlp(torch.cat([x, a_tilde_input], dim=-1))
-        mu = a_tilde + residual
+        mu = self.mlp(torch.cat([x, a_tilde_input], dim=-1))
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma

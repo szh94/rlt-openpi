@@ -164,10 +164,10 @@ class ActorPretrainTrainer:
             t7 = time.monotonic()
 
             loss_value = loss.item()
-            if grad_norm is None:
-                pbar.set_postfix(loss=f"{loss_value:.6f}")
-            else:
-                pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
+            # if grad_norm is None:
+            pbar.set_postfix(loss=f"{loss_value:.6f}")
+            # else:
+            #     pbar.set_postfix(loss=f"{loss_value:.6f}", grad=f"{grad_norm:.4f}")
             if log_fn is not None and is_log_step:
                 assert grad_norm is not None
                 log_fn(
@@ -179,12 +179,6 @@ class ActorPretrainTrainer:
                     },
                     step=step_num,
                 )
-
-            # if step == 0 or step_num % 100 == 0:
-            #     print(
-            #         f"[Actor Pretrain] step {step_num}/{config.steps} "
-            #         f"loss={loss_value:.6f} grad={grad_norm:.4f}"
-            #     )
 
             if is_checkpoint_step:
                 self._save_checkpoint(

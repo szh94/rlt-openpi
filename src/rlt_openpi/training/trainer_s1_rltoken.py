@@ -103,7 +103,7 @@ class RLTokenTrainer:
             t2 = time.monotonic()
 
             # Progress bar
-            pbar.set_postfix(loss=f"{metrics['loss']:.4f}")
+            pbar.set_postfix(loss=f"{metrics['loss']:.6f}")
             t3 = time.monotonic()
 
             # wandb logging (every log_every steps)
