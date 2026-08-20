@@ -40,16 +40,6 @@ JOINT_OVERRIDE='{}'
 
 # --- Actor 初始化（所有 OBS_SOURCE 共用）---
 # Run example/stage2_actor_pretrain_jax.sh first, then point this variable at
-# its <save_dir>/<run_name>/actor_pretrain.pt output.
-ACTOR_PRETRAIN_CHECKPOINT=${ACTOR_PRETRAIN_CHECKPOINT:-""}
-if [[ -z "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
-    echo "ERROR: ACTOR_PRETRAIN_CHECKPOINT is required"
-    exit 1
-fi
-if [[ ! -f "$ACTOR_PRETRAIN_CHECKPOINT" ]]; then
-    echo "ERROR: Actor pretrain checkpoint not found: $ACTOR_PRETRAIN_CHECKPOINT"
-    exit 1
-fi
 
 export WANDB_MODE=offline
 # export WANDB_MODE=disabled
@@ -83,11 +73,11 @@ OBS_SOURCE_ARGS+=(--env-kwargs "$ENV_KWARGS")
 
 # 参数汇总紧邻启动命令，且只打印当前 OBS_SOURCE 相关配置。
 echo "========================================"
-echo " Stage 2 Online RL (ALOHA Dual-Arm, JAX VLA)"
+echo " Stage 2 Online RL"
 echo "   Obs source      = $OBS_SOURCE"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
-echo "   RLToken ckpt    = $STAGE1_RLT_CHECKPOINT"
-echo "   Actor ckpt      = $ACTOR_PRETRAIN_CHECKPOINT"
+echo "   RLToken ckpt    = $STAGE1_RLT_CP"
+echo "   Actor ckpt      = $STAGE2_A_PRET_CP"
 echo "   Task prompt     = $TASK_PROMPT"
 echo "   Control Hz      = $ALOHA_CONTROL_HZ"
 echo "   Image size      = ${ALOHA_IMAGE_SIZE}x${ALOHA_IMAGE_SIZE}"
@@ -112,14 +102,14 @@ python scripts/train_jax_s2_onlinerl.py \
     --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
     --vla-config-name pi05_jax_full \
     --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
-    --rl-token-checkpoint "$STAGE1_RLT_CHECKPOINT" \
-    --save-dir "$STAGE2_AC_CHECKPOINT_DIR" \
+    --rl-token-checkpoint "$STAGE1_RLT_CP" \
+    --save-dir "$STAGE2_AC_CPD" \
     --task-prompt "$TASK_PROMPT" \
     --action-dim 14 \
     --chunk-length "$ALOHA_CHUNK_LENGTH" \
-    --warmup-steps 50 \
+    --warmup-steps 5 \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     "${OBS_SOURCE_ARGS[@]}" \
-    --actor-pretrain-checkpoint "$ACTOR_PRETRAIN_CHECKPOINT" \
+    --actor-pretrain-checkpoint "$STAGE2_A_PRET_CP" \
     --save-every 40 \
     --log-every "$LOG_EVERY"
