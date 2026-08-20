@@ -69,6 +69,21 @@ def _observation_to_jax(obs: _model.Observation) -> _model.Observation:
     )
 
 
+def _copy_dict_structure(value: Any) -> Any:
+    """Copy nested dictionaries while sharing their array leaves.
+
+    OpenPI input transforms mutate dictionaries in place.  Rollout code may
+    preprocess the same environment observation more than once (first as a
+    replay-buffer next state, then as the next policy input), so the transform
+    chain must not mutate the caller-owned observation.  Array leaves are only
+    read or replaced by the inference transforms and do not need an expensive
+    deep copy.
+    """
+    if isinstance(value, dict):
+        return {key: _copy_dict_structure(item) for key, item in value.items()}
+    return value
+
+
 # ---------------------------------------------------------------------------
 # JaxVLAWrapper
 # ---------------------------------------------------------------------------
@@ -178,7 +193,10 @@ class JaxVLAWrapper:
         Args:
             obs: Raw observation dict from the environment.
         """
-        transformed = self._input_transform(obs)
+        # AlohaInputs converts images from CHW to HWC and mutates its input
+        # dictionary.  Preserve the environment observation so repeated
+        # preprocessing cannot transpose an already-transposed image again.
+        transformed = self._input_transform(_copy_dict_structure(obs))
 
         # Preserve the NHWC layout expected by the JAX model.
         batched = jax.tree.map(lambda x: jnp.asarray(x)[None, ...], transformed)
