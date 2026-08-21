@@ -14,7 +14,16 @@ from tqdm import tqdm
 from rlt_openpi.models.actor import Actor
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.training.config import ActorPretrainConfig
-from rlt_openpi.vla.vla_wrapper import VLAWrapper
+from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
+
+
+def _format_array_2f(value: Any) -> str:
+    """Format an array with two fixed decimal places."""
+    return np.array2string(
+        np.asarray(value, dtype=np.float64),
+        formatter={"float_kind": lambda x: f"{x:.2f}"},
+        max_line_width=160,
+    )
 
 
 class ActorPretrainTrainer:
@@ -23,7 +32,7 @@ class ActorPretrainTrainer:
     def __init__(
         self,
         config: ActorPretrainConfig,
-        vla: VLAWrapper,
+        vla: JaxVLAWrapper,
         rl_token_model: RLTokenModel,
         device: torch.device | str = "cuda",
     ) -> None:
@@ -131,6 +140,15 @@ class ActorPretrainTrainer:
             actor_state = torch.cat([z_rl, state], dim=-1)
 
             batch_size = z_rl.shape[0]
+
+            if step == 0:
+                print(
+                    f"[ActorPretrain] input obs.state = {_format_array_2f(np.asarray(observation.state[0, : config.action_dim]))}"
+                )
+                print(
+                    f"[ActorPretrain] demo action[0]  = {_format_array_2f(demo_actions[0, 0, : config.action_dim])}"
+                )
+
             reference = vla_actions[
                 :, : config.chunk_length, : config.action_dim
             ].to(device=self.device, dtype=torch.float32).reshape(batch_size, -1)
