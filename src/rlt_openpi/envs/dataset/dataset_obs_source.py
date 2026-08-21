@@ -35,6 +35,7 @@ class DatasetObsSource(ObsSource):
         self._task_prompt = task_prompt
         self._image_size = tuple(image_size)
         self._camera_names = list(camera_names or ["cam_high", "cam_left_wrist", "cam_right_wrist"])
+        self.last_action_chunk: np.ndarray | None = None
         self._iterator = self._build_iterator(vla_config_name)
 
     def _build_iterator(self, vla_config_name: str):
@@ -44,6 +45,7 @@ class DatasetObsSource(ObsSource):
         from rlt_openpi.training.data_loader import build_data_config
 
         openpi_config, data_config = build_data_config(vla_config_name, self._repo_id)
+        action_key = data_config.action_sequence_keys[0]
 
         dataset = create_torch_dataset(
             data_config,
@@ -54,12 +56,21 @@ class DatasetObsSource(ObsSource):
         def _iter():
             while True:
                 for raw in dataset:
-                    yield self._build_aloha_obs(raw)
+                    yield self._build_aloha_obs(raw, action_key)
 
         return _iter()
 
-    def _build_aloha_obs(self, raw: dict[str, Any]) -> dict[str, Any]:
+    def _build_aloha_obs(
+        self,
+        raw: dict[str, Any],
+        action_key: str,
+    ) -> dict[str, Any]:
         state = np.asarray(raw["observation.state"], dtype=np.float32)
+        action_chunk = np.asarray(raw[action_key], dtype=np.float32)
+        if action_chunk.ndim == 1:
+            action_chunk = action_chunk[None, :]
+        self.last_action_chunk = action_chunk.copy()
+
         images: dict[str, np.ndarray] = {}
         for cam in self._camera_names:
             key = f"observation.images.{cam}"

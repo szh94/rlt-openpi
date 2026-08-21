@@ -260,7 +260,7 @@ class RolloutWorker:
         """
         stats = EpisodeStats()
         obs = self.env.reset()
-        is_mock_obs = type(getattr(self.env, "obs_source", None)).__name__ == "MockObsSource"
+        obs_source = getattr(self.env, "obs_source", None)
 
         while True:
             # Extract RL state and VLA reference
@@ -284,22 +284,22 @@ class RolloutWorker:
                 info = intervention.info
                 stats.interventions += 1
             else:
-                if is_mock_obs and stats.num_chunks == 0:
-                    print(f"[Mock] obs.state = {_format_array_2f(obs.get('state'))}")
-                    print(
-                        "[Mock] before actor action[0] = "
-                        f"{_format_array_2f(reference_chunk[0])}"
-                    )
+                if stats.num_chunks == 0:
+                    print(f"[Rollout] input obs.state = {_format_array_2f(obs.get('state'))}")
+                    print(f"[Rollout] a0 before actor = {_format_array_2f(reference_chunk[0])}")
                 else:
                     print(f"Current step = {stats.num_steps}, total_reward = {stats.total_reward:.2f}")
 
                 action_chunk = self._get_actor_action(x, a_tilde_flat)
 
-                if is_mock_obs and stats.num_chunks == 0:
-                    print(
-                        "[Mock] after actor action[0] = "
-                        f"{_format_array_2f(action_chunk[0])}"
-                    )
+                if stats.num_chunks == 0:
+                    print(f"[Rollout] a0 after actor  = {_format_array_2f(action_chunk[0])}")
+                    dataset_actions = getattr(obs_source, "last_action_chunk", None)
+                    if dataset_actions is not None:
+                        print(
+                            "[Dataset] action[0]       = "
+                            f"{_format_array_2f(dataset_actions[0])}"
+                        )
 
                 # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)

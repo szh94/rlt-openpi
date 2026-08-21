@@ -47,26 +47,36 @@ class ActorPretrainTrainer:
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr)
 
         action_stats = self.vla.norm_stats["actions"]
-        if self.vla.use_quantile_norm:
-            low = np.asarray(action_stats.q01[: config.action_dim], dtype=np.float32)
-            high = np.asarray(action_stats.q99[: config.action_dim], dtype=np.float32)
-            center = (low + high) / 2.0
-            scale = (high - low) / 2.0
+        self._use_quantile_norm = self.vla.use_quantile_norm
+        if self._use_quantile_norm:
+            self._action_q01 = torch.as_tensor(
+                np.asarray(action_stats.q01[: config.action_dim], dtype=np.float32),
+                device=self.device,
+            ).repeat(config.chunk_length)
+            self._action_q99 = torch.as_tensor(
+                np.asarray(action_stats.q99[: config.action_dim], dtype=np.float32),
+                device=self.device,
+            ).repeat(config.chunk_length)
         else:
-            center = np.asarray(action_stats.mean[: config.action_dim], dtype=np.float32)
-            scale = np.asarray(action_stats.std[: config.action_dim], dtype=np.float32)
-
-        self._action_center = torch.as_tensor(center, device=self.device).repeat(
-            config.chunk_length
-        )
-        self._action_scale = (
-            torch.as_tensor(scale, device=self.device)
-            .clamp_min(1e-6)
-            .repeat(config.chunk_length)
-        )
+            self._action_mean = torch.as_tensor(
+                np.asarray(action_stats.mean[: config.action_dim], dtype=np.float32),
+                device=self.device,
+            ).repeat(config.chunk_length)
+            self._action_std = torch.as_tensor(
+                np.asarray(action_stats.std[: config.action_dim], dtype=np.float32),
+                device=self.device,
+            ).repeat(config.chunk_length)
 
     def _normalize_action(self, action: torch.Tensor) -> torch.Tensor:
-        return (action - self._action_center) / self._action_scale
+        """Apply the same action normalization formula as OpenPI Normalize."""
+        if self._use_quantile_norm:
+            return (
+                (action - self._action_q01)
+                / (self._action_q99 - self._action_q01 + 1e-6)
+                * 2.0
+                - 1.0
+            )
+        return (action - self._action_mean) / (self._action_std + 1e-6)
 
     def _save_checkpoint(
         self,
