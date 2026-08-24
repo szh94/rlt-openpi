@@ -33,45 +33,23 @@ def _format_array_2f(value: Any) -> str:
     )
 
 
-def _print_input_debug(observations: Any, raw_state: Any | None = None) -> None:
-    """Print raw state and the first transformed Stage 1 observation."""
-    if raw_state is not None:
-        raw_state_array = np.asarray(raw_state)
-        first_raw_state = (
-            raw_state_array[0] if raw_state_array.ndim > 1 else raw_state_array
-        )
-        print(
-            f"[DEBUG] raw obs.state[0] = {_format_array_2f(first_raw_state)}"
-        )
+def _print_input_debug(raw_observation: Any) -> None:
+    """Print the first raw state and raw image in a Stage 1 batch."""
+    raw_state = np.asarray(raw_observation["state"])
+    first_raw_state = raw_state[0] if raw_state.ndim > 1 else raw_state
+    print(f"[DEBUG] raw obs.state[0] = {_format_array_2f(first_raw_state)}")
 
-    state = np.asarray(observations.state)
-    first_state = state[0] if state.ndim > 1 else state
-    print(f"[DEBUG] input obs.state[0] = {_format_array_2f(first_state)}")
-
-    images = observations.images or {}
+    images = raw_observation["images"] or {}
     if images:
         first_image_key = next(iter(images))
         image = np.asarray(images[first_image_key])
         first_image = image[0] if image.ndim > 3 else image
         print(
-            f"[DEBUG] input obs.images[{first_image_key!r}][0][:20] = "
+            f"[DEBUG] raw obs.images[{first_image_key!r}][0][:20] = "
             f"{first_image.reshape(-1)[:20]}"
         )
     else:
-        print("[DEBUG] input obs.images = <empty>")
-
-    tokenized_prompt = observations.tokenized_prompt
-    if tokenized_prompt is None:
-        print("[DEBUG] input obs.tokenized_prompt = None")
-    else:
-        prompt_tokens = np.asarray(tokenized_prompt)
-        first_prompt_tokens = (
-            prompt_tokens[0] if prompt_tokens.ndim > 1 else prompt_tokens
-        )
-        print(
-            "[DEBUG] input obs.tokenized_prompt[0] = "
-            f"{first_prompt_tokens}"
-        )
+        print("[DEBUG] raw obs.images = <empty>")
 
 
 class RLTokenTrainer:
@@ -150,14 +128,17 @@ class RLTokenTrainer:
                 print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
             if len(batch) == 3:
-                observations, actions, raw_state = batch
+                observations, actions, raw_observation = batch
             else:
                 observations, actions = batch
-                raw_state = None
+                raw_observation = None
             t1 = time.monotonic()
 
             if step_idx == 1:
-                _print_input_debug(observations, raw_state)
+                if raw_observation is None:
+                    print("[DEBUG] raw observation is unavailable")
+                else:
+                    _print_input_debug(raw_observation)
 
             metrics = self.step_frozen(vla, observations)
             t2 = time.monotonic()

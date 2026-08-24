@@ -23,7 +23,7 @@ echo "========================================"
 echo " Stage 1 RL Token Training (JAX VLA)"
 echo "   VLA checkpoint  = $VLA_CHECKPOINT_JAX"
 echo "   HF Dataset      = $S1_HF_LEROBOT_HOME"
-echo "   Save dir        = $STAGE1_RLT_CHECKPOINT_DIR"
+echo "   Save dir        = $STAGE1_RLT_CPD"
 echo "   Num workers     = $NUM_WORKERS"
 echo "   Log every       = $LOG_EVERY"
 echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
@@ -33,7 +33,7 @@ echo ""
 python scripts/train_jax_s1_rltoken.py \
     --train.vla-config-name pi05_jax_full \
     --train.vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
-    --train.save-dir "$STAGE1_RLT_CHECKPOINT_DIR" \
+    --train.save-dir "$STAGE1_RLT_CPD" \
     --train.vla-finetune-alpha 0.0 \
     --train.batch-size 8 \
     --train.num-train-steps 20000 \

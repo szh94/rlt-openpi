@@ -114,7 +114,12 @@ def _build_transformed_dataset(
     data_transforms: _transforms.Group | None = None,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
     include_raw_state: bool = False,
+    include_raw_observation: bool = False,
 ):
+    if include_raw_state and include_raw_observation:
+        raise ValueError(
+            "include_raw_state and include_raw_observation are mutually exclusive"
+        )
     openpi_config, data_config = build_data_config(
         openpi_config_name,
         repo_id,
@@ -126,11 +131,14 @@ def _build_transformed_dataset(
         openpi_config.model.action_horizon,
         openpi_config.model,
     )
-    transformed_dataset = (
-        _TransformedDatasetWithRawState(dataset, data_config)
-        if include_raw_state
-        else transform_dataset(dataset, data_config)
-    )
+    if include_raw_observation:
+        transformed_dataset = _TransformedDatasetWithRawObservation(
+            dataset, data_config
+        )
+    elif include_raw_state:
+        transformed_dataset = _TransformedDatasetWithRawState(dataset, data_config)
+    else:
+        transformed_dataset = transform_dataset(dataset, data_config)
     return openpi_config, data_config, transformed_dataset, len(dataset)
 
 
@@ -165,6 +173,28 @@ class _TransformedDatasetWithRawState:
 
     def __len__(self) -> int:
         return len(self._dataset)
+
+
+class _TransformedDatasetWithRawObservation(_TransformedDatasetWithRawState):
+    """Apply transforms while retaining raw state and the first raw image."""
+
+    def __getitem__(self, index):
+        raw = self._dataset[index]
+        first_image = next(
+            (
+                (key, np.asarray(value).copy())
+                for key, value in raw.items()
+                if isinstance(key, str)
+                and key.startswith("observation.images.")
+                and value is not None
+            ),
+            None,
+        )
+        raw_observation = {
+            "state": np.asarray(raw["observation.state"], dtype=np.float32).copy(),
+            "images": dict([first_image]) if first_image is not None else {},
+        }
+        return self._transform(raw), raw_observation
 
 
 def build_torch_data_loader(
@@ -237,6 +267,7 @@ def build_jax_data_loader(
     output_action_dim: int | None = None,
     dataset_label: str | None = None,
     include_raw_state: bool = False,
+    include_raw_observation: bool = False,
 ) -> Iterator[tuple[Observation, Any] | tuple[Observation, Any, Any]]:
     """Build an infinite iterator whose observations are native JAX arrays.
 
@@ -253,6 +284,10 @@ def build_jax_data_loader(
     If ``include_raw_state`` is true, each yielded item additionally contains
     the untransformed ``observation.state`` loaded from the exact same dataset
     sample as its observation and action.
+
+    If ``include_raw_observation`` is true, the additional item contains the
+    untransformed state and first image field from that same sample. It is
+    mutually exclusive with ``include_raw_state``.
     """
     if action_target_space not in {"normalized", "model"}:
         raise ValueError(f"Unsupported action_target_space: {action_target_space!r}")
@@ -262,6 +297,7 @@ def build_jax_data_loader(
         repo_id,
         norm_stats=norm_stats,
         include_raw_state=include_raw_state,
+        include_raw_observation=include_raw_observation,
     )
     if dataset_label:
         print(
@@ -301,11 +337,12 @@ def build_jax_data_loader(
     )
 
     def _iterator():
+        include_raw = include_raw_state or include_raw_observation
         while True:
             for loader_batch in raw_loader:
                 loader_batch = jax.tree.map(jnp.asarray, loader_batch)
-                if include_raw_state:
-                    batch, raw_state = loader_batch
+                if include_raw:
+                    batch, raw_data = loader_batch
                 else:
                     batch = loader_batch
                 actions = batch["actions"]
@@ -315,8 +352,8 @@ def build_jax_data_loader(
                         {"state": batch["state"], "actions": actions}
                     )["actions"]
                     actions = actions[..., :target_dim]
-                if include_raw_state:
-                    yield Observation.from_dict(batch), actions, raw_state
+                if include_raw:
+                    yield Observation.from_dict(batch), actions, raw_data
                 else:
                     yield Observation.from_dict(batch), actions
 
