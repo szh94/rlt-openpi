@@ -25,11 +25,6 @@ class RLTokenTrainConfig:
     weight_decay: float = 1e-5
     warmup_steps: int = 500  # Linear LR warmup steps (matches OpenPI default)
     max_grad_norm: float = 1.0  # Global gradient norm clipping (matches OpenPI default)
-    vla_finetune_alpha: float = 0.0  # VLA fine-tuning weight (always 0 = frozen VLA, joint training disabled)
-    # --- VLA joint training fields (disabled) ---
-    # vla_learning_rate: float = 1e-5  # VLA fine-tuning learning rate (used when alpha > 0)
-    # gradient_checkpointing: bool = True  # Enable gradient checkpointing to reduce VRAM
-
     # Checkpoints
     vla_checkpoint_dir: str = ""
     vla_config_name: str = "pi05_aloha"

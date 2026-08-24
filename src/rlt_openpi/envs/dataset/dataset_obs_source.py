@@ -1,7 +1,7 @@
 """从 LeRobot 数据集加载 obs，统一为 ALOHA schema。
 
 复用 OpenPI 的 ``create_torch_dataset`` 读取数据集**原始帧**（不应用
-Normalize / model_transforms，那些由 ``VLAWrapper.preprocess_obs`` 的
+Normalize / model_transforms，那些由 ``JaxVLAWrapper.preprocess_obs`` 的
 变换链负责），再按 ALOHA schema 组装 ``{state, images{cam_*}, prompt}``。
 """
 

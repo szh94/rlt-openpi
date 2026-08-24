@@ -1,10 +1,4 @@
-"""Stage 2 with JAX VLA: Online RL training with frozen VLA + RL token.
-
-Same as ``train_torch_s2_onlinerl.py`` but loads the native JAX Pi0 model via
-:class:`JaxVLAWrapper` instead of the PyTorch port.
-
-Key difference: Skips VLA weight restoration from the Stage 1 checkpoint
-because JAX NNX models do not use ``load_state_dict``.
+"""Stage 2: online RL training with a frozen JAX VLA and RL token.
 
 Usage::
 
@@ -53,11 +47,6 @@ def main(config: OnlineRLTrainConfig) -> None:
 
     # Load frozen RL token model from Stage 1
     rl_token_model = load_rl_token_model(config.rl_token_checkpoint, device="cuda")
-
-    # NOTE: VLA weight restoration from Stage 1 checkpoint is SKIPPED.
-    # The JAX NNX model does not use load_state_dict, and Stage 1 with
-    # JaxVLAWrapper cannot fine-tune the VLA (vla_finetune_alpha must be 0).
-    # The base JAX VLA loaded above is used as-is.
 
     # Create trainer
     trainer = OnlineRLTrainer(

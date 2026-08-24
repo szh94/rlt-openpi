@@ -24,7 +24,7 @@ from rlt_openpi.training.config import OnlineRLTrainConfig
 from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.training.td3_utils import actor_loss, compute_td_target, critic_loss
 from rlt_openpi.utils import display
-from rlt_openpi.vla.vla_wrapper import VLAWrapper
+from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
 class OnlineRLTrainer:
     """Stage 2: Online RL training with Algorithm 1.
@@ -42,7 +42,7 @@ class OnlineRLTrainer:
     def __init__(
         self,
         config: OnlineRLTrainConfig,
-        vla: VLAWrapper,
+        vla: JaxVLAWrapper,
         rl_token_model: RLTokenModel,
         device: torch.device | str = "cuda",
     ) -> None:

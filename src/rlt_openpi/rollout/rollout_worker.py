@@ -20,7 +20,7 @@ from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.envs.intervention import InterventionManager, InterventionResult
 from rlt_openpi.envs.envbase.reward import HumanReward
 from rlt_openpi.training.replay_buffer import ReplayBuffer
-from rlt_openpi.vla.vla_wrapper import VLAWrapper
+from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
 
 def _format_array_2f(value: Any) -> str:
@@ -66,7 +66,7 @@ class RolloutWorker:
     def __init__(
         self,
         env: Any,
-        vla: VLAWrapper,
+        vla: JaxVLAWrapper,
         rl_token_model: RLTokenModel,
         actor: Actor,
         replay_buffer: ReplayBuffer,
@@ -117,8 +117,7 @@ class RolloutWorker:
     def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
         """Extract RL state x = cat(z_rl, s^p), VLA reference, and action chunk.
 
-        Uses a single VLA forward pass when ``extract_both`` is available
-        (JAX path), falling back to two calls for the PyTorch path.
+        Uses one JAX VLA forward pass to extract embeddings and reference actions.
 
         Returns:
             x: RL state [state_dim] as numpy array.
@@ -128,12 +127,7 @@ class RolloutWorker:
         # Convert the raw environment observation dict into a batched OpenPI Observation.
         vla_input = self.vla.preprocess_obs(obs)
 
-        # Single VLA forward pass (JAX) or two calls (PyTorch fallback)
-        if hasattr(self.vla, "extract_both"):
-            z, pad_mask, actions = self.vla.extract_both(vla_input)
-        else:
-            z, pad_mask = self.vla.extract_embeddings(vla_input)
-            actions = self.vla.sample_reference_actions(vla_input)
+        z, pad_mask, actions = self.vla.extract_both(vla_input)
 
         # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]

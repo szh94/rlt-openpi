@@ -1,11 +1,4 @@
-"""Stage 1 with JAX VLA: Train the RL token encoder-decoder on demonstration data.
-
-Same as ``train_torch_s1_rltoken.py`` but loads the native JAX Pi0 model via
-:class:`JaxVLAWrapper` instead of the PyTorch port.
-
-**Joint training is not supported** — ``--train.vla-finetune-alpha``
-must be 0 (or omitted).  A JAX NNX model cannot be optimised by a
-PyTorch optimizer.
+"""Stage 1: train the RL token encoder-decoder with a frozen JAX VLA.
 
 Usage::
 
@@ -64,14 +57,6 @@ class TrainConfig:
 
 
 def main(config: TrainConfig) -> None:
-    # Guard: joint training is not supported with JAX VLA.
-    if config.train.vla_finetune_alpha > 0:
-        raise ValueError(
-            f"vla_finetune_alpha={config.train.vla_finetune_alpha} is not supported "
-            f"with JaxVLAWrapper. Joint training requires the PyTorch VLAWrapper. "
-            f"Use scripts/train_torch_s1_rltoken.py for joint training."
-        )
-
     print("=" * 60)
     print("Stage 1: RL Token Encoder-Decoder Training (JAX VLA)")
     print("=" * 60)
@@ -81,8 +66,6 @@ def main(config: TrainConfig) -> None:
     print(f"  Batch size:      {config.train.batch_size}")
     print(f"  Train steps:     {config.train.num_train_steps}")
     print(f"  Save dir:        {config.train.save_dir}")
-    # VLA joint training disabled — VLA is always frozen.
-    # print(f"  VLA finetune:    alpha={config.train.vla_finetune_alpha} (frozen)")
     print("-" * 60)
 
     print("[1/4] Loading JAX VLA model...")

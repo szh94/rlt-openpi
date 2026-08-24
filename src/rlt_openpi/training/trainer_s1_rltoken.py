@@ -13,7 +13,6 @@ from typing import Any, Iterator
 
 import time
 
-import jax
 import numpy as np
 import torch
 from torch import Tensor
@@ -21,7 +20,7 @@ from tqdm import tqdm
 
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.training.config import RLTokenTrainConfig
-from rlt_openpi.vla.vla_wrapper import VLAWrapper
+from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
 
 def _format_array_2f(value: Any) -> str:
@@ -107,7 +106,7 @@ class RLTokenTrainer:
 
     def train(
         self,
-        vla: VLAWrapper,
+        vla: JaxVLAWrapper,
         dataloader: Iterator[tuple[Any, Tensor] | tuple[Any, Tensor, Any]],
         log_fn: Any | None = None,
     ) -> None:
@@ -235,7 +234,7 @@ class RLTokenTrainer:
 
     def step_frozen(
         self,
-        vla: VLAWrapper,
+        vla: JaxVLAWrapper,
         observations: Any,
     ) -> dict[str, float]:
         """Frozen VLA step: extract embeddings (no grad) → L_ro only."""
@@ -244,9 +243,6 @@ class RLTokenTrainer:
         t0 = time.monotonic()
         self.model.train()
 
-        observations = _obs_to_device(observations, self.device)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize(self.device)
         t1 = time.monotonic()
 
         with torch.no_grad():
@@ -282,7 +278,7 @@ class RLTokenTrainer:
         self._global_step += 1
 
         # Timing breakout (ms)
-        t_obs_to_device = (t1 - t0) * 1000
+        t_input_ready = (t1 - t0) * 1000
         t_vla_embed = (t2 - t1) * 1000
         t_rl_forward = (t3 - t2) * 1000
         t_backward = (t4 - t3) * 1000
@@ -292,7 +288,7 @@ class RLTokenTrainer:
 
         # print(
         #     f"[train_step] {self._global_step} | "
-        #     f"obs_to_device={t_obs_to_device:.1f}ms | "
+        #     f"input_ready={t_input_ready:.1f}ms | "
         #     f"vla_embed={t_vla_embed:.1f}ms | "
         #     f"rlt_forward={t_rl_forward:.1f}ms | "
         #     f"rlt_backward={t_backward:.1f}ms | "
@@ -307,25 +303,3 @@ class RLTokenTrainer:
             "lr": self.optimizer.param_groups[0]["lr"],
             "step": self._global_step,
         }
-
-def _obs_to_device(obs: Any, device: torch.device) -> Any:
-    """Recursively move an Observation (or dict) of tensors to a device."""
-    from openpi.models.model import Observation
-
-    if isinstance(obs, Observation):
-        return Observation(
-            images={k: _obs_to_device(v, device) for k, v in obs.images.items()},
-            image_masks={k: _obs_to_device(v, device) for k, v in obs.image_masks.items()},
-            state=_obs_to_device(obs.state, device),
-            tokenized_prompt=_obs_to_device(obs.tokenized_prompt, device) if obs.tokenized_prompt is not None else None,
-            tokenized_prompt_mask=_obs_to_device(obs.tokenized_prompt_mask, device) if obs.tokenized_prompt_mask is not None else None,
-            token_ar_mask=_obs_to_device(obs.token_ar_mask, device) if obs.token_ar_mask is not None else None,
-            token_loss_mask=_obs_to_device(obs.token_loss_mask, device) if obs.token_loss_mask is not None else None,
-        )
-    if isinstance(obs, dict):
-        return {k: _obs_to_device(v, device) for k, v in obs.items()}
-    if isinstance(obs, jax.Array):
-        return obs
-    if isinstance(obs, torch.Tensor):
-        return obs.to(device)
-    return obs

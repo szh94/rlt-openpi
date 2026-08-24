@@ -4,8 +4,6 @@
 
 # --- VLA checkpoints ---
 
-# torch
-# VLA_CHECKPOINT_DIR="/home/zhike/model/openpi_pytorch/30000"
 # jax data 1414 groups
 # VLA_CHECKPOINT_DIR_JAX="/home/zhike/model/openpi-jax/full/1414-60000"
 # export HF_LEROBOT_HOME="/home/zhike/data/openpi/train/1414"
@@ -13,9 +11,6 @@
 VLA_CHECKPOINT_DIR_JAX="/home/zhike/model/openpi-jax/full/160-3w/models (1)/models/pretrained_model"
 
 # --- Derived: these usually don't need to be changed ---
-# torch
-# VLA_CHECKPOINT="${VLA_CHECKPOINT_DIR}/model.safetensors"
-# jax
 VLA_CHECKPOINT_JAX="${VLA_CHECKPOINT_DIR_JAX}"
 
 export S1_HF_LEROBOT_HOME="/home/zhike/szh/data_allforce_all"

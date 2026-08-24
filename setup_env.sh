@@ -11,7 +11,7 @@
 #
 # After setup:
 #   conda activate <env_name>
-#   bash example/torch_s1.sh   # or torch_s2.sh, jax_s1.sh, jax_s2_onlinerl.sh, eval_*.sh
+#   bash example/jax_s1.sh   # or jax_s2_actorPretrain.sh, jax_s2_onlinerl.sh
 set -euo pipefail
 
 # ── Parse args ──────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ fi
 
 if [ "$ENV_EXISTS" = true ]; then
     echo "==> Conda env '${ENV_NAME}' already exists. Skipping env creation and openpi install."
-    echo "==> Only installing rlt-openpi and patching transformers..."
+    echo "==> Only installing rlt-openpi..."
 else
     # ── Core environment (new) ──────────────────────────────────────────
     echo "==> Creating conda env '${ENV_NAME}' with Python 3.11..."
@@ -77,14 +77,6 @@ else
 ${OPENPI_URL}
 EOF
 fi
-
-# ── Patch transformers ────────────────────────────────────────────────
-echo "==> Patching transformers with openpi's transformers_replace files..."
-OPENPI_PKG_DIR=$(conda run -n "${ENV_NAME}" python -c \
-    "import openpi, pathlib; print(pathlib.Path(openpi.__file__).parent)")
-TRANSFORMERS_DIR=$(conda run -n "${ENV_NAME}" python -c \
-    "import transformers, pathlib; print(pathlib.Path(transformers.__file__).parent)")
-cp -r "${OPENPI_PKG_DIR}/models_pytorch/transformers_replace/"* "${TRANSFORMERS_DIR}/"
 
 echo ""
 echo "==> Done! Activate with:  conda activate ${ENV_NAME}"

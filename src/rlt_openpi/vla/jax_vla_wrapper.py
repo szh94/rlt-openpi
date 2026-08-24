@@ -41,15 +41,12 @@ def _observation_to_jax(obs: _model.Observation) -> _model.Observation:
 
     ``preprocess_obs`` already returns device-backed JAX arrays.  Keeping those
     leaves unchanged avoids a JAX device -> NumPy host -> JAX device round trip
-    immediately before the JIT-compiled model call.  Torch inputs still need to
-    pass through CPU because PyTorch and JAX do not share them here.
+    immediately before the JIT-compiled model call.
     """
 
     def _to_jax(x):
         if isinstance(x, jax.Array):
             return x
-        if isinstance(x, torch.Tensor):
-            x = x.detach().cpu().numpy()
         return jnp.asarray(x)
 
     images = {k: _to_jax(v) for k, v in obs.images.items()}
@@ -180,7 +177,7 @@ class JaxVLAWrapper:
         return rng
 
     # ------------------------------------------------------------------
-    # Public interface (mirrors VLAWrapper)
+    # Public interface
     # ------------------------------------------------------------------
 
     def preprocess_obs(self, obs: dict[str, Any]) -> _model.Observation:

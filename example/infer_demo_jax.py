@@ -30,6 +30,11 @@ obs['state'] = np.array([164.707, -30.758, 55.32, 36.983, 92.156, 72.361, 0.0, 1
 
 print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
 
+for i in range(10):
+    action = policy.infer(obs)
+    print(f"a0 in step {i}: {[f'{x:.2f}' for x in action['actions'][0][:14]]}")
+
+
 # print("[DEBUG] obs keys and value shapes:")
 # for k, v in obs.items():
 #     # 嵌套字典
@@ -44,40 +49,40 @@ print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
 #     else:
 #         print(f"  {k}: type={type(v).__name__}, value={v}")
 
-transformed_batch = [
-    policy._input_transform(copy.deepcopy(obs))
-    for _ in range(BATCH_SIZE)
-]
-batched_inputs = jax.tree.map(
-    lambda *xs: jnp.stack([jnp.asarray(x) for x in xs], axis=0),
-    *transformed_batch,
-)
-observation = _model.Observation.from_dict(batched_inputs)
+# transformed_batch = [
+#     policy._input_transform(copy.deepcopy(obs))
+#     for _ in range(BATCH_SIZE)
+# ]
+# batched_inputs = jax.tree.map(
+#     lambda *xs: jnp.stack([jnp.asarray(x) for x in xs], axis=0),
+#     *transformed_batch,
+# )
+# observation = _model.Observation.from_dict(batched_inputs)
 
-print(f"[DEBUG] batch_size={BATCH_SIZE}, state.shape={observation.state.shape}")
+# print(f"[DEBUG] batch_size={BATCH_SIZE}, state.shape={observation.state.shape}")
 
-for i in range(4):
-    policy._rng, sample_rng = jax.random.split(policy._rng)
+# for i in range(4):
+#     policy._rng, sample_rng = jax.random.split(policy._rng)
 
-    t0 = time.monotonic()
-    sample_outputs = policy._sample_actions(
-        sample_rng,
-        observation,
-        **policy._sample_kwargs,
-    )
-    jax.block_until_ready(sample_outputs)
-    t1 = time.monotonic()
+#     t0 = time.monotonic()
+#     sample_outputs = policy._sample_actions(
+#         sample_rng,
+#         observation,
+#         **policy._sample_kwargs,
+#     )
+#     jax.block_until_ready(sample_outputs)
+#     t1 = time.monotonic()
 
-    _, actions = sample_outputs
-    actions_np = np.asarray(jax.device_get(actions))
-    state_np = np.asarray(jax.device_get(observation.state))
-    action = policy._output_transform(
-        {"state": state_np[0], "actions": actions_np[0]}
-    )
+#     _, actions = sample_outputs
+#     actions_np = np.asarray(jax.device_get(actions))
+#     state_np = np.asarray(jax.device_get(observation.state))
+#     action = policy._output_transform(
+#         {"state": state_np[0], "actions": actions_np[0]}
+#     )
 
-    print(
-        f"step {i}: batch={BATCH_SIZE} "
-        f"infer time={(t1 - t0) * 1000:.1f}ms "
-        f"throughput={BATCH_SIZE / (t1 - t0):.2f} samples/s"
-    )
-    print(f"action[0]: {[f'{x:.2f}' for x in action['actions'][0][:14]]}")
+#     print(
+#         f"step {i}: batch={BATCH_SIZE} "
+#         f"infer time={(t1 - t0) * 1000:.1f}ms "
+#         f"throughput={BATCH_SIZE / (t1 - t0):.2f} samples/s"
+#     )
+#     print(f"action[0]: {[f'{x:.2f}' for x in action['actions'][0][:14]]}")

@@ -19,21 +19,12 @@ Observations follow the ALOHA schema:
 Usage::
 
     # Training
-    python scripts/train_torch_s2_onlinerl.py \\
+    python scripts/train_jax_s2_onlinerl.py \\
         --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
         --task-prompt "pick up the cup" \\
         --action-dim 14 --chunk-length 10 \\
         --vla-config-name pi05_aloha \\
-        --vla-checkpoint-dir /path/to/vla.safetensors \\
-        --rl-token-checkpoint /path/to/rl_token.pt
-
-    # Evaluation
-    python scripts/evaluate.py \\
-        --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \\
-        --task-prompt "pick up the cup" \\
-        --checkpoint /path/to/online_rl.pt \\
-        --vla-config-name pi05_aloha \\
-        --vla-checkpoint-dir /path/to/vla.safetensors \\
+        --vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --rl-token-checkpoint /path/to/rl_token.pt
 """
 
