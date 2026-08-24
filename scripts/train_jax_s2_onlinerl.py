@@ -119,8 +119,21 @@ def main(config: OnlineRLTrainConfig) -> None:
     if obs_source is not None:
         env_kwargs["obs_source"] = obs_source
     env = make_env(config.env_factory, **env_kwargs)
+
+    actual_obs_source = getattr(env, "obs_source", None)
+    if obs_source is not None and actual_obs_source is not obs_source:
+        raise RuntimeError(
+            f"Environment did not retain the requested {type(obs_source).__name__}; "
+            f"actual source is {type(actual_obs_source).__name__ if actual_obs_source is not None else 'None'}"
+        )
+    source_name = (
+        type(actual_obs_source).__name__
+        if actual_obs_source is not None
+        else "factory-managed robot observations"
+    )
     print(
-        f"Environment created: action_dim={env.action_dim}, chunk_length={env.chunk_length}"
+        f"Environment created: action_dim={env.action_dim}, "
+        f"chunk_length={env.chunk_length}, obs_source={source_name}"
     )
 
     # Create intervention manager (VR teleoperation, etc.) if specified.

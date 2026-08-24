@@ -17,8 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../keyPara.sh
 source "$SCRIPT_DIR/../keyPara.sh"
 
-# 黑盒 obs 来源: robot=真实机械臂硬件 | mock=随机假obs(默认) | dataset=从数据集加载
-OBS_SOURCE=${OBS_SOURCE:-mock}
+# 黑盒 obs 来源: robot=真实机械臂硬件 | mock=随机假obs | dataset=从数据集加载(默认)
+OBS_SOURCE=${OBS_SOURCE:-dataset}
 
 # --- 所有 OBS_SOURCE 共用 ---
 ALOHA_CONTROL_HZ=15
