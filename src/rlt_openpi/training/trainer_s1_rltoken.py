@@ -14,6 +14,7 @@ from typing import Any, Iterator
 import time
 
 import jax
+import numpy as np
 import torch
 from torch import Tensor
 from tqdm import tqdm
@@ -21,6 +22,57 @@ from tqdm import tqdm
 from rlt_openpi.models.rl_token import RLTokenModel
 from rlt_openpi.training.config import RLTokenTrainConfig
 from rlt_openpi.vla.vla_wrapper import VLAWrapper
+
+
+def _format_array_2f(value: Any) -> str:
+    """Format an array with two fixed decimal places."""
+    return np.array2string(
+        np.asarray(value, dtype=np.float64),
+        formatter={"float_kind": lambda x: f"{x:.2f}"},
+        max_line_width=160,
+    )
+
+
+def _print_input_debug(observations: Any, raw_state: Any | None = None) -> None:
+    """Print raw state and the first transformed Stage 1 observation."""
+    if raw_state is not None:
+        raw_state_array = np.asarray(raw_state)
+        first_raw_state = (
+            raw_state_array[0] if raw_state_array.ndim > 1 else raw_state_array
+        )
+        print(
+            f"[DEBUG] raw obs.state[0] = {_format_array_2f(first_raw_state)}"
+        )
+
+    state = np.asarray(observations.state)
+    first_state = state[0] if state.ndim > 1 else state
+    print(f"[DEBUG] input obs.state[0] = {_format_array_2f(first_state)}")
+
+    images = observations.images or {}
+    if images:
+        first_image_key = next(iter(images))
+        image = np.asarray(images[first_image_key])
+        first_image = image[0] if image.ndim > 3 else image
+        print(
+            f"[DEBUG] input obs.images[{first_image_key!r}][0][:20] = "
+            f"{first_image.reshape(-1)[:20]}"
+        )
+    else:
+        print("[DEBUG] input obs.images = <empty>")
+
+    tokenized_prompt = observations.tokenized_prompt
+    if tokenized_prompt is None:
+        print("[DEBUG] input obs.tokenized_prompt = None")
+    else:
+        prompt_tokens = np.asarray(tokenized_prompt)
+        first_prompt_tokens = (
+            prompt_tokens[0] if prompt_tokens.ndim > 1 else prompt_tokens
+        )
+        print(
+            "[DEBUG] input obs.tokenized_prompt[0] = "
+            f"{first_prompt_tokens}"
+        )
+
 
 class RLTokenTrainer:
     """Stage 1 trainer for the RL token encoder-decoder.
@@ -71,7 +123,7 @@ class RLTokenTrainer:
     def train(
         self,
         vla: VLAWrapper,
-        dataloader: Iterator[tuple[Any, Tensor]],
+        dataloader: Iterator[tuple[Any, Tensor] | tuple[Any, Tensor, Any]],
         log_fn: Any | None = None,
     ) -> None:
         """Run the full training loop.
@@ -93,11 +145,19 @@ class RLTokenTrainer:
         for step_idx in pbar:
             t0 = time.monotonic()
             try:
-                observations, actions = next(dataloader)
+                batch = next(dataloader)
             except StopIteration:
                 print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
+            if len(batch) == 3:
+                observations, actions, raw_state = batch
+            else:
+                observations, actions = batch
+                raw_state = None
             t1 = time.monotonic()
+
+            if step_idx == 1:
+                _print_input_debug(observations, raw_state)
 
             metrics = self.step_frozen(vla, observations)
             t2 = time.monotonic()

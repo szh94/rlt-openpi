@@ -109,6 +109,7 @@ def main(config: TrainConfig) -> None:
         norm_stats=vla.norm_stats,
         action_target_space="normalized",
         dataset_label="RL token training dataset",
+        include_raw_state=True,
     )
     print("Data loaded.\n")
 
