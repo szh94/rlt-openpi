@@ -36,6 +36,7 @@ class DatasetObsSource(ObsSource):
         self._image_size = tuple(image_size)
         self._camera_names = list(camera_names or ["cam_high", "cam_left_wrist", "cam_right_wrist"])
         self.last_action_chunk: np.ndarray | None = None
+        self._printed_image_debug = False
         self._iterator = self._build_iterator(vla_config_name)
 
     def _build_iterator(self, vla_config_name: str):
@@ -71,6 +72,25 @@ class DatasetObsSource(ObsSource):
             action_chunk = action_chunk[None, :]
         self.last_action_chunk = action_chunk.copy()
 
+        if not getattr(self, "_printed_image_debug", False):
+            raw_image_keys = sorted(
+                key for key in raw if key.startswith("observation.images.")
+            )
+            print(f"[DatasetObsSource] raw image keys = {raw_image_keys}")
+            for key in raw_image_keys:
+                image = np.asarray(raw[key])
+                print(
+                    f"[DatasetObsSource] raw {key}: shape={image.shape}, "
+                    f"dtype={image.dtype}, min={image.min()}, max={image.max()}"
+                )
+            for cam in self._camera_names:
+                key = f"observation.images.{cam}"
+                print(
+                    f"[DatasetObsSource] output {cam} reads {key}: "
+                    f"present={key in raw and raw[key] is not None}"
+                )
+            self._printed_image_debug = True
+
         images: dict[str, np.ndarray] = {}
         for cam in self._camera_names:
             key = f"observation.images.{cam}"
@@ -98,4 +118,5 @@ class DatasetObsSource(ObsSource):
         return img
 
     def get_obs(self) -> dict[str, Any]:
+        print(f"[DatasetObsSource.get_obs] entered; repo_id={self._repo_id}")
         return next(self._iterator)

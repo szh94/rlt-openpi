@@ -107,6 +107,11 @@ class RobotEnv:
         Returns:
             Observation dict with ``"state"``, camera images, and ``"prompt"``.
         """
+        obs_source = getattr(self, "obs_source", None)
+        print(
+            f"[RobotEnv.reset] entered; "
+            f"obs_source={type(obs_source).__name__ if obs_source is not None else 'None'}"
+        )
         self._feedback.stop()
         self._reset_fn()
         self._chunk_count = 0
