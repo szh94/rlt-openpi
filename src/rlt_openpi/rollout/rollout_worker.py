@@ -203,7 +203,16 @@ class RolloutWorker:
         obs = self.env.reset()
         print("[DEBUG] collect warmup")
         print(f"[DEBUG] input obs.state = {_format_array_2f(obs.get('state'))}")
-        print(f"[DEBUG] input obs.images = {np.asarray(obs.get('images').get('cam_high')[0][0][:5])}")
+        images = obs.get("images") or {}
+        if images:
+            first_image_key = next(iter(images))
+            first_image_values = np.asarray(images[first_image_key]).reshape(-1)[:20]
+            print(
+                f"[DEBUG] input obs.images[{first_image_key!r}][:20] = "
+                f"{first_image_values}"
+            )
+        else:
+            print("[DEBUG] input obs.images = <empty>")
         print(f"[DEBUG] input obs.prompt = {np.asarray(obs.get('prompt'))}")
 
         for _ in range(num_chunks):
