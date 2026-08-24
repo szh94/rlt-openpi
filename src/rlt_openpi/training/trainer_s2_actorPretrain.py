@@ -76,36 +76,6 @@ class ActorPretrainTrainer:
                 device=self.device,
             ).repeat(config.chunk_length)
 
-        self._raw_state: np.ndarray | None = None
-
-    def _peek_raw_state(self) -> np.ndarray:
-        """Read one raw dataset state (no transforms) for the first-step debug print.
-
-        ``observation`` yielded by the data loader has already been adapted to
-        the pi space (``AlohaInputs``) and normalized, so it is not directly
-        comparable with the raw ``obs.state`` printed during rollout.  This
-        reads one frame from the untransformed dataset, mirroring
-        ``DatasetObsSource``.
-        """
-        if self._raw_state is not None:
-            return self._raw_state
-
-        from openpi.training.data_loader import create_torch_dataset
-
-        from rlt_openpi.training.data_loader import build_data_config
-
-        openpi_config, data_config = build_data_config(
-            self.config.vla_config_name, self.config.repo_id
-        )
-        dataset = create_torch_dataset(
-            data_config,
-            openpi_config.model.action_horizon,
-            openpi_config.model,
-        )
-        raw = next(iter(dataset))
-        self._raw_state = np.asarray(raw["observation.state"], dtype=np.float32)
-        return self._raw_state
-
     def _normalize_action(self, action: torch.Tensor) -> torch.Tensor:
         """Apply the same action normalization formula as OpenPI Normalize."""
         if self._use_quantile_norm:
@@ -151,7 +121,7 @@ class ActorPretrainTrainer:
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
             t0 = time.monotonic()
-            observation, demo_actions = next(data_iter)
+            observation, demo_actions, raw_state = next(data_iter)
             t1 = time.monotonic()
 
             z, pad_mask, vla_actions = self.vla.extract_both(observation)
@@ -173,7 +143,7 @@ class ActorPretrainTrainer:
 
             if step == 0:
                 print(
-                    f"[ActorPretrain] raw obs.state  = {_format_array_2f(self._peek_raw_state()[: config.action_dim])}"
+                    f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}"
                 )
                 print(
                     f"[ActorPretrain] demo action[0] = {_format_array_2f(demo_actions[0, 0, : config.action_dim])}"

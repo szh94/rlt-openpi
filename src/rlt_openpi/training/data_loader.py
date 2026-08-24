@@ -113,6 +113,7 @@ def _build_transformed_dataset(
     *,
     data_transforms: _transforms.Group | None = None,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
+    include_raw_state: bool = False,
 ):
     openpi_config, data_config = build_data_config(
         openpi_config_name,
@@ -125,7 +126,45 @@ def _build_transformed_dataset(
         openpi_config.model.action_horizon,
         openpi_config.model,
     )
-    return openpi_config, data_config, transform_dataset(dataset, data_config), len(dataset)
+    transformed_dataset = (
+        _TransformedDatasetWithRawState(dataset, data_config)
+        if include_raw_state
+        else transform_dataset(dataset, data_config)
+    )
+    return openpi_config, data_config, transformed_dataset, len(dataset)
+
+
+class _TransformedDatasetWithRawState:
+    """Apply OpenPI transforms while retaining the state from the same sample."""
+
+    def __init__(self, dataset, data_config) -> None:
+        self._dataset = dataset
+        norm_stats = {}
+        if data_config.repo_id != "fake":
+            if data_config.norm_stats is None:
+                raise ValueError(
+                    "Normalization stats not found. "
+                    "Make sure to run scripts/compute_norm_stats.py."
+                )
+            norm_stats = data_config.norm_stats
+        self._transform = _transforms.compose(
+            [
+                *data_config.repack_transforms.inputs,
+                *data_config.data_transforms.inputs,
+                _transforms.Normalize(
+                    norm_stats, use_quantiles=data_config.use_quantile_norm
+                ),
+                *data_config.model_transforms.inputs,
+            ]
+        )
+
+    def __getitem__(self, index):
+        raw = self._dataset[index]
+        raw_state = np.asarray(raw["observation.state"], dtype=np.float32).copy()
+        return self._transform(raw), raw_state
+
+    def __len__(self) -> int:
+        return len(self._dataset)
 
 
 def build_torch_data_loader(
@@ -197,7 +236,8 @@ def build_jax_data_loader(
     action_target_space: Literal["normalized", "model"] = "normalized",
     output_action_dim: int | None = None,
     dataset_label: str | None = None,
-) -> Iterator[tuple[Observation, Any]]:
+    include_raw_state: bool = False,
+) -> Iterator[tuple[Observation, Any] | tuple[Observation, Any, Any]]:
     """Build an infinite iterator whose observations are native JAX arrays.
 
     OpenPI's input transforms run before batching. Batches are deliberately
@@ -209,6 +249,10 @@ def build_jax_data_loader(
     actions. ``"model"`` undoes only normalization, producing targets in the
     same action space as ``JaxVLAWrapper`` inference, and optionally slices the
     final dimension with ``output_action_dim``.
+
+    If ``include_raw_state`` is true, each yielded item additionally contains
+    the untransformed ``observation.state`` loaded from the exact same dataset
+    sample as its observation and action.
     """
     if action_target_space not in {"normalized", "model"}:
         raise ValueError(f"Unsupported action_target_space: {action_target_space!r}")
@@ -217,6 +261,7 @@ def build_jax_data_loader(
         openpi_config_name,
         repo_id,
         norm_stats=norm_stats,
+        include_raw_state=include_raw_state,
     )
     if dataset_label:
         print(
@@ -257,8 +302,12 @@ def build_jax_data_loader(
 
     def _iterator():
         while True:
-            for batch in raw_loader:
-                batch = jax.tree.map(jnp.asarray, batch)
+            for loader_batch in raw_loader:
+                loader_batch = jax.tree.map(jnp.asarray, loader_batch)
+                if include_raw_state:
+                    batch, raw_state = loader_batch
+                else:
+                    batch = loader_batch
                 actions = batch["actions"]
                 if unnormalize is not None:
                     # Unnormalize is strict for stats selecting both fields.
@@ -266,7 +315,10 @@ def build_jax_data_loader(
                         {"state": batch["state"], "actions": actions}
                     )["actions"]
                     actions = actions[..., :target_dim]
-                yield Observation.from_dict(batch), actions
+                if include_raw_state:
+                    yield Observation.from_dict(batch), actions, raw_state
+                else:
+                    yield Observation.from_dict(batch), actions
 
     return _iterator()
 
