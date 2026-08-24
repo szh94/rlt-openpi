@@ -7,6 +7,7 @@ Normalize / model_transforms，那些由 ``VLAWrapper.preprocess_obs`` 的
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -47,6 +48,7 @@ class DatasetObsSource(ObsSource):
 
         openpi_config, data_config = build_data_config(vla_config_name, self._repo_id)
         action_key = data_config.action_sequence_keys[0]
+        self._camera_key_map = self._resolve_camera_key_map(data_config)
 
         dataset = create_torch_dataset(
             data_config,
@@ -60,6 +62,21 @@ class DatasetObsSource(ObsSource):
                     yield self._build_aloha_obs(raw, action_key)
 
         return _iter()
+
+    @staticmethod
+    def _resolve_camera_key_map(data_config: Any) -> dict[str, str]:
+        """Map model camera names to raw keys using the VLA repack config."""
+        camera_key_map: dict[str, str] = {}
+        for transform in data_config.repack_transforms.inputs:
+            structure = getattr(transform, "structure", None)
+            if not isinstance(structure, Mapping):
+                continue
+            images = structure.get("images")
+            if isinstance(images, Mapping):
+                camera_key_map.update(
+                    {str(camera): str(raw_key) for camera, raw_key in images.items()}
+                )
+        return camera_key_map
 
     def _build_aloha_obs(
         self,
@@ -84,7 +101,7 @@ class DatasetObsSource(ObsSource):
                     f"dtype={image.dtype}, min={image.min()}, max={image.max()}"
                 )
             for cam in self._camera_names:
-                key = f"observation.images.{cam}"
+                key = self._camera_key_map.get(cam, f"observation.images.{cam}")
                 print(
                     f"[DatasetObsSource] output {cam} reads {key}: "
                     f"present={key in raw and raw[key] is not None}"
@@ -93,7 +110,7 @@ class DatasetObsSource(ObsSource):
 
         images: dict[str, np.ndarray] = {}
         for cam in self._camera_names:
-            key = f"observation.images.{cam}"
+            key = self._camera_key_map.get(cam, f"observation.images.{cam}")
             if key in raw and raw[key] is not None:
                 images[cam] = self._to_chw_uint8(raw[key])
             else:
