@@ -44,6 +44,13 @@ def _print_input_debug(raw_observation: Any) -> None:
         first_image_key = next(iter(images))
         image = np.asarray(images[first_image_key])
         first_image = image[0] if image.ndim > 3 else image
+        image_min = float(first_image.min())
+        image_max = float(first_image.max())
+        print(
+            f"[DEBUG] raw obs.images[{first_image_key!r}][0]: "
+            f"shape={first_image.shape}, dtype={first_image.dtype}, "
+            f"min={image_min}, max={image_max}"
+        )
         print(
             f"[DEBUG] raw obs.images[{first_image_key!r}][0][:20] = "
             f"{first_image.reshape(-1)[:20]}"

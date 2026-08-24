@@ -178,11 +178,20 @@ class _TransformedDatasetWithRawState:
 class _TransformedDatasetWithRawObservation(_TransformedDatasetWithRawState):
     """Apply transforms while retaining raw state and the first raw image."""
 
+    @staticmethod
+    def _to_chw_uint8(value: Any) -> np.ndarray:
+        image = np.asarray(value)
+        if image.ndim == 3 and image.shape[-1] == 3 and image.shape[0] != 3:
+            image = image.transpose(2, 0, 1)
+        if np.issubdtype(image.dtype, np.floating):
+            image = np.rint(np.clip(image, 0.0, 1.0) * 255.0)
+        return image.astype(np.uint8)
+
     def __getitem__(self, index):
         raw = self._dataset[index]
         first_image = next(
             (
-                (key, np.asarray(value).copy())
+                (key, self._to_chw_uint8(value))
                 for key, value in raw.items()
                 if isinstance(key, str)
                 and key.startswith("observation.images.")
