@@ -36,10 +36,10 @@ class _SliceAction:
         return data
 
 
-def _observation_to_jax(obs: _model.Observation) -> _model.Observation:
+def _observation_to_jax(vla_obs: _model.Observation) -> _model.Observation:
     """Convert observation leaves to JAX arrays without staging JAX data on CPU.
 
-    ``preprocess_obs`` already returns device-backed JAX arrays.  Keeping those
+    ``build_vla_observation`` already returns device-backed JAX arrays. Keeping those
     leaves unchanged avoids a JAX device -> NumPy host -> JAX device round trip
     immediately before the JIT-compiled model call.
     """
@@ -49,12 +49,18 @@ def _observation_to_jax(obs: _model.Observation) -> _model.Observation:
             return x
         return jnp.asarray(x)
 
-    images = {k: _to_jax(v) for k, v in obs.images.items()}
-    image_masks = {k: _to_jax(v) for k, v in obs.image_masks.items()}
-    state = _to_jax(obs.state)
-    tokenized_prompt = _to_jax(obs.tokenized_prompt) if obs.tokenized_prompt is not None else None
+    images = {k: _to_jax(v) for k, v in vla_obs.images.items()}
+    image_masks = {k: _to_jax(v) for k, v in vla_obs.image_masks.items()}
+    state = _to_jax(vla_obs.state)
+    tokenized_prompt = (
+        _to_jax(vla_obs.tokenized_prompt)
+        if vla_obs.tokenized_prompt is not None
+        else None
+    )
     tokenized_prompt_mask = (
-        _to_jax(obs.tokenized_prompt_mask) if obs.tokenized_prompt_mask is not None else None
+        _to_jax(vla_obs.tokenized_prompt_mask)
+        if vla_obs.tokenized_prompt_mask is not None
+        else None
     )
 
     return _model.Observation(
@@ -180,7 +186,7 @@ class JaxVLAWrapper:
     # Public interface
     # ------------------------------------------------------------------
 
-    def preprocess_obs(self, obs: dict[str, Any]) -> _model.Observation:
+    def build_vla_observation(self, raw_obs: dict[str, Any]) -> _model.Observation:
         """Convert a raw environment observation into a batched Observation.
 
         Applies the full OpenPI input transform chain and returns jnp
@@ -188,27 +194,29 @@ class JaxVLAWrapper:
         NHWC format expected by the JAX model.
 
         Args:
-            obs: Raw observation dict from the environment.
+            raw_obs: Single unbatched raw observation dict from the environment.
         """
         # AlohaInputs converts images from CHW to HWC and mutates its input
         # dictionary.  Preserve the environment observation so repeated
         # preprocessing cannot transpose an already-transposed image again.
-        transformed = self._input_transform(_copy_dict_structure(obs))
+        transformed_obs = self._input_transform(_copy_dict_structure(raw_obs))
 
         # Preserve the NHWC layout expected by the JAX model.
-        batched = jax.tree.map(lambda x: jnp.asarray(x)[None, ...], transformed)
-        return _model.Observation.from_dict(batched)
+        batched_obs = jax.tree.map(
+            lambda x: jnp.asarray(x)[None, ...], transformed_obs
+        )
+        return _model.Observation.from_dict(batched_obs)
 
     def extract_embeddings(
-        self, observation: _model.Observation
+        self, vla_obs: _model.Observation
     ) -> tuple[Tensor, Tensor]:
         """Extract prefix embeddings and return them as PyTorch tensors.
 
         This calls the prefix-only JIT path and skips diffusion sampling.
         """
-        observation = _observation_to_jax(observation)
+        vla_obs = _observation_to_jax(vla_obs)
 
-        prefix_out, prefix_mask = self._extract_prefix(observation)
+        prefix_out, prefix_mask = self._extract_prefix(vla_obs)
         # Complete the JAX work before handing its buffers to PyTorch.
         jax.block_until_ready((prefix_out, prefix_mask))
 
@@ -227,15 +235,15 @@ class JaxVLAWrapper:
 
     def extract_both(
         self,
-        observation: _model.Observation,
+        vla_obs: _model.Observation,
     ) -> tuple[Tensor, Tensor, Tensor]:
         """Return prefix embeddings, padding mask, and robot-space actions."""
-        observation = _observation_to_jax(observation)
+        vla_obs = _observation_to_jax(vla_obs)
 
         rng = self._next_rng()
 
         (prefix_out, prefix_mask), raw_actions = self._sample_actions(
-            rng, observation
+            rng, vla_obs
         )
         # Complete the JAX work before handing its buffers to PyTorch.
         jax.block_until_ready((prefix_out, prefix_mask, raw_actions))
@@ -257,7 +265,7 @@ class JaxVLAWrapper:
 
         # Output transforms are NumPy/Python based.  Copy only state to the host
         # here, after the model call; it is not fed back into JAX.
-        state_np = np.asarray(jax.device_get(observation.state))
+        state_np = np.asarray(jax.device_get(vla_obs.state))
 
         out = []
         for i in range(actions_np.shape[0]):

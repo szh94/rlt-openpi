@@ -121,10 +121,10 @@ class ActorPretrainTrainer:
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
             t0 = time.monotonic()
-            observation, demo_actions, raw_state = next(data_iter)
+            vla_obs_batch, demo_actions, raw_state = next(data_iter)
             t1 = time.monotonic()
 
-            z, pad_mask, vla_actions = self.vla.extract_both(observation)
+            z, pad_mask, vla_actions = self.vla.extract_both(vla_obs_batch)
             t2 = time.monotonic()
 
             z_rl = self.rl_token_model.encode(
@@ -133,7 +133,7 @@ class ActorPretrainTrainer:
             t3 = time.monotonic()
 
             state = torch.as_tensor(
-                np.asarray(observation.state[:, : config.action_dim]),
+                np.asarray(vla_obs_batch.state[:, : config.action_dim]),
                 dtype=torch.float32,
                 device=self.device,
             )

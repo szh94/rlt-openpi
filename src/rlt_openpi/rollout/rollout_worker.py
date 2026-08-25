@@ -114,7 +114,7 @@ class RolloutWorker:
         return (np.asarray(action, dtype=np.float32) * self.action_scale + self.action_center).astype(np.float32)
 
     @torch.no_grad()
-    def _extract_rl_state(self, obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
+    def _extract_rl_state(self, raw_obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
         """Extract RL state x = cat(z_rl, s^p), VLA reference, and action chunk.
 
         Uses one JAX VLA forward pass to extract embeddings and reference actions.
@@ -125,9 +125,9 @@ class RolloutWorker:
             action_chunk: VLA reference actions [C, action_dim] as numpy.
         """
         # Convert the raw environment observation dict into a batched OpenPI Observation.
-        vla_input = self.vla.preprocess_obs(obs)
+        vla_obs = self.vla.build_vla_observation(raw_obs)
 
-        z, pad_mask, actions = self.vla.extract_both(vla_input)
+        z, pad_mask, actions = self.vla.extract_both(vla_obs)
 
         # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
@@ -143,7 +143,7 @@ class RolloutWorker:
         # PadStatesAndActions zero-pads to the VLA's internal width.
         # Slice to action_dim to drop the padding.
         s_p = torch.as_tensor(
-            np.array(vla_input.state[:, :self.action_dim]),
+            np.array(vla_obs.state[:, :self.action_dim]),
             dtype=torch.float32, device=self.device,
         )
         # print(f"[DEBUG] s_p (normalized) = {s_p.squeeze(0).cpu().numpy()}")

@@ -134,19 +134,19 @@ class RLTokenTrainer:
                 print(f"[Stage 1] WARNING: Dataloader exhausted at step {step_idx}")
                 break
             if len(batch) == 3:
-                observations, actions, raw_observation = batch
+                vla_obs_batch, actions, raw_obs_batch = batch
             else:
-                observations, actions = batch
-                raw_observation = None
+                vla_obs_batch, actions = batch
+                raw_obs_batch = None
             t1 = time.monotonic()
 
             if step_idx == 1:
-                if raw_observation is None:
+                if raw_obs_batch is None:
                     print("[DEBUG] raw observation is unavailable")
                 else:
-                    _print_input_debug(raw_observation)
+                    _print_input_debug(raw_obs_batch)
 
-            metrics = self.step_frozen(vla, observations)
+            metrics = self.step_frozen(vla, vla_obs_batch)
             t2 = time.monotonic()
 
             # Progress bar
@@ -235,7 +235,7 @@ class RLTokenTrainer:
     def step_frozen(
         self,
         vla: JaxVLAWrapper,
-        observations: Any,
+        vla_obs_batch: Any,
     ) -> dict[str, float]:
         """Frozen VLA step: extract embeddings (no grad) → L_ro only."""
         if self.device.type == "cuda":
@@ -246,7 +246,7 @@ class RLTokenTrainer:
         t1 = time.monotonic()
 
         with torch.no_grad():
-            z, pad_mask = vla.extract_embeddings(observations)
+            z, pad_mask = vla.extract_embeddings(vla_obs_batch)
         if self.device.type == "cuda":
             torch.cuda.synchronize(self.device)
         t2 = time.monotonic()
