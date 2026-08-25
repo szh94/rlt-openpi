@@ -50,6 +50,7 @@ def main(config: ActorPretrainConfig) -> None:
             norm_stats=vla.norm_stats,
             action_target_space="model",
             dataset_label="Actor pretrain dataset",
+            use_delta_joint_actions=False,
             include_raw_state=True,
             include_normalized_actions=True,
         )

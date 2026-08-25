@@ -82,10 +82,20 @@ def build_data_config(
     *,
     data_transforms: _transforms.Group | None = None,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
+    use_delta_joint_actions: bool | None = None,
 ):
     """Create an OpenPI data config with the RLT dataset adaptations."""
     openpi_config = get_config(openpi_config_name)
-    data_config = openpi_config.data.create(openpi_config.assets_dirs, openpi_config.model)
+    data_factory = openpi_config.data
+    if use_delta_joint_actions is not None:
+        if not hasattr(data_factory, "use_delta_joint_actions"):
+            raise ValueError(
+                "use_delta_joint_actions is only supported by ALOHA data configs"
+            )
+        data_factory = dataclasses.replace(
+            data_factory, use_delta_joint_actions=use_delta_joint_actions
+        )
+    data_config = data_factory.create(openpi_config.assets_dirs, openpi_config.model)
     data_config = dataclasses.replace(data_config, repo_id=repo_id)
 
     # JAX checkpoints are the authoritative source of normalization stats for
@@ -113,6 +123,7 @@ def _build_transformed_dataset(
     *,
     data_transforms: _transforms.Group | None = None,
     norm_stats: dict[str, _transforms.NormStats] | None = None,
+    use_delta_joint_actions: bool | None = None,
     include_raw_state: bool = False,
     include_raw_observation: bool = False,
 ):
@@ -125,6 +136,7 @@ def _build_transformed_dataset(
         repo_id,
         data_transforms=data_transforms,
         norm_stats=norm_stats,
+        use_delta_joint_actions=use_delta_joint_actions,
     )
     dataset = create_torch_dataset(
         data_config,
@@ -275,6 +287,7 @@ def build_jax_data_loader(
     action_target_space: Literal["normalized", "model"] = "normalized",
     output_action_dim: int | None = None,
     dataset_label: str | None = None,
+    use_delta_joint_actions: bool | None = None,
     include_raw_state: bool = False,
     include_raw_observation: bool = False,
     include_normalized_actions: bool = False,
@@ -294,6 +307,9 @@ def build_jax_data_loader(
     actions. ``"model"`` undoes only normalization, producing targets in the
     same action space as ``JaxVLAWrapper`` inference, and optionally slices the
     final dimension with ``output_action_dim``.
+
+    ``use_delta_joint_actions`` overrides the ALOHA data config when set. Set
+    it to ``False`` to keep joint actions in absolute action space.
 
     If ``include_raw_state`` is true, each yielded item additionally contains
     the untransformed ``observation.state`` loaded from the exact same dataset
@@ -315,6 +331,7 @@ def build_jax_data_loader(
         openpi_config_name,
         repo_id,
         norm_stats=norm_stats,
+        use_delta_joint_actions=use_delta_joint_actions,
         include_raw_state=include_raw_state,
         include_raw_observation=include_raw_observation,
     )

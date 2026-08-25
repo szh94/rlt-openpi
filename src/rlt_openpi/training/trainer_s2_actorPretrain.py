@@ -23,7 +23,7 @@ def _format_array_2f(value: Any) -> str:
         value = value.detach().cpu().numpy()
     return np.array2string(
         np.asarray(value, dtype=np.float64),
-        formatter={"float_kind": lambda x: f"{x:.2f}"},
+        formatter={"float_kind": lambda x: f"{x:.3f}"},
         max_line_width=200,
     )
 
@@ -118,11 +118,10 @@ class ActorPretrainTrainer:
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
             t0 = time.monotonic()
-            vla_obs_batch, data_actions, demo_actions_norm, raw_state = next(data_iter)
+            vla_obs_batch, data_actions, data_actions_norm, raw_state = next(data_iter)
             t1 = time.monotonic()
 
-            if step == 0:
-                print(f"[ActorPretrain] vla_obs_batch.state = {_format_array_2f(vla_obs_batch.state[0, : config.action_dim])}")
+            # if step == 0:
 
             z, pad_mask, _, vla_actions = self.vla.extract_both(vla_obs_batch)
             t2 = time.monotonic()
@@ -155,12 +154,11 @@ class ActorPretrainTrainer:
 
             if step == 0:
                 print(f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}")
+                print(f"[ActorPretrain] vla_obs_batch.state = {_format_array_2f(vla_obs_batch.state[0, : 20])}")
                 print(f"[ActorPretrain] data action[0] = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
                 print(f"[ActorPretrain] data action[1] = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(demo_actions_norm[0, 0, : config.action_dim])}")
-                print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(demo_actions_norm[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] target = {_format_array_2f(target[0, : 2 * config.action_dim].cpu())}")
-                print(f"[ActorPretrain] reference = {_format_array_2f(reference[0, : 2 * config.action_dim].cpu())}")
+                print(f"[ActorPretrain] target = {_format_array_2f(target[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] reference = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
 
             reference = self._normalize_action(reference)
             target = self._normalize_action(target)
@@ -171,7 +169,10 @@ class ActorPretrainTrainer:
             t5 = time.monotonic()
 
             if step == 0:
-                print(f"[ActorPretrain] reference_norm = {_format_array_2f(reference[0, : 2 * config.action_dim].cpu())}")
+                print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] target_norm = {_format_array_2f(target[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] reference_norm = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] prediction = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
 
             self.actor_optimizer.zero_grad()
