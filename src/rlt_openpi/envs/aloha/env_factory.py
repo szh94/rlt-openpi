@@ -164,8 +164,8 @@ def make_aloha_env(
         if print_actions:
             print("Send action", action)
 
-        if not dry_run:
-            robot.send_action_safe(action)
+        # if not dry_run:
+            # robot.send_action_safe(action)
 
     # ------------------------------------------------------------------
     # reset_fn — reset robot via hansrobot.move() (if reset_position set)
@@ -185,7 +185,7 @@ def make_aloha_env(
                     f"Moving to reset position: left={[f'{v:.1f}' for v in left_joints_deg]}, "
                     f"right={[f'{v:.1f}' for v in right_joints_deg]}",
                 )
-                robot.move(left_joints_deg, right_joints_deg)
+                # robot.move(left_joints_deg, right_joints_deg)
             else:
                 print("[dry-run] robot.move() skipped")
         else:

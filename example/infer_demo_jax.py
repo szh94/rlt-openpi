@@ -19,7 +19,7 @@ import numpy as np
 config = _config.get_config("pi05_jax_full")
 # checkpoint_dir = "/home/zhike/model/openpi-jax/full/1414-60000"
 checkpoint_dir = "/home/zhike/model/openpi-jax/full/160-3w/models (1)/models/pretrained_model"
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "16"))
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1"))
 
 
 # Create a trained policy.
@@ -28,7 +28,9 @@ policy = policy_config.create_trained_policy(config, checkpoint_dir)
 obs = aloha_policy.make_aloha_example()
 obs['state'] = np.array([164.707, -30.758, 55.32, 36.983, 92.156, 72.361, 0.0, 17.403, 6.064, -68.643, -27.598, -83.321, -19.6, 0.0])
 
-print(f"[DEBUG] obs.state = {np.asarray(obs['state'])}")
+print(f"[DEBUG] input obs.state = {[f'{x:.2f}' for x in obs.get('state')[:14]]}")
+print(f"[DEBUG] input obs.images = {np.asarray(obs.get('images').get('cam_high')[0][0][:20])}")
+print(f"[DEBUG] input obs.prompt = {np.asarray(obs.get('prompt'))}")
 
 for i in range(10):
     action = policy.infer(obs)

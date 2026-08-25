@@ -148,6 +148,9 @@ class ActorPretrainTrainer:
                 print(
                     f"[ActorPretrain] demo action[0] = {_format_array_2f(demo_actions[0, 0, : config.action_dim])}"
                 )
+                print(
+                    f"[ActorPretrain] demo action[1] = {_format_array_2f(demo_actions[0, 1, : config.action_dim])}"
+                )
 
             reference = vla_actions[
                 :, : config.chunk_length, : config.action_dim
