@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import pathlib
 from typing import Any
 
@@ -15,11 +17,7 @@ from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
+warnings.filterwarnings("ignore", message="enable_nestesd_tensor is True.*")
 
 class _SliceAction:
     """Simple transform that slices actions to the first N dimensions.
@@ -116,7 +114,8 @@ class JaxVLAWrapper:
         checkpoint_dir_path = pathlib.Path(checkpoint_dir)
         checkpoint_params_path = checkpoint_dir_path / "params"
 
-        print(f"Loading JAX VLA from Orbax checkpoint: {checkpoint_params_path}")
+        print(f"Loading VLA checkpoint")
+
         model_sharding = jax.sharding.SingleDeviceSharding(jax.devices("gpu")[0])
         params = _model.restore_params(
             checkpoint_params_path,
@@ -160,9 +159,9 @@ class JaxVLAWrapper:
         ]
         if output_action_dim is not None:
             output_transforms.append(_SliceAction(output_action_dim))
-            print(
-                f"[JaxVLA] Replaced DroidOutputs with SliceAction(dim={output_action_dim})"
-            )
+            # print(
+            #     f"[JaxVLA] Replaced DroidOutputs with SliceAction(dim={output_action_dim})"
+            # )
         else:
             output_transforms.extend(dt.outputs)
         output_transforms.extend(repack_transforms.outputs)
@@ -295,9 +294,7 @@ class JaxVLAWrapper:
             norm_stats = _checkpoints.load_norm_stats(
                 checkpoint_dir / "assets", asset_id
             )
-            print(
-                f"Loaded norm stats from checkpoint: {checkpoint_dir}/assets/{asset_id}"
-            )
+            print(f"Norm stats loaded")
             return norm_stats
         except FileNotFoundError:
             pass
