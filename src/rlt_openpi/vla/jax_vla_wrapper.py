@@ -17,7 +17,7 @@ from torch import Tensor
 
 from rlt_openpi.vla.config import load_vla_config
 
-warnings.filterwarnings("ignore", message="enable_nestesd_tensor is True.*")
+warnings.filterwarnings("ignore", message="enable_nested_tensor is True.*")
 
 class _SliceAction:
     """Simple transform that slices actions to the first N dimensions.

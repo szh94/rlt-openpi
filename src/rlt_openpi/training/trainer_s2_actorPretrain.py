@@ -144,6 +144,7 @@ class ActorPretrainTrainer:
             reference = vla_actions[
                 :, : config.chunk_length, : config.action_dim
             ].to(device=self.device, dtype=torch.float32).reshape(batch_size, -1)
+
             target = torch.as_tensor(
                 np.asarray(
                     data_actions[:, : config.chunk_length, : config.action_dim]
@@ -154,12 +155,12 @@ class ActorPretrainTrainer:
 
             if step == 0:
                 print(f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}")
-                print(f"[ActorPretrain] demo action[0] = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
-                print(f"[ActorPretrain] demo action[1] = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] demo action norm[0] = {_format_array_2f(demo_actions_norm[0, 0, : config.action_dim])}")
-                print(f"[ActorPretrain] demo action norm[1] = {_format_array_2f(demo_actions_norm[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] target  = {_format_array_2f(target[0, : 2 * config.action_dim])}")
-                print(f"[ActorPretrain] reference  = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] data action[0] = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] data action[1] = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(demo_actions_norm[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(demo_actions_norm[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] target = {_format_array_2f(target[0, : 2 * config.action_dim].cpu())}")
+                print(f"[ActorPretrain] reference = {_format_array_2f(reference[0, : 2 * config.action_dim].cpu())}")
 
             reference = self._normalize_action(reference)
             target = self._normalize_action(target)
@@ -170,8 +171,8 @@ class ActorPretrainTrainer:
             t5 = time.monotonic()
 
             if step == 0:
-                print(f"[ActorPretrain] reference_norm  = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
-                print(f"[ActorPretrain] prediction  = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] reference_norm = {_format_array_2f(reference[0, : 2 * config.action_dim].cpu())}")
+                print(f"[ActorPretrain] prediction = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
 
             self.actor_optimizer.zero_grad()
             loss.backward()
