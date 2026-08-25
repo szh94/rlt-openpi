@@ -110,21 +110,19 @@ class ActorPretrainTrainer:
         config = self.config
         self.actor.eval()
 
-        print(f"\n[Actor Pretrain] Starting: {config.steps} steps")
-        print(f"  Dataset: {config.repo_id}")
-        print(f"  Batch size: {config.batch_size}")
-        print(f"  Save every: {config.save_every} steps")
-
         save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)
 
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
             t0 = time.monotonic()
-            vla_obs_batch, demo_actions, raw_state = next(data_iter)
+            vla_obs_batch, demo_actions, demo_actions_norm, raw_state = next(data_iter)
             t1 = time.monotonic()
 
-            z, pad_mask, vla_actions = self.vla.extract_both(vla_obs_batch)
+            if step == 0:
+                print(f"[ActorPretrain] vla_obs_batch.state = {_format_array_2f(vla_obs_batch.state[0, : config.action_dim])}")
+
+            z, pad_mask, _, vla_actions = self.vla.extract_both(vla_obs_batch)
             t2 = time.monotonic()
 
             z_rl = self.rl_token_model.encode(
@@ -140,17 +138,6 @@ class ActorPretrainTrainer:
             actor_state = torch.cat([z_rl, state], dim=-1)
 
             batch_size = z_rl.shape[0]
-
-            if step == 0:
-                print(
-                    f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}"
-                )
-                print(
-                    f"[ActorPretrain] demo action[0] = {_format_array_2f(demo_actions[0, 0, : config.action_dim])}"
-                )
-                print(
-                    f"[ActorPretrain] demo action[1] = {_format_array_2f(demo_actions[0, 1, : config.action_dim])}"
-                )
 
             reference = vla_actions[
                 :, : config.chunk_length, : config.action_dim
@@ -170,6 +157,15 @@ class ActorPretrainTrainer:
             prediction = self.actor(actor_state, reference)
             loss = F.mse_loss(prediction, target)
             t5 = time.monotonic()
+
+            if step == 0:
+                print(f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}")
+                print(f"[ActorPretrain] demo action[0] = {_format_array_2f(demo_actions[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] demo action[1] = {_format_array_2f(demo_actions[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] demo action norm[0] = {_format_array_2f(demo_actions_norm[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] demo action norm[1] = {_format_array_2f(demo_actions_norm[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] prediction[0]  = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] target[0]  = {_format_array_2f(target[0, : 2 * config.action_dim])}")
 
             self.actor_optimizer.zero_grad()
             loss.backward()

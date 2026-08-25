@@ -51,6 +51,7 @@ def main(config: ActorPretrainConfig) -> None:
             action_target_space="model",
             dataset_label="Actor pretrain dataset",
             include_raw_state=True,
+            include_normalized_actions=True,
         )
 
         trainer = ActorPretrainTrainer(

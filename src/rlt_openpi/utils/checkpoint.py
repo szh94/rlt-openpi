@@ -36,5 +36,5 @@ def load_rl_token_model(
     step = ckpt["step"]
     del ckpt
     model = model.to(device)
-    print(f"Loaded RL token model from {ckpt_path} (step {step})")
+    print(f"  RL token model loaded")
     return model

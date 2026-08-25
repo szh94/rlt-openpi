@@ -221,23 +221,23 @@ class JaxVLAWrapper:
         jax.block_until_ready((prefix_out, prefix_mask))
 
         # Share JAX device buffers with PyTorch through DLPack.
-        z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
+        prefix_hid = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
             dtype=torch.float32
         )
         pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(
             dtype=torch.bool
         )
 
-        z = z.to(self.device)
+        prefix_hid = prefix_hid.to(self.device)
         pad_mask = pad_mask.to(self.device)
 
-        return z, pad_mask
+        return prefix_hid, pad_mask
 
     def extract_both(
         self,
         vla_obs: _model.Observation,
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        """Return prefix embeddings, padding mask, and robot-space actions."""
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Return prefix embeddings, padding mask, normalized actions, and robot-space actions."""
         vla_obs = _observation_to_jax(vla_obs)
 
         rng = self._next_rng()
@@ -249,7 +249,7 @@ class JaxVLAWrapper:
         jax.block_until_ready((prefix_out, prefix_mask, raw_actions))
 
         # Share JAX device buffers with PyTorch through DLPack.
-        z = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
+        prefix_hid = torch.utils.dlpack.from_dlpack(prefix_out.__dlpack__()).to(
             dtype=torch.float32, device=self.device
         )
         pad_mask = torch.utils.dlpack.from_dlpack(prefix_mask.__dlpack__()).to(
@@ -257,11 +257,11 @@ class JaxVLAWrapper:
         )
 
         # Apply output transform chain (Unnormalize → DroidOutputs / SliceAction)
-        raw_t = torch.utils.dlpack.from_dlpack(raw_actions.__dlpack__()).to(
-            dtype=torch.float32
+        action_norm = torch.utils.dlpack.from_dlpack(raw_actions.__dlpack__()).to(
+            dtype=torch.float32, device=self.device
         )
 
-        actions_np = raw_t.cpu().numpy()
+        actions_np = action_norm.cpu().numpy()
 
         # Output transforms are NumPy/Python based.  Copy only state to the host
         # here, after the model call; it is not fed back into JAX.
@@ -282,7 +282,7 @@ class JaxVLAWrapper:
             np.stack(out), device=self.device, dtype=torch.float32
         )
 
-        return z, pad_mask, actions
+        return prefix_hid, pad_mask, action_norm, actions
 
     @staticmethod
     def _load_norm_stats(

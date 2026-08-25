@@ -277,7 +277,12 @@ def build_jax_data_loader(
     dataset_label: str | None = None,
     include_raw_state: bool = False,
     include_raw_observation: bool = False,
-) -> Iterator[tuple[Observation, Any] | tuple[Observation, Any, Any]]:
+    include_normalized_actions: bool = False,
+) -> Iterator[
+    tuple[Observation, Any]
+    | tuple[Observation, Any, Any]
+    | tuple[Observation, Any, Any, Any]
+]:
     """Build an infinite iterator whose observations are native JAX arrays.
 
     OpenPI's input transforms run before batching. Batches are deliberately
@@ -297,6 +302,11 @@ def build_jax_data_loader(
     If ``include_raw_observation`` is true, the additional item contains the
     untransformed state and first image field from that same sample. It is
     mutually exclusive with ``include_raw_state``.
+
+    If ``include_normalized_actions`` is true, the normalized actions from the
+    transformed batch are yielded immediately after the selected action target.
+    These actions have passed through the same input transform pipeline as the
+    observation and remain in the VLA model's normalized action space.
     """
     if action_target_space not in {"normalized", "model"}:
         raise ValueError(f"Unsupported action_target_space: {action_target_space!r}")
@@ -354,6 +364,7 @@ def build_jax_data_loader(
                     batch, raw_data = loader_batch
                 else:
                     batch = loader_batch
+                normalized_actions = batch["actions"][..., :target_dim]
                 actions = batch["actions"]
                 if unnormalize is not None:
                     # Unnormalize is strict for stats selecting both fields.
@@ -362,9 +373,20 @@ def build_jax_data_loader(
                     )["actions"]
                     actions = actions[..., :target_dim]
                 if include_raw:
-                    yield Observation.from_dict(batch), actions, raw_data
+                    if include_normalized_actions:
+                        yield (
+                            Observation.from_dict(batch),
+                            actions,
+                            normalized_actions,
+                            raw_data,
+                        )
+                    else:
+                        yield Observation.from_dict(batch), actions, raw_data
                 else:
-                    yield Observation.from_dict(batch), actions
+                    if include_normalized_actions:
+                        yield Observation.from_dict(batch), actions, normalized_actions
+                    else:
+                        yield Observation.from_dict(batch), actions
 
     return _iterator()
 

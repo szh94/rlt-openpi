@@ -127,7 +127,7 @@ class RolloutWorker:
         # Convert the raw environment observation dict into a batched OpenPI Observation.
         vla_obs = self.vla.build_vla_observation(raw_obs)
 
-        z, pad_mask, actions = self.vla.extract_both(vla_obs)
+        z, pad_mask, _, actions = self.vla.extract_both(vla_obs)
 
         # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
