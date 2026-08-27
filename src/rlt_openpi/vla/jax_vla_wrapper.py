@@ -33,7 +33,6 @@ class _SliceAction:
         data["actions"] = data["actions"][:, :self._action_dim]
         return data
 
-
 def _observation_to_jax(vla_obs: _model.Observation) -> _model.Observation:
     """Convert observation leaves to JAX arrays without staging JAX data on CPU.
 

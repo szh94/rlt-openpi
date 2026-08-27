@@ -11,7 +11,7 @@ def _zero_actor_parameters(actor: Actor) -> None:
             parameter.zero_()
 
 
-def test_actor_directly_predicts_final_action() -> None:
+def test_actor_predicts_residual_from_reference() -> None:
     actor = Actor(
         state_dim=2,
         action_chunk_dim=3,
@@ -25,7 +25,7 @@ def test_actor_directly_predicts_final_action() -> None:
 
     action = actor(torch.ones(1, 2), torch.tensor([[0.2, -0.4, 0.8]]))
 
-    torch.testing.assert_close(action, torch.zeros_like(action))
+    torch.testing.assert_close(action, torch.tensor([[0.2, -0.4, 0.8]]))
 
 
 def test_reference_dropout_has_no_reference_skip_path() -> None:

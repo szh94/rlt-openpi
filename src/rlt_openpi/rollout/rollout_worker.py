@@ -127,20 +127,20 @@ class RolloutWorker:
         # Convert the raw environment observation dict into a batched OpenPI Observation.
         vla_obs = self.vla.build_vla_observation(raw_obs)
 
-        z, pad_mask, _, actions = self.vla.extract_both(vla_obs)
+        z, pad_mask, actions_norm, actions = self.vla.extract_both(vla_obs)
 
         # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
 
         # Get VLA reference action chunk (first C steps)
-        a_tilde_raw = actions[:, :self.chunk_length, :]  # [1, C, action_dim]
-        action_chunk = a_tilde_raw.squeeze(0).cpu().numpy()  # robot space, for env.step
-        a_tilde = self._normalize_action(action_chunk)
-        a_tilde_flat = a_tilde.reshape(1, -1)  # normalized [1, C*d]
+        action_chunk = actions[
+            :, :self.chunk_length, :
+        ].squeeze(0).cpu().numpy()  # [C, action_dim] robot space, for env.step
+        actions_norm_flat = actions_norm[
+            :, :self.chunk_length, :self.action_dim
+        ].reshape(1, -1).squeeze(0).cpu().numpy()  # [C*d]
 
         # Proprioceptive state s^p from the preprocessed VLA observation.
-        # DroidInputs merges joint_pos + gripper into state, then
-        # PadStatesAndActions zero-pads to the VLA's internal width.
         # Slice to action_dim to drop the padding.
         s_p = torch.as_tensor(
             np.array(vla_obs.state[:, :self.action_dim]),
@@ -153,7 +153,7 @@ class RolloutWorker:
 
         return (
             x.squeeze(0).cpu().numpy(),
-            a_tilde_flat.squeeze(0),
+            actions_norm_flat,
             action_chunk,
         )
 

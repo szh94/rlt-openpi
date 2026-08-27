@@ -1,8 +1,8 @@
 """Actor network with VLA reference-action conditioning.
 
 The actor takes the RL state x = cat(z_rl, s^p) and a VLA reference action
-chunk a_tilde, applies reference dropout during training, and directly
-predicts the mean of the final action distribution from those inputs.
+chunk a_tilde, applies reference dropout during training, and predicts the
+final action distribution conditioned on both inputs.
 """
 
 import torch
@@ -17,7 +17,8 @@ class Actor(nn.Module):
     Input: cat(x, a_tilde_masked) where a_tilde is zeroed for a fraction
     of the batch during training (ref_dropout probability).
 
-    Output: mu + N(0, sigma^2) during training, mu during eval.
+    Output: mu + N(0, sigma^2) during training, mu during eval, where mu is
+    the final action mean predicted by the MLP.
 
     Args:
         state_dim: Dimension of RL state (z_rl + s^p).
@@ -50,20 +51,19 @@ class Actor(nn.Module):
         )
 
     def forward(self, x: Tensor, a_tilde: Tensor) -> Tensor:
-        """Predict the final action chunk conditioned on the VLA reference.
+        """Predict an action chunk conditioned on the VLA reference.
 
         Args:
             x: RL state [B, state_dim].
             a_tilde: Flattened VLA reference action chunk [B, action_chunk_dim].
 
         Returns:
-            Final action chunk [B, action_chunk_dim]. During training, the
-            reference input may be dropped and Gaussian exploration noise is
-            added. During evaluation, the full reference is used and the
-            predicted mean is returned directly.
+            Final action chunk [B, action_chunk_dim]. The MLP directly predicts
+            the action mean; Gaussian exploration noise is added during
+            training only.
         """
-        a_tilde_input = self._apply_ref_dropout(a_tilde)
-        mu = self.mlp(torch.cat([x, a_tilde_input], dim=-1))
+        a_tilde_partial = self._apply_ref_dropout(a_tilde)
+        mu = self.mlp(torch.cat([x, a_tilde_partial], dim=-1))
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma
