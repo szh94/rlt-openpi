@@ -146,13 +146,13 @@ class ActorPretrainTrainer:
             ).reshape(batch_size, -1)
 
             if step % 500 == 0:
-                print(f"[ActorPretrain] action.q01     = {_format_array_2f(self._action_q01[0, : config.action_dim])}")
-                print(f"[ActorPretrain] action.q99     = {_format_array_2f(self._action_q99[0, : config.action_dim])}")
+                print(f"[ActorPretrain] action.q01     = {_format_array_2f(self._action_q01[ : config.action_dim])}")
+                print(f"[ActorPretrain] action.q99     = {_format_array_2f(self._action_q99[ : config.action_dim])}")
+                print(f"[ActorPretrain] action.range   = {_format_array_2f((self._action_q99 - self._action_q01)[: config.action_dim])}")
                 print(f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}")
                 print(f"[ActorPretrain] vla_obs.state  = {_format_array_2f(vla_obs_batch.state[0, : config.action_dim])}")
-                print(f"[ActorPretrain] data action[0] = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
-                print(f"[ActorPretrain] data action[1] = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] target         = {_format_array_2f(target[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] target[0]      = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] target[1]      = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
                 print(f"[ActorPretrain] reference      = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
 
             reference = self._normalize_action(reference)
@@ -167,12 +167,31 @@ class ActorPretrainTrainer:
                 print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
                 print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
                 print(f"[ActorPretrain] target_norm = {_format_array_2f(target[0, : 2 * config.action_dim])}")
-                print(f"[ActorPretrain] reference_norm = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] prediction = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
 
             if (step + 1) % 50 == 0:
                 ref_loss = F.mse_loss(reference, target)
+                actor_mse_per_joint = (
+                    (prediction - target)
+                    .reshape(batch_size, config.chunk_length, config.action_dim)
+                    .square()
+                    .mean(dim=(0, 1))
+                )
+                ref_mse_per_joint = (
+                    (reference - target)
+                    .reshape(batch_size, config.chunk_length, config.action_dim)
+                    .square()
+                    .mean(dim=(0, 1))
+                )
                 print(f"[ActorPretrain] step={step + 1} ref_loss={ref_loss.item():.6f} actor_loss={loss.item():.6f}")
+                print(
+                    "[ActorPretrain] ref_mse_per_joint="
+                    f"{np.array2string(ref_mse_per_joint.detach().cpu().numpy(), precision=6, floatmode='fixed')}"
+                )
+                print(
+                    "[ActorPretrain] actor_mse_per_joint="
+                    f"{np.array2string(actor_mse_per_joint.detach().cpu().numpy(), precision=6, floatmode='fixed')}"
+                )
 
             self.actor_optimizer.zero_grad()
             loss.backward()
