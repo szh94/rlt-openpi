@@ -88,6 +88,17 @@ class ActorPretrainTrainer:
             )
         return (action - self._action_mean) / (self._action_std + 1e-6)
 
+    def _unnormalize_action(self, action: torch.Tensor) -> torch.Tensor:
+        """Invert the action normalization applied by _normalize_action."""
+        if self._use_quantile_norm:
+            return (
+                (action + 1.0)
+                / 2.0
+                * (self._action_q99 - self._action_q01 + 1e-6)
+                + self._action_q01
+            )
+        return action * (self._action_std + 1e-6) + self._action_mean
+
     def _save_checkpoint(
         self,
         checkpoint_path: Path,
@@ -164,10 +175,11 @@ class ActorPretrainTrainer:
             loss = F.mse_loss(prediction, target)
 
             if step % 500 == 0:
-                print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
-                print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] target_norm = {_format_array_2f(target[0, : 2 * config.action_dim])}")
-                print(f"[ActorPretrain] prediction = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] tar_norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
+                print(f"[ActorPretrain] tar_norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
+                print(f"[ActorPretrain] pre_norm    = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] ref_norm    = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] pre_unnorm  = {_format_array_2f(self._unnormalize_action(prediction)[0, : 2 * config.action_dim])}")
 
             if (step + 1) % 50 == 0:
                 ref_loss = F.mse_loss(reference, target)
