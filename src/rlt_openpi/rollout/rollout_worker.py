@@ -136,7 +136,7 @@ class RolloutWorker:
         action_chunk = actions[
             :, :self.chunk_length, :
         ].squeeze(0).cpu().numpy()  # [C, action_dim] robot space, for env.step
-        actions_norm_flat = actions_norm[
+        action_norm_flat = actions_norm[
             :, :self.chunk_length, :self.action_dim
         ].reshape(1, -1).squeeze(0).cpu().numpy()  # [C*d]
 
@@ -153,7 +153,7 @@ class RolloutWorker:
 
         return (
             x.squeeze(0).cpu().numpy(),
-            actions_norm_flat,
+            action_norm_flat,
             action_chunk,
         )
 

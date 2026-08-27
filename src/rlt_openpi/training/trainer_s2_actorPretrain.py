@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -117,19 +116,13 @@ class ActorPretrainTrainer:
 
         pbar = tqdm(range(config.steps), desc="Actor Pretrain")
         for step in pbar:
-            t0 = time.monotonic()
             vla_obs_batch, data_actions, data_actions_norm, raw_state = next(data_iter)
-            t1 = time.monotonic()
 
-            # if step == 0:
-
-            z, pad_mask, _, vla_actions = self.vla.extract_both(vla_obs_batch)
-            t2 = time.monotonic()
+            z, pad_mask, vla_actions_norm, vla_actions = self.vla.extract_both(vla_obs_batch)
 
             z_rl = self.rl_token_model.encode(
                 z.to(self.device), pad_mask.to(self.device)
             )
-            t3 = time.monotonic()
 
             state = torch.as_tensor(
                 np.asarray(vla_obs_batch.state[:, : config.action_dim]),
@@ -152,32 +145,37 @@ class ActorPretrainTrainer:
                 device=self.device,
             ).reshape(batch_size, -1)
 
-            if step == 0:
+            if step % 500 == 0:
+                print(f"[ActorPretrain] action.q01     = {_format_array_2f(self._action_q01[0, : config.action_dim])}")
+                print(f"[ActorPretrain] action.q99     = {_format_array_2f(self._action_q99[0, : config.action_dim])}")
                 print(f"[ActorPretrain] raw obs.state  = {_format_array_2f(raw_state[0, : config.action_dim])}")
-                print(f"[ActorPretrain] vla_obs_batch.state = {_format_array_2f(vla_obs_batch.state[0, : 20])}")
+                print(f"[ActorPretrain] vla_obs.state  = {_format_array_2f(vla_obs_batch.state[0, : config.action_dim])}")
                 print(f"[ActorPretrain] data action[0] = {_format_array_2f(data_actions[0, 0, : config.action_dim])}")
                 print(f"[ActorPretrain] data action[1] = {_format_array_2f(data_actions[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] target = {_format_array_2f(target[0, : 2 * config.action_dim])}")
-                print(f"[ActorPretrain] reference = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] target         = {_format_array_2f(target[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] reference      = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
 
             reference = self._normalize_action(reference)
             target = self._normalize_action(target)
-            t4 = time.monotonic()
 
             prediction = self.actor(actor_state, reference)
+            if step % 500 == 0:
+                print(f"[ActorPretrain] actor_state = {_format_array_2f(actor_state[0, : 5]), _format_array_2f(actor_state[0, -14 :])}")
             loss = F.mse_loss(prediction, target)
-            t5 = time.monotonic()
 
-            if step == 0:
+            if step % 500 == 0:
                 print(f"[ActorPretrain] data action norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
                 print(f"[ActorPretrain] data action norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
                 print(f"[ActorPretrain] target_norm = {_format_array_2f(target[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] reference_norm = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] prediction = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
 
+            if (step + 1) % 50 == 0:
+                ref_loss = F.mse_loss(reference, target)
+                print(f"[ActorPretrain] step={step + 1} ref_loss={ref_loss.item():.6f} actor_loss={loss.item():.6f}")
+
             self.actor_optimizer.zero_grad()
             loss.backward()
-            t6 = time.monotonic()
 
             step_num = step + 1
             is_log_step = (
@@ -196,7 +194,6 @@ class ActorPretrainTrainer:
                     if param.grad is not None
                 ) ** 0.5
             self.actor_optimizer.step()
-            t7 = time.monotonic()
 
             loss_value = loss.item()
             # if grad_norm is None:
@@ -222,20 +219,6 @@ class ActorPretrainTrainer:
                     step_num,
                     loss_value,
                 )
-
-            t8 = time.monotonic()
-            # print(
-            #     f"[DEBUG] step = {step_num} | "
-            #     f"data_load={(t1 - t0) * 1000:.1f}ms | "
-            #     f"vla_extract={(t2 - t1) * 1000:.1f}ms | "
-            #     f"rl_encode={(t3 - t2) * 1000:.1f}ms | "
-            #     f"batch_prepare={(t4 - t3) * 1000:.1f}ms | "
-            #     f"actor_forward={(t5 - t4) * 1000:.1f}ms | "
-            #     f"backward={(t6 - t5) * 1000:.1f}ms | "
-            #     f"optimizer={(t7 - t6) * 1000:.1f}ms | "
-            #     f"logging={(t8 - t7) * 1000:.1f}ms | "
-            #     f"total={(t8 - t0) * 1000:.1f}ms"
-            # )
 
         checkpoint_path = save_dir / "actor_pretrain.pt"
         self._save_checkpoint(checkpoint_path, config.steps, loss_value)
