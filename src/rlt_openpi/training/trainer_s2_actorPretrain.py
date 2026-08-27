@@ -27,6 +27,17 @@ def _format_array_2f(value: Any) -> str:
     )
 
 
+def _format_array_6f(value: Any) -> str:
+    """Format an array with six fixed decimal places."""
+    if isinstance(value, torch.Tensor):
+        value = value.detach().cpu().numpy()
+    return np.array2string(
+        np.asarray(value, dtype=np.float64),
+        formatter={"float_kind": lambda x: f"{x:.6f}"},
+        max_line_width=200,
+    )
+
+
 class ActorPretrainTrainer:
     """Train and save an actor without constructing online-RL components."""
 
@@ -177,8 +188,8 @@ class ActorPretrainTrainer:
             if step % 500 == 0:
                 print(f"[ActorPretrain] tar_norm[0] = {_format_array_2f(data_actions_norm[0, 0, : config.action_dim])}")
                 print(f"[ActorPretrain] tar_norm[1] = {_format_array_2f(data_actions_norm[0, 1, : config.action_dim])}")
-                print(f"[ActorPretrain] pre_norm    = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] ref_norm    = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
+                print(f"[ActorPretrain] pre_norm    = {_format_array_2f(prediction[0, : 2 * config.action_dim])}")
                 print(f"[ActorPretrain] pre_unnorm  = {_format_array_2f(self._unnormalize_action(prediction)[0, : 2 * config.action_dim])}")
 
             if (step + 1) % 50 == 0:
@@ -198,11 +209,15 @@ class ActorPretrainTrainer:
                 print(f"[ActorPretrain] step={step + 1} ref_loss={ref_loss.item():.6f} actor_loss={loss.item():.6f}")
                 print(
                     "[ActorPretrain] ref_mse_per_joint="
-                    f"{np.array2string(ref_mse_per_joint.detach().cpu().numpy(), precision=6, floatmode='fixed')}"
+                    f"{_format_array_6f(ref_mse_per_joint)}"
                 )
                 print(
                     "[ActorPretrain] actor_mse_per_joint="
-                    f"{np.array2string(actor_mse_per_joint.detach().cpu().numpy(), precision=6, floatmode='fixed')}"
+                    f"{_format_array_6f(actor_mse_per_joint)}"
+                )
+                print(
+                    "[ActorPretrain] actor_better = "
+                    f"{((ref_mse_per_joint - actor_mse_per_joint) > 0).detach().cpu().numpy()}"
                 )
 
             self.actor_optimizer.zero_grad()
