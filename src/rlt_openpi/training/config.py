@@ -59,7 +59,7 @@ class OnlineRLTrainConfig:
     # Actor-critic architecture
     mlp_hidden_dim: int = 256
     mlp_num_hidden_layers: int = 2
-    actor_noise_sigma: float = 0.05  # actor exploration noise std
+    actor_noise_sigma: float = 0.02  # actor exploration noise std
     ref_action_dropout: float = 0.0
     max_deviation: float = 3.0  # safety cap: max |a - a_tilde| per action element
     deviation_abort_threshold: float = 0.8  # abort if raw |a - a_tilde| exceeds this

@@ -183,7 +183,9 @@ class ActorPretrainTrainer:
 
             prediction = self.actor(actor_state, reference)
             if step % 500 == 0:
-                print(f"[ActorPretrain] actor_state = {_format_array_2f(actor_state[0, : 5]), _format_array_2f(actor_state[0, -14 :])}")
+                print(f"[ActorPretrain] actor info      = x_shape: {actor_state.shape}, a_tilde_shape: {reference.shape}")
+                print(f"[ActorPretrain] x(rltoken, s_p) = {_format_array_2f(actor_state[0, : 5]), _format_array_2f(actor_state[0, -14 :])}")
+                print(f"[ActorPretrain] ref(a_tilde)    = {_format_array_2f(reference[0, : 2 * config.action_dim])}")
             loss = F.mse_loss(prediction, target)
 
             if step % 500 == 0:

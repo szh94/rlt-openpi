@@ -135,5 +135,4 @@ class DatasetObsSource(ObsSource):
         return img
 
     def get_obs(self) -> dict[str, Any]:
-        print(f"[DatasetObsSource.get_obs] entered; repo_id={self._repo_id}")
         return next(self._iterator)

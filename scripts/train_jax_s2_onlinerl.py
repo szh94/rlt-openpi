@@ -8,7 +8,7 @@ Usage::
         --vla-checkpoint-dir /path/to/orbax_checkpoint \\
         --rl-token-checkpoint /path/to/rl_token.pt \\
         --actor-pretrain-checkpoint /path/to/actor_pretrain.pt \\
-        --actor-noise-sigma 0.05 \\
+        --actor-noise-sigma 0.02 \\
         --ref-action-dropout 0.0 \\
         --env-factory rlt_openpi.envs.sim.sim_env.make_sim_env
 """

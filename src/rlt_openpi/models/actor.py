@@ -73,7 +73,7 @@ class Actor(nn.Module):
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma
-            return mu + noise
+            return (mu + noise)
         return mu
 
     def _apply_ref_dropout(self, a_tilde: Tensor) -> Tensor:

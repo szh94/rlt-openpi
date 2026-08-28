@@ -24,11 +24,11 @@ from rlt_openpi.training.replay_buffer import ReplayBuffer
 from rlt_openpi.vla.jax_vla_wrapper import JaxVLAWrapper
 
 
-def _format_array_2f(value: Any) -> str:
-    """Format an array with two fixed decimal places."""
+def _format_array_3f(value: Any) -> str:
+    """Format an array with three fixed decimal places."""
     return np.array2string(
         np.asarray(value, dtype=np.float64),
-        formatter={"float_kind": lambda x: f"{x:.2f}"},
+        formatter={"float_kind": lambda x: f"{x:.3f}"},
         max_line_width=160,
     )
 
@@ -205,7 +205,7 @@ class RolloutWorker:
         # Actor output is normalized; only the environment receives raw robot
         # actions.
         a_normalized = a_flat.squeeze(0).cpu().numpy().reshape(self.chunk_length, self.action_dim)
-        return self._unnormalize_action(a_normalized)
+        return a_normalized, self._unnormalize_action(a_normalized)
 
     def collect_warmup(self, num_chunks: int) -> int:
         """Run VLA-only policy and store transitions in the replay buffer.
@@ -222,7 +222,7 @@ class RolloutWorker:
         stored = 0
         obs = self.env.reset()
         print("[DEBUG] collect warmup")
-        print(f"[DEBUG] input obs.state = {_format_array_2f(obs.get('state'))}")
+        print(f"[DEBUG] input obs.state = {_format_array_3f(obs.get('state'))}")
         images = obs.get("images") or {}
         if images:
             first_image_key = next(iter(images))
@@ -239,8 +239,10 @@ class RolloutWorker:
             # Build RL state and get reference actions (single VLA forward pass)
             # print(f"[DEBUG] joint_position = {obs.get('observation/joint_position', obs.get('state'))}")
             x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
-            print(f"[DEBUG] output action_ref = {_format_array_2f(action_chunk[0])}")
+            print(f"[DEBUG] output action_ref = {_format_array_3f(action_chunk[0])}")
+            print(f"[DEBUG] output a_til_flat = {_format_array_3f(a_tilde_flat[:14])}")
             a_flat = self._normalize_action(action_chunk).reshape(-1)  # [C*d]
+            print(f"[DEBUG] output a_chun_norm= {_format_array_3f(a_flat[:14])}")
 
             # Step environment
             next_obs, rewards, done, _info = self.env.step(action_chunk)
@@ -289,6 +291,9 @@ class RolloutWorker:
         """
         stats = EpisodeStats()
         obs = self.env.reset()
+        print(f"[DEBUG] collect episode")
+        print(f"[DEBUG] input obs.prompt = {np.asarray(obs.get('prompt'))}")
+
         obs_source = getattr(self.env, "obs_source", None)
 
         while True:
@@ -314,21 +319,57 @@ class RolloutWorker:
                 stats.interventions += 1
             else:
                 if stats.num_chunks == 0:
-                    print(f"[Rollout] input obs.state = {_format_array_2f(obs.get('state'))}")
-                    print(f"[Rollout] a0 before actor = {_format_array_2f(reference_chunk[0])}")
-                else:
-                    print(f"Current step = {stats.num_steps}, total_reward = {stats.total_reward:.2f}")
+                    images = obs.get("images") or {}
+                    if images:
+                        first_image_key = next(iter(images))
+                        first_image_values = np.asarray(images[first_image_key]).reshape(-1)[:20]
+                        print(
+                            f"[Input] obs.images[{first_image_key!r}][:20] = "
+                            f"{first_image_values}"
+                        )
+                    else:
+                        print("[Input] input obs.images = <empty>")
+                    print(f"[Input] state = {_format_array_3f(obs.get('state'))}")
+                    dataset_actions = getattr(obs_source, "last_action_chunk", None)
 
-                action_chunk = self._get_actor_action(x, a_tilde_flat)
+                    data_norm = self._normalize_action(dataset_actions)
+                    target = torch.as_tensor(
+                        np.asarray(
+                            data_norm[ : self.chunk_length, : self.action_dim]
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    ).reshape(-1)
+
+                    print(f"[Input] act_0      = {_format_array_3f(dataset_actions[0])}")
+                    print(f"[Input] act_0_norm = {_format_array_3f(data_norm[0])}")
+                    print(f"[Input] act_1      = {_format_array_3f(dataset_actions[1])}")
+                    print(f"[Input] act_1_norm = {_format_array_3f(data_norm[1])}")
+
+                    print(f"[Rollout] a0 pre actor  = {_format_array_3f(reference_chunk[0])}")
+                    print(f"[Rollout] a0 norm       = {_format_array_3f(a_tilde_flat[:14])}")
+
+                reference = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device)
+                a_chunk_norm, action_chunk = self._get_actor_action(x, a_tilde_flat)
 
                 if stats.num_chunks == 0:
-                    print(f"[Rollout] a0 after actor  = {_format_array_2f(action_chunk[0])}")
-                    dataset_actions = getattr(obs_source, "last_action_chunk", None)
-                    if dataset_actions is not None:
-                        print(
-                            "[Dataset] action[0]       = "
-                            f"{_format_array_2f(dataset_actions[0])}"
-                        )
+                    print(f"[Rollout] a0 post actor = {_format_array_3f(action_chunk[0])}")
+                    print(f"[Rollout] a0 norm       = {_format_array_3f(a_chunk_norm[0])}")
+                    prediction = torch.as_tensor(
+                        np.asarray(
+                            a_chunk_norm[ : self.chunk_length, : self.action_dim]
+                        ),
+                        dtype=torch.float32,
+                        device=self.device,
+                    ).reshape(-1)
+
+                    # print(f"shape: target:{target.shape}, ref: {reference.shape}")
+                    ref_loss = F.mse_loss(reference, target)
+                    predict_loss = F.mse_loss(prediction, target)
+
+                    print(f"[Rollout] ref_loss={ref_loss.item():.6f} pred_loss={predict_loss.item():.6f}")
+                else:
+                    print(f"Current step = {stats.num_steps}, total_reward = {stats.total_reward:.2f}")
 
                 # Step environment
                 next_obs, rewards, done, info = self.env.step(action_chunk)
