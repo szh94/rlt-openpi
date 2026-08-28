@@ -98,6 +98,15 @@ class RolloutWorker:
         self.action_scale = np.ones(action_dim, dtype=np.float32) if action_scale is None else np.maximum(np.asarray(action_scale, dtype=np.float32), 1e-6)
         if self.action_center.shape != (action_dim,) or self.action_scale.shape != (action_dim,):
             raise ValueError("action_center and action_scale must have shape [action_dim]")
+        self._use_quantile_norm = self.vla.use_quantile_norm
+        if self._use_quantile_norm:
+            action_stats = self.vla.norm_stats["actions"]
+            self._action_q01 = np.asarray(
+                action_stats.q01[:action_dim], dtype=np.float32
+            )
+            self._action_q99 = np.asarray(
+                action_stats.q99[:action_dim], dtype=np.float32
+            )
         self.max_deviation = max_deviation
         self.deviation_abort_threshold = deviation_abort_threshold
         self.max_episode_chunks = max_episode_chunks
@@ -107,11 +116,27 @@ class RolloutWorker:
 
     def _normalize_action(self, action: NDArray) -> NDArray:
         """Convert robot-space actions to the actor/critic action space."""
-        return ((np.asarray(action, dtype=np.float32) - self.action_center) / self.action_scale).astype(np.float32)
+        action = np.asarray(action, dtype=np.float32)
+        if self._use_quantile_norm:
+            return (
+                (action - self._action_q01)
+                / (self._action_q99 - self._action_q01 + 1e-6)
+                * 2.0
+                - 1.0
+            ).astype(np.float32)
+        return ((action - self.action_center) / self.action_scale).astype(np.float32)
 
     def _unnormalize_action(self, action: NDArray) -> NDArray:
         """Convert actor actions back to robot space for env.step()."""
-        return (np.asarray(action, dtype=np.float32) * self.action_scale + self.action_center).astype(np.float32)
+        action = np.asarray(action, dtype=np.float32)
+        if self._use_quantile_norm:
+            return (
+                (action + 1.0)
+                / 2.0
+                * (self._action_q99 - self._action_q01 + 1e-6)
+                + self._action_q01
+            ).astype(np.float32)
+        return (action * self.action_scale + self.action_center).astype(np.float32)
 
     @torch.no_grad()
     def _extract_rl_state(self, raw_obs: dict[str, Any]) -> tuple[NDArray, NDArray, NDArray]:
