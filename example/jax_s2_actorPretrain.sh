@@ -18,6 +18,8 @@ CHUNK_LENGTH=${CHUNK_LENGTH:-10}
 ACTOR_PRETRAIN_STEPS=${ACTOR_PRETRAIN_STEPS:-4000}
 ACTOR_PRETRAIN_BATCH_SIZE=${ACTOR_PRETRAIN_BATCH_SIZE:-16}
 ACTOR_PRETRAIN_SAVE_EVERY=${ACTOR_PRETRAIN_SAVE_EVERY:-1000}
+ACTOR_NOISE_SIGMA=${ACTOR_NOISE_SIGMA:-0.0}
+REF_ACTION_DROPOUT=${REF_ACTION_DROPOUT:-0.0}
 NUM_WORKERS=${NUM_WORKERS:-2}
 LOG_EVERY=${LOG_EVERY:-10}
 RUN_NAME=${RUN_NAME:-"actor_pretrain_$(date +%Y%m%d_%H%M%S)"}
@@ -33,6 +35,8 @@ echo "   Dataset         = $HF_LEROBOT_HOME"
 echo "   Steps           = $ACTOR_PRETRAIN_STEPS"
 echo "   Batch size      = $ACTOR_PRETRAIN_BATCH_SIZE"
 echo "   Save every      = $ACTOR_PRETRAIN_SAVE_EVERY"
+echo "   Actor sigma     = $ACTOR_NOISE_SIGMA"
+echo "   Ref dropout     = $REF_ACTION_DROPOUT"
 echo "   Log every       = $LOG_EVERY"
 echo "   Save dir        = $STAGE2_AC_CPD"
 echo "   Run name        = $RUN_NAME"
@@ -51,5 +55,7 @@ python scripts/train_jax_s2_actorPretrain.py \
     --steps "$ACTOR_PRETRAIN_STEPS" \
     --batch-size "$ACTOR_PRETRAIN_BATCH_SIZE" \
     --save-every "$ACTOR_PRETRAIN_SAVE_EVERY" \
+    --actor-noise-sigma "$ACTOR_NOISE_SIGMA" \
+    --ref-action-dropout "$REF_ACTION_DROPOUT" \
     --log-every "$LOG_EVERY" \
     --num-workers "$NUM_WORKERS"

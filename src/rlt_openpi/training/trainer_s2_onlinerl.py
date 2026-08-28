@@ -345,6 +345,11 @@ class OnlineRLTrainer:
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
         if "actor" not in ckpt:
             raise KeyError(f"Actor pretrain checkpoint has no 'actor' state: {ckpt_path}")
+        if ckpt.get("actor_output_mode") != Actor.OUTPUT_MODE:
+            raise ValueError(
+                "Actor pretrain checkpoint is not a residual-actor checkpoint; "
+                "re-run train_jax_s2_actorPretrain.py with the current code"
+            )
 
         self.actor.load_state_dict(ckpt["actor"])
         if "actor_optimizer" in ckpt:
@@ -373,6 +378,7 @@ class OnlineRLTrainer:
         ckpt_path = save_dir / f"online_rl_ep{self._total_episodes}.pt"
         payload: dict[str, Any] = {
             "actor": self.actor.state_dict(),
+            "actor_output_mode": Actor.OUTPUT_MODE,
             "critic": self.critic.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
@@ -394,6 +400,11 @@ class OnlineRLTrainer:
             ckpt_path: Path to a saved checkpoint file.
         """
         ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
+        if ckpt.get("actor_output_mode") != Actor.OUTPUT_MODE:
+            raise ValueError(
+                "Online RL checkpoint is not a residual-actor checkpoint; "
+                "old direct-actor checkpoints cannot be resumed safely"
+            )
         self.actor.load_state_dict(ckpt["actor"])
         self.critic.load_state_dict(ckpt["critic"])
         self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])

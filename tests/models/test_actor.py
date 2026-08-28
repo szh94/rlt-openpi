@@ -5,13 +5,7 @@ import torch
 from rlt_openpi.models.actor import Actor
 
 
-def _zero_actor_parameters(actor: Actor) -> None:
-    with torch.no_grad():
-        for parameter in actor.parameters():
-            parameter.zero_()
-
-
-def test_actor_predicts_residual_from_reference() -> None:
+def test_zero_initialized_actor_matches_reference() -> None:
     actor = Actor(
         state_dim=2,
         action_chunk_dim=3,
@@ -20,7 +14,6 @@ def test_actor_predicts_residual_from_reference() -> None:
         sigma=0.0,
         ref_dropout=0.0,
     )
-    _zero_actor_parameters(actor)
     actor.eval()
 
     action = actor(torch.ones(1, 2), torch.tensor([[0.2, -0.4, 0.8]]))
@@ -28,7 +21,7 @@ def test_actor_predicts_residual_from_reference() -> None:
     torch.testing.assert_close(action, torch.tensor([[0.2, -0.4, 0.8]]))
 
 
-def test_reference_dropout_has_no_reference_skip_path() -> None:
+def test_reference_dropout_preserves_reference_skip_path() -> None:
     actor = Actor(
         state_dim=2,
         action_chunk_dim=3,
@@ -37,9 +30,8 @@ def test_reference_dropout_has_no_reference_skip_path() -> None:
         sigma=0.0,
         ref_dropout=1.0,
     )
-    _zero_actor_parameters(actor)
     actor.train()
 
     action = actor(torch.ones(1, 2), torch.tensor([[0.2, -0.4, 0.8]]))
 
-    torch.testing.assert_close(action, torch.zeros_like(action))
+    torch.testing.assert_close(action, torch.tensor([[0.2, -0.4, 0.8]]))

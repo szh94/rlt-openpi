@@ -1,9 +1,4 @@
-"""Actor network with VLA reference-action conditioning.
-
-The actor takes the RL state x = cat(z_rl, s^p) and a VLA reference action
-chunk a_tilde, applies reference dropout during training, and predicts the
-final action distribution conditioned on both inputs.
-"""
+"""Residual actor network with VLA reference-action conditioning."""
 
 import torch
 from torch import Tensor, nn
@@ -12,13 +7,14 @@ from rlt_openpi.models.networks import MLP
 
 
 class Actor(nn.Module):
-    """Actor with reference action dropout and exploration noise.
+    """Actor that predicts a residual correction to the VLA reference.
 
     Input: cat(x, a_tilde_masked) where a_tilde is zeroed for a fraction
     of the batch during training (ref_dropout probability).
 
-    Output: mu + N(0, sigma^2) during training, mu during eval, where mu is
-    the final action mean predicted by the MLP.
+    Output: a_tilde + residual + N(0, sigma^2) during training, and
+    a_tilde + residual during eval. The residual output layer is initialized
+    to zero so the initial deterministic policy exactly matches the VLA.
 
     Args:
         state_dim: Dimension of RL state (z_rl + s^p).
@@ -26,8 +22,11 @@ class Actor(nn.Module):
         hidden_dim: MLP hidden layer width.
         num_hidden_layers: Number of MLP hidden layers.
         sigma: Exploration noise std (applied during training only).
-        ref_dropout: Probability of zeroing reference actions during training.
+        ref_dropout: Probability of hiding reference actions from the residual
+            MLP during training. The reference skip connection is never dropped.
     """
+
+    OUTPUT_MODE = "residual"
 
     def __init__(
         self,
@@ -36,7 +35,7 @@ class Actor(nn.Module):
         hidden_dim: int = 256,
         num_hidden_layers: int = 2,
         sigma: float = 0.1,
-        ref_dropout: float = 0.5,
+        ref_dropout: float = 0.0,
     ) -> None:
         super().__init__()
         self.action_chunk_dim = action_chunk_dim
@@ -49,6 +48,12 @@ class Actor(nn.Module):
             hidden_dim=hidden_dim,
             num_hidden_layers=num_hidden_layers,
         )
+        output_layer = self.mlp.net[-1]
+        if not isinstance(output_layer, nn.Linear):
+            raise TypeError("Actor MLP must end with nn.Linear")
+        nn.init.zeros_(output_layer.weight)
+        if output_layer.bias is not None:
+            nn.init.zeros_(output_layer.bias)
 
     def forward(self, x: Tensor, a_tilde: Tensor) -> Tensor:
         """Predict an action chunk conditioned on the VLA reference.
@@ -58,20 +63,21 @@ class Actor(nn.Module):
             a_tilde: Flattened VLA reference action chunk [B, action_chunk_dim].
 
         Returns:
-            Final action chunk [B, action_chunk_dim]. The MLP directly predicts
-            the action mean; Gaussian exploration noise is added during
-            training only.
+            Final action chunk [B, action_chunk_dim]. The MLP predicts a
+            residual added to the original VLA reference; Gaussian exploration
+            noise is added during training only.
         """
         a_tilde_partial = self._apply_ref_dropout(a_tilde)
-        mu = self.mlp(torch.cat([x, a_tilde_partial], dim=-1))
+        residual = self.mlp(torch.cat([x, a_tilde_partial], dim=-1))
+        mu = a_tilde + residual
 
         if self.training:
             noise = torch.randn_like(mu) * self.sigma
-            return (mu + noise)
+            return mu + noise
         return mu
 
     def _apply_ref_dropout(self, a_tilde: Tensor) -> Tensor:
-        """Zero out reference actions for a fraction of the batch during training."""
+        """Hide references from the residual MLP for a fraction of the batch."""
         if not self.training or self.ref_dropout == 0.0:
             return a_tilde
 

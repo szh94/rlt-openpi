@@ -62,8 +62,8 @@ class ActorPretrainTrainer:
             action_chunk_dim=config.action_chunk_dim,
             hidden_dim=config.mlp_hidden_dim,
             num_hidden_layers=config.mlp_num_hidden_layers,
-            sigma=0.0,
-            ref_dropout=0.0,
+            sigma=config.actor_noise_sigma,
+            ref_dropout=config.ref_action_dropout,
         ).to(self.device)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr)
 
@@ -119,6 +119,7 @@ class ActorPretrainTrainer:
         torch.save(
             {
                 "actor": self.actor.state_dict(),
+                "actor_output_mode": Actor.OUTPUT_MODE,
                 "actor_optimizer": self.actor_optimizer.state_dict(),
                 "pretrain_steps": step,
                 "repo_id": self.config.repo_id,
@@ -131,7 +132,7 @@ class ActorPretrainTrainer:
     def train(self, data_iter: Any, log_fn: Any | None = None) -> Path:
         """Run BC pre-training and return the saved checkpoint path."""
         config = self.config
-        self.actor.eval()
+        self.actor.train()
 
         save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)

@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from numpy.typing import NDArray
 
 from rlt_openpi.models.actor import Actor

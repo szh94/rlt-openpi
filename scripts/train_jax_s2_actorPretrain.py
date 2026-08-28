@@ -1,4 +1,11 @@
-"""Standalone actor BC pre-training with a frozen JAX VLA and RL token."""
+"""Standalone actor BC pre-training with a frozen JAX VLA and RL token.
+
+Actor stochasticity is configurable from the CLI, for example::
+
+    python scripts/train_jax_s2_actorPretrain.py \\
+        --actor-noise-sigma 0.0 \\
+        --ref-action-dropout 0.0
+"""
 
 from __future__ import annotations
 
