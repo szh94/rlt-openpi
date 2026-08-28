@@ -30,6 +30,9 @@ TASK_PROMPT="place phone"
 LOG_EVERY=${LOG_EVERY:-100}
 EXPLORATION_NOISE_SIGMA=${EXPLORATION_NOISE_SIGMA:-0.02}
 REF_ACTION_DROPOUT=${REF_ACTION_DROPOUT:-0.0}
+ACTOR_LR=${ACTOR_LR:-1e-5}
+BC_REGULARIZER_BETA=${BC_REGULARIZER_BETA:-1.0}
+TARGET_NOISE_SIGMA=${TARGET_NOISE_SIGMA:-0.05}
 
 # --- OBS_SOURCE=robot 专用 ---
 PRINT_ACTIONS=true                  # true=打印 action, false=不打印
@@ -87,6 +90,9 @@ echo "   Chunk length    = $ALOHA_CHUNK_LENGTH"
 echo "   Max ep chunks   = $ALOHA_MAX_EPISODE_CHUNKS"
 echo "   Explore sigma   = $EXPLORATION_NOISE_SIGMA"
 echo "   Ref dropout     = $REF_ACTION_DROPOUT"
+echo "   Actor LR        = $ACTOR_LR"
+echo "   BC beta         = $BC_REGULARIZER_BETA"
+echo "   Target noise    = $TARGET_NOISE_SIGMA"
 echo "   Cameras         = $ALOHA_CAMERAS"
 if [[ "$OBS_SOURCE" == "robot" ]]; then
     echo "   Dry run         = $DRY_RUN"
@@ -114,6 +120,9 @@ python scripts/train_jax_s2_onlinerl.py \
     --warmup-steps 5 \
     --actor-noise-sigma "$EXPLORATION_NOISE_SIGMA" \
     --ref-action-dropout "$REF_ACTION_DROPOUT" \
+    --actor-lr "$ACTOR_LR" \
+    --bc-regularizer-beta "$BC_REGULARIZER_BETA" \
+    --target-noise-sigma "$TARGET_NOISE_SIGMA" \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     "${OBS_SOURCE_ARGS[@]}" \
     --actor-pretrain-checkpoint "$STAGE2_A_PRET_CP" \
