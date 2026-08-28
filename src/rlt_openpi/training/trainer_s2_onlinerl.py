@@ -189,7 +189,7 @@ class OnlineRLTrainer:
 
         # --- Actor update (delayed) ---
         if update_idx % cfg.critic_updates_per_actor == 0:
-            self.actor.train()
+            self.actor.eval()
             a_actor = self.actor(x, a_tilde)
             q_value = self.critic.q_min(x, a_actor)
             a_loss = actor_loss(q_value, a_actor, a_tilde, cfg.bc_regularizer_beta)
@@ -258,8 +258,9 @@ class OnlineRLTrainer:
             # if hasattr(env, '_display_episode_num'):
             #     env._display_episode_num = self._total_episodes + 1
 
-            self.actor.eval()
+            self.actor.train()
             stats = worker.collect_episode()
+            self.actor.eval()
             self._total_episodes += 1
             self._total_env_steps += stats.num_steps
 

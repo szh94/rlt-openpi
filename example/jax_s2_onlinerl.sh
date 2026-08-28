@@ -28,7 +28,7 @@ ALOHA_MAX_EPISODE_CHUNKS=150
 ALOHA_CAMERAS='["cam_high", "cam_left_wrist", "cam_right_wrist"]'
 TASK_PROMPT="place phone"
 LOG_EVERY=${LOG_EVERY:-100}
-ACTOR_NOISE_SIGMA=${ACTOR_NOISE_SIGMA:-0.02}
+EXPLORATION_NOISE_SIGMA=${EXPLORATION_NOISE_SIGMA:-0.02}
 REF_ACTION_DROPOUT=${REF_ACTION_DROPOUT:-0.0}
 
 # --- OBS_SOURCE=robot 专用 ---
@@ -85,7 +85,7 @@ echo "   Control Hz      = $ALOHA_CONTROL_HZ"
 echo "   Image size      = ${ALOHA_IMAGE_SIZE}x${ALOHA_IMAGE_SIZE}"
 echo "   Chunk length    = $ALOHA_CHUNK_LENGTH"
 echo "   Max ep chunks   = $ALOHA_MAX_EPISODE_CHUNKS"
-echo "   Actor sigma     = $ACTOR_NOISE_SIGMA"
+echo "   Explore sigma   = $EXPLORATION_NOISE_SIGMA"
 echo "   Ref dropout     = $REF_ACTION_DROPOUT"
 echo "   Cameras         = $ALOHA_CAMERAS"
 if [[ "$OBS_SOURCE" == "robot" ]]; then
@@ -112,7 +112,7 @@ python scripts/train_jax_s2_onlinerl.py \
     --action-dim 14 \
     --chunk-length "$ALOHA_CHUNK_LENGTH" \
     --warmup-steps 5 \
-    --actor-noise-sigma "$ACTOR_NOISE_SIGMA" \
+    --actor-noise-sigma "$EXPLORATION_NOISE_SIGMA" \
     --ref-action-dropout "$REF_ACTION_DROPOUT" \
     --max-episode-chunks "$ALOHA_MAX_EPISODE_CHUNKS" \
     "${OBS_SOURCE_ARGS[@]}" \

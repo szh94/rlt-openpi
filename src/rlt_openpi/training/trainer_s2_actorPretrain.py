@@ -132,7 +132,7 @@ class ActorPretrainTrainer:
     def train(self, data_iter: Any, log_fn: Any | None = None) -> Path:
         """Run BC pre-training and return the saved checkpoint path."""
         config = self.config
-        self.actor.train()
+        self.actor.eval()
 
         save_dir = Path(config.save_dir) / config.run_name
         save_dir.mkdir(parents=True, exist_ok=True)
