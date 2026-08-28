@@ -147,22 +147,22 @@ class RolloutWorker:
 
         Returns:
             x: RL state [state_dim] as numpy array.
-            a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
+            a_ref_norm_flat: Flattened VLA reference chunk [action_chunk_dim] as numpy.
             action_chunk: VLA reference actions [C, action_dim] as numpy.
         """
         # Convert the raw environment observation dict into a batched OpenPI Observation.
         vla_obs = self.vla.build_vla_observation(raw_obs)
 
-        z, pad_mask, actions_norm, actions = self.vla.extract_both(vla_obs)
+        z, pad_mask, actions_norm, actions_unnorm = self.vla.extract_both(vla_obs)
 
         # Encode z_rl from prefix embeddings
         z_rl = self.rl_token_model.encode(z, pad_mask)  # [1, D]
 
         # Get VLA reference action chunk (first C steps)
-        action_chunk = actions[
+        action_unnorm_chunk = actions_unnorm[
             :, :self.chunk_length, :
         ].squeeze(0).cpu().numpy()  # [C, action_dim] robot space, for env.step
-        action_norm_flat = actions_norm[
+        action_norm_chunk_flat = actions_norm[
             :, :self.chunk_length, :self.action_dim
         ].reshape(1, -1).squeeze(0).cpu().numpy()  # [C*d]
 
@@ -179,25 +179,25 @@ class RolloutWorker:
 
         return (
             x.squeeze(0).cpu().numpy(),
-            action_norm_flat,
-            action_chunk,
+            action_norm_chunk_flat,
+            action_unnorm_chunk,
         )
 
     @torch.no_grad()
-    def _get_actor_action(self, x: NDArray, a_tilde_flat: NDArray) -> NDArray:
+    def _get_actor_action(self, x: NDArray, a_ref_norm_flat: NDArray) -> NDArray:
         """Get action from the RL actor.
 
         Args:
             x: RL state [state_dim].
-            a_tilde_flat: Flattened VLA reference chunk [action_chunk_dim].
+            a_ref_norm_flat: Flattened VLA reference chunk [action_chunk_dim].
 
         Returns:
             action_chunk: [C, action_dim] numpy array.
         """
         # x: [state_dim] -> unsqueeze -> [1, state_dim]
         x_t = torch.as_tensor(x, dtype=torch.float32, device=self.device).unsqueeze(0)
-        # a_tilde_flat: [C*d] -> unsqueeze -> [1, C*d]
-        a_tilde_t = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
+        # a_ref_norm_flat: [C*d] -> unsqueeze -> [1, C*d]
+        a_tilde_t = torch.as_tensor(a_ref_norm_flat, dtype=torch.float32, device=self.device).unsqueeze(0)
 
         # actor forward: input (1, state_dim) & (1, C*d) -> output [1, C*d]
         a_flat = self.actor(x_t, a_tilde_t)  # [1, C*d]
@@ -238,14 +238,14 @@ class RolloutWorker:
         for _ in range(num_chunks):
             # Build RL state and get reference actions (single VLA forward pass)
             # print(f"[DEBUG] joint_position = {obs.get('observation/joint_position', obs.get('state'))}")
-            x, a_tilde_flat, action_chunk = self._extract_rl_state(obs)
-            print(f"[DEBUG] output action_ref = {_format_array_3f(action_chunk[0])}")
-            print(f"[DEBUG] output a_til_flat = {_format_array_3f(a_tilde_flat[:14])}")
-            a_flat = self._normalize_action(action_chunk).reshape(-1)  # [C*d]
+            x, a_ref_norm_flat, a_ref_unnorm_chunk = self._extract_rl_state(obs)
+            print(f"[DEBUG] output action_ref = {_format_array_3f(a_ref_unnorm_chunk[0])}")
+            print(f"[DEBUG] output a_til_flat = {_format_array_3f(a_ref_norm_flat[:14])}")
+            a_flat = self._normalize_action(a_ref_unnorm_chunk).reshape(-1)  # [C*d]
             print(f"[DEBUG] output a_chun_norm= {_format_array_3f(a_flat[:14])}")
 
             # Step environment
-            next_obs, rewards, done, _info = self.env.step(action_chunk)
+            next_obs, rewards, done, _info = self.env.step(a_ref_unnorm_chunk)
 
             # Build next RL state
             # print("Warmup: Get next rl_state")
@@ -255,7 +255,7 @@ class RolloutWorker:
             self.replay_buffer.add(
                 x=x,
                 a=a_flat,
-                a_tilde=a_tilde_flat,
+                a_tilde=a_ref_norm_flat,
                 rewards=rewards,
                 next_x=next_x,
                 next_a_tilde=next_a_tilde,
@@ -298,7 +298,7 @@ class RolloutWorker:
 
         while True:
             # Extract RL state and VLA reference
-            x, a_tilde_flat, reference_chunk = self._extract_rl_state(obs)
+            x, a_ref_norm_flat, a_ref_unnorm_chunk = self._extract_rl_state(obs)
 
             # Check for human intervention.
             # If the intervention manager stepped the robot internally
@@ -346,11 +346,11 @@ class RolloutWorker:
                     print(f"[Input] act_1      = {_format_array_3f(dataset_actions[1])}")
                     print(f"[Input] act_1_norm = {_format_array_3f(data_norm[1])}")
 
-                    print(f"[Rollout] a0 pre actor  = {_format_array_3f(reference_chunk[0])}")
-                    print(f"[Rollout] a0 norm       = {_format_array_3f(a_tilde_flat[:14])}")
+                    print(f"[Rollout] a0 pre actor  = {_format_array_3f(a_ref_unnorm_chunk[0])}")
+                    print(f"[Rollout] a0 norm       = {_format_array_3f(a_ref_norm_flat[:14])}")
 
-                reference = torch.as_tensor(a_tilde_flat, dtype=torch.float32, device=self.device)
-                a_chunk_norm, action_chunk = self._get_actor_action(x, a_tilde_flat)
+                reference = torch.as_tensor(a_ref_norm_flat, dtype=torch.float32, device=self.device)
+                a_chunk_norm, action_chunk = self._get_actor_action(x, a_ref_norm_flat)
 
                 if stats.num_chunks == 0:
                     print(f"[Rollout] a0 post actor = {_format_array_3f(action_chunk[0])}")
@@ -385,7 +385,7 @@ class RolloutWorker:
                 self.replay_buffer.add(
                     x=x,
                     a=a_flat,
-                    a_tilde=a_tilde_flat,
+                    a_tilde=a_ref_norm_flat,
                     rewards=rewards,
                     next_x=next_x,
                     next_a_tilde=next_a_tilde,
