@@ -6,7 +6,7 @@ pattern is used for both the environment and the intervention manager.
 Example usage::
 
     env = make_env(
-        "rlt_openpi.envs.aloha.env_factory.make_aloha_env",
+        "rlt_openpi.envs.hansrobot.env_factory.make_aloha_env",
         action_dim=14,
         chunk_length=10,
         task_prompt="pick up the cup",

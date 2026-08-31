@@ -22,7 +22,7 @@ Usage::
 
 where ``step_fn`` / ``reset_fn`` / ``get_obs_fn`` wrap your robot stack
 (e.g. ALOHA dual-arm via ``hansrobot``).  See
-``rlt_openpi.envs.aloha.env_factory.make_aloha_env`` for a concrete example.
+``rlt_openpi.envs.hansrobot.env_factory.make_aloha_env`` for a concrete example.
 """
 
 from __future__ import annotations

@@ -87,7 +87,7 @@ class OnlineRLTrainConfig:
     repo_id: str = ""  # LeRobot dataset ID used only when obs_source="dataset".
 
     # Environment
-    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.aloha.env_factory.make_aloha_env"
+    env_factory: str = ""  # Python import path, e.g. "rlt_openpi.envs.hansrobot.env_factory.make_aloha_env"
     intervention_factory: str = ""  # Python import path, e.g. "my_package.envs.intervention.make_my_intervention"
     task_prompt: str = ""  # Task instruction for VLA (passed to env factory)
     max_episode_chunks: int = 150  # Max chunks per episode before forced termination

@@ -109,7 +109,7 @@ echo "   Log every       = $LOG_EVERY"
 echo "   Live metrics    = $RLT_METRICS_LIVE (1=enabled)"
 echo "========================================"
 python scripts/train_jax_s2_onlinerl.py \
-    --env-factory rlt_openpi.envs.aloha.env_factory.make_aloha_env \
+    --env-factory rlt_openpi.envs.hansrobot.env_factory.make_aloha_env \
     --vla-config-name pi05_jax_full \
     --vla-checkpoint-dir "$VLA_CHECKPOINT_JAX" \
     --rl-token-checkpoint "$STAGE1_RLT_CP" \
